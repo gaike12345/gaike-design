@@ -14,6 +14,7 @@ import portfolioRouter from './routes/portfolio.js';
 import uploadRouter from './routes/upload.js';
 import eventsRouter from './routes/events.js';
 import testimonialsRouter from './routes/testimonials.js';
+import siteConfigRouter from './routes/site-config.js';
 
 dotenv.config();
 
@@ -112,6 +113,7 @@ app.use('/api/portfolio', portfolioRouter);
 app.use('/api/upload', uploadLimiter, uploadRouter);
 app.use('/api/events', eventsRouter);
 app.use('/api/testimonials', testimonialsRouter);
+app.use('/api/config', siteConfigRouter);
 
 // 錯誤處理 - 统一错误响应，不泄露内部信息
 app.use((err, req, res, next) => {

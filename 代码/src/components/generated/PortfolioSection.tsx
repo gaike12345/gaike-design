@@ -1,30 +1,66 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-
-const portfolioItems = [
-  {
-    title: '赛博朋克角色设计',
-    category: '3D 建模',
-    image: 'https://baas-api.wanwang.xin/toc/image/preview/cyberpunk-character-design.jpg?w=600&h=400&q=80',
-  },
-  {
-    title: '智能健康管理 App',
-    category: '应用开发',
-    image: 'https://baas-api.wanwang.xin/toc/image/preview/health-app-interface.jpg?w=600&h=400&q=80',
-  },
-  {
-    title: '奇幻场景概念图',
-    category: '原画设计',
-    image: 'https://baas-api.wanwang.xin/toc/image/preview/fantasy-scene-concept.jpg?w=600&h=400&q=80',
-  },
-  {
-    title: '品牌视觉系统',
-    category: '原画设计',
-    image: 'https://baas-api.wanwang.xin/toc/image/preview/brand-visual-system.jpg?w=600&h=400&q=80',
-  },
-];
+import { useState, useEffect } from 'react';
+import { worksApi } from '@/lib/api';
 
 export default function PortfolioSection() {
+  const [portfolioItems, setPortfolioItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchPortfolio();
+  }, []);
+
+  const fetchPortfolio = async () => {
+    try {
+      const response = await worksApi.getAll();
+      const data = response.data?.data || [];
+      
+      // 只显示前4个
+      const items = data.slice(0, 4).map((item: any) => ({
+        ...item,
+        category: item.category || '其他',
+        image: item.image_url || '',
+      }));
+      
+      setPortfolioItems(items);
+    } catch (error) {
+      console.error('Failed to fetch portfolio:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 默认数据
+  const defaultItems = [
+    {
+      id: '1',
+      title: '赛博朋克角色设计',
+      category: '3D 建模',
+      image: 'https://baas-api.wanwang.xin/toc/image/preview/cyberpunk-character-design.jpg?w=600&h=400&q=80',
+    },
+    {
+      id: '2',
+      title: '智能健康管理 App',
+      category: '应用开发',
+      image: 'https://baas-api.wanwang.xin/toc/image/preview/health-app-interface.jpg?w=600&h=400&q=80',
+    },
+    {
+      id: '3',
+      title: '奇幻场景概念图',
+      category: '原画设计',
+      image: 'https://baas-api.wanwang.xin/toc/image/preview/fantasy-scene-concept.jpg?w=600&h=400&q=80',
+    },
+    {
+      id: '4',
+      title: '品牌视觉系统',
+      category: '原画设计',
+      image: 'https://baas-api.wanwang.xin/toc/image/preview/brand-visual-system.jpg?w=600&h=400&q=80',
+    },
+  ];
+
+  const displayItems = portfolioItems.length > 0 ? portfolioItems : defaultItems;
+
   return (
     <section className="py-20 bg-gradient-to-b from-[#0A0A0F] to-[#0F0F1A]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -44,9 +80,9 @@ export default function PortfolioSection() {
         </motion.div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {portfolioItems.map((item, index) => (
+          {displayItems.map((item, index) => (
             <motion.div
-              key={item.title}
+              key={item.id || index}
               initial={{ opacity: 0, y: 30 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
@@ -55,7 +91,7 @@ export default function PortfolioSection() {
             >
               <div className="aspect-video">
                 <img
-                  src={item.image}
+                  src={item.image || item.image_url}
                   alt={item.title}
                   className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500"
                 />

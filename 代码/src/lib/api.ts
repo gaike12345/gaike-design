@@ -51,4 +51,19 @@ export const contactApi = {
     api.post('/contact', data),
 };
 
+// 网站配置相关
+export const configApi = {
+  // 获取首页所有配置
+  getHomeConfig: () => api.get('/config/home/all'),
+  
+  // 获取指定表的配置
+  getTable: (table: string) => api.get(`/config/${table}`),
+  getTableById: (table: string, id: string) => api.get(`/config/${table}/${id}`),
+  
+  // CRUD 操作
+  create: (table: string, data: any) => api.post(`/config/${table}`, data),
+  update: (table: string, id: string, data: any) => api.put(`/config/${table}/${id}`, data),
+  delete: (table: string, id: string) => api.delete(`/config/${table}/${id}`),
+};
+
 export default api;

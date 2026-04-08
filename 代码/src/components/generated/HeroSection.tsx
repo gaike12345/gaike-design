@@ -1,11 +1,27 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { useHomeConfig } from '@/hooks/useHomeConfig';
 
 export default function HeroSection() {
+  const { config, loading } = useHomeConfig();
+
+  // 默认值
+  const heroData = config?.hero || {
+    title: '让创意落地，让设计发声',
+    subtitle: '3D 建模 | 应用开发 | 原画设计 | 学习成长 | 创意社交',
+    description: '从概念到落地，全方位支持你的创意项目。我们不只是工作室，更是你的创意成长伙伴。',
+    button1_text: '探索服务',
+    button1_link: '/services',
+    button2_text: '加入社群',
+    button2_link: '/community',
+  };
+
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-[#0A0A0F]">
+      {/* 背景渐变 */}
       <div className="absolute inset-0 bg-gradient-to-br from-[#4A5BFF]/20 via-[#0A0A0F] to-[#7B3FF2]/20" />
 
+      {/* 装饰光晕 */}
       <div className="absolute inset-0 opacity-30">
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#4A5BFF] rounded-full filter blur-3xl animate-pulse" />
         <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#7B3FF2] rounded-full filter blur-3xl animate-pulse delay-1000" />
@@ -18,11 +34,20 @@ export default function HeroSection() {
           transition={{ duration: 0.8 }}
           className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-bold text-white mb-6"
         >
-          让创意落地
-          <br />
-          <span className="bg-gradient-to-r from-[#4A5BFF] to-[#7B3FF2] bg-clip-text text-transparent">
-            让设计发声
-          </span>
+          {heroData.title.split('，').map((part, index) => (
+            <span key={index}>
+              {index === 1 ? (
+                <>
+                  <br />
+                  <span className="bg-gradient-to-r from-[#4A5BFF] to-[#7B3FF2] bg-clip-text text-transparent">
+                    {part}
+                  </span>
+                </>
+              ) : (
+                part
+              )}
+            </span>
+          ))}
         </motion.h1>
 
         <motion.p
@@ -31,7 +56,7 @@ export default function HeroSection() {
           transition={{ duration: 0.8, delay: 0.2 }}
           className="text-lg sm:text-xl text-gray-300 mb-4 max-w-3xl mx-auto"
         >
-          3D 建模 | 应用开发 | 原画设计 | 学习成长 | 创意社交
+          {heroData.subtitle}
         </motion.p>
 
         <motion.p
@@ -40,7 +65,7 @@ export default function HeroSection() {
           transition={{ duration: 0.8, delay: 0.4 }}
           className="text-base sm:text-lg text-gray-400 mb-10 max-w-2xl mx-auto"
         >
-          从概念到落地，全方位支持你的创意项目。我们不只是工作室，更是你的创意成长伙伴。
+          {heroData.description}
         </motion.p>
 
         <motion.div
@@ -50,20 +75,21 @@ export default function HeroSection() {
           className="flex flex-col sm:flex-row gap-4 justify-center"
         >
           <Link
-            to="/services"
+            to={heroData.button1_link || '/services'}
             className="px-8 py-4 bg-gradient-to-r from-[#4A5BFF] to-[#7B3FF2] text-white font-semibold rounded-full hover:shadow-lg hover:shadow-[#4A5BFF]/30 transition-all duration-300 transform hover:scale-105"
           >
-            探索服务
+            {heroData.button1_text}
           </Link>
           <Link
-            to="/community"
+            to={heroData.button2_link || '/community'}
             className="px-8 py-4 bg-white/10 backdrop-blur-sm text-white font-semibold rounded-full border border-white/20 hover:bg-white/20 transition-all duration-300"
           >
-            加入社群
+            {heroData.button2_text}
           </Link>
         </motion.div>
       </div>
 
+      {/* 滚动提示 */}
       <div className="absolute bottom-10 left-1/2 transform -translate-x-1/2">
         <motion.div
           animate={{ y: [0, 10, 0] }}

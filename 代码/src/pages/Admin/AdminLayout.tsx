@@ -4,11 +4,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FaHome, FaCube, FaBlog, FaConciergeBell, 
   FaUsers, FaImages, FaEnvelope, FaCog, FaSignOutAlt,
-  FaBars, FaTimes, FaShieldAlt, FaLock, FaUser, FaCalendarAlt, FaQuoteLeft
+  FaBars, FaTimes, FaShieldAlt, FaLock, FaUser, FaCalendarAlt, FaQuoteLeft, FaGlobe
 } from 'react-icons/fa';
 
 const menuItems = [
   { path: '/admin', icon: FaHome, label: '仪表盘', color: 'from-blue-500 to-cyan-500' },
+  { path: '/admin/site-config', icon: FaGlobe, label: '网站配置', color: 'from-blue-500 to-cyan-500' },
   { path: '/admin/works', icon: FaCube, label: '作品管理', color: 'from-purple-500 to-pink-500' },
   { path: '/admin/blog', icon: FaBlog, label: '博客文章', color: 'from-green-500 to-teal-500' },
   { path: '/admin/services', icon: FaConciergeBell, label: '服务项目', color: 'from-orange-500 to-red-500' },
