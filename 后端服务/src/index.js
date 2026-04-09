@@ -92,10 +92,17 @@ app.use('/uploads', express.static('uploads', {
 // Supabase 客戶端（供路由使用）
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 // 仅在配置有效时创建客户端
+// adminKey 用于绕过 RLS 策略（服务端操作）
 export const supabase = supabaseUrl && supabaseAnonKey 
   ? createClient(supabaseUrl, supabaseAnonKey)
+  : null;
+
+// 服务端专用客户端（绕过 RLS）
+export const supabaseAdmin = supabaseUrl && supabaseServiceKey
+  ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
 
 // 健康檢查

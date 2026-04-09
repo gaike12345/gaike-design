@@ -1,4 +1,4 @@
-import express from 'express';
+﻿import express from 'express';
 import { supabase } from '../index.js';
 
 const router = express.Router();
@@ -72,7 +72,7 @@ router.get('/', async (req, res) => {
     let query = supabase
       .from('community_events')
       .select('*', { count: 'exact' })
-      .order('event_date', { ascending: true });
+      .order('start_time', { ascending: true });
     
     // 状态筛选
     if (status) {
@@ -86,7 +86,7 @@ router.get('/', async (req, res) => {
     
     // 只获取即将开始的活动
     if (upcoming === 'true') {
-      query = query.gte('event_date', new Date().toISOString());
+      query = query.gte('start_time', new Date().toISOString());
     }
     
     // 添加分页

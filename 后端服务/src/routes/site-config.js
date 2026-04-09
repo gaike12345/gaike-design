@@ -1,7 +1,36 @@
 import express from 'express';
-import { supabase } from '../index.js';
+import { supabase, supabaseAdmin } from '../index.js';
 
 const router = express.Router();
+
+const validTables = ['hero_config', 'about_config', 'cta_config', 'site_settings', 'case_studies', 'services', 'team_members', 'testimonials'];
+
+// ========== 首页配置聚合（必须放在 /:table 前面）==========
+router.get('/home/all', async (req, res) => {
+  try {
+    const db = supabaseAdmin || supabase;
+    const [heroRes, aboutRes, ctaRes, servicesRes, caseStudiesRes] = await Promise.all([
+      db.from('hero_config').select('*').limit(1),
+      db.from('about_config').select('*').limit(1),
+      db.from('cta_config').select('*').limit(1),
+      db.from('services').select('*'),
+      db.from('case_studies').select('*').eq('featured', true)
+    ]);
+
+    res.json({
+      data: {
+        hero: heroRes.data?.[0] || null,
+        about: aboutRes.data?.[0] || null,
+        cta: ctaRes.data?.[0] || null,
+        services: servicesRes.data || [],
+        caseStudies: caseStudiesRes.data || []
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching home config:', err);
+    res.status(500).json({ error: '获取首页配置失败' });
+  }
+});
 
 // ========== 统一的数据表 API ==========
 
@@ -9,18 +38,22 @@ const router = express.Router();
 router.get('/:table', async (req, res) => {
   try {
     const { table } = req.params;
-    const validTables = ['hero_config', 'about_config', 'cta_config', 'site_settings', 'case_studies', 'services', 'team_members', 'testimonials'];
     
     if (!validTables.includes(table)) {
       return res.status(400).json({ error: '无效的数据表' });
     }
 
-    const { data, error } = await supabase
-      .from(table)
-      .select('*')
-      .order('sort_order', { ascending: true });
+    const db = supabaseAdmin || supabase;
+    let query = db.from(table).select('*');
+    if (table === 'case_studies') {
+      query = query.eq('featured', true);
+    }
+    const { data, error } = await query;
 
-    if (error) throw error;
+    if (error) {
+      console.error(`Error fetching ${table}:`, error);
+      return res.status(500).json({ error: `获取数据失败: ${error.message}` });
+    }
     res.json({ data: data || [] });
   } catch (err) {
     console.error('Error fetching data:', err);
@@ -32,13 +65,13 @@ router.get('/:table', async (req, res) => {
 router.get('/:table/:id', async (req, res) => {
   try {
     const { table, id } = req.params;
-    const validTables = ['hero_config', 'about_config', 'cta_config', 'site_settings', 'case_studies', 'services', 'team_members', 'testimonials'];
     
     if (!validTables.includes(table)) {
       return res.status(400).json({ error: '无效的数据表' });
     }
 
-    const { data, error } = await supabase
+    const db = supabaseAdmin || supabase;
+    const { data, error } = await db
       .from(table)
       .select('*')
       .eq('id', id)
@@ -58,52 +91,33 @@ router.get('/:table/:id', async (req, res) => {
   }
 });
 
-// 获取首页所有配置
-router.get('/home/all', async (req, res) => {
-  try {
-    const [heroRes, aboutRes, ctaRes, servicesRes, caseStudiesRes, siteSettingsRes] = await Promise.all([
-      supabase.from('hero_config').select('*').limit(1),
-      supabase.from('about_config').select('*').limit(1),
-      supabase.from('cta_config').select('*').limit(1),
-      supabase.from('services').select('*').order('sort_order', { ascending: true }),
-      supabase.from('case_studies').select('*').eq('featured', true).order('sort_order', { ascending: true }),
-      supabase.from('site_settings').select('*').order('sort_order', { ascending: true })
-    ]);
-
-    res.json({
-      data: {
-        hero: heroRes.data?.[0] || null,
-        about: aboutRes.data?.[0] || null,
-        cta: ctaRes.data?.[0] || null,
-        services: servicesRes.data || [],
-        caseStudies: caseStudiesRes.data || [],
-        siteSettings: siteSettingsRes.data || []
-      }
-    });
-  } catch (err) {
-    console.error('Error fetching home config:', err);
-    res.status(500).json({ error: '获取首页配置失败' });
-  }
-});
-
 // 创建数据
 router.post('/:table', async (req, res) => {
   try {
     const { table } = req.params;
-    const validTables = ['hero_config', 'about_config', 'cta_config', 'site_settings', 'case_studies', 'services', 'team_members', 'testimonials'];
     
     if (!validTables.includes(table)) {
       return res.status(400).json({ error: '无效的数据表' });
     }
 
+    if (!supabaseAdmin) {
+      return res.status(500).json({ error: '服务端配置错误' });
+    }
+
     const data = req.body;
-    const { result, error } = await supabase
+    console.log(`[site-config] Creating in ${table}:`, JSON.stringify(data));
+    console.log(`[site-config] Using supabaseAdmin:`, !!supabaseAdmin);
+    
+    const { data: result, error } = await supabaseAdmin
       .from(table)
       .insert([data])
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error(`[site-config] Insert error:`, error);
+      return res.status(500).json({ error: `创建数据失败: ${error.message}` });
+    }
     res.status(201).json({ data: result });
   } catch (err) {
     console.error('Error creating data:', err);
@@ -115,14 +129,17 @@ router.post('/:table', async (req, res) => {
 router.put('/:table/:id', async (req, res) => {
   try {
     const { table, id } = req.params;
-    const validTables = ['hero_config', 'about_config', 'cta_config', 'site_settings', 'case_studies', 'services', 'team_members', 'testimonials'];
     
     if (!validTables.includes(table)) {
       return res.status(400).json({ error: '无效的数据表' });
     }
 
+    if (!supabaseAdmin) {
+      return res.status(500).json({ error: '服务端配置错误' });
+    }
+
     const data = req.body;
-    const { result, error } = await supabase
+    const { data: result, error } = await supabaseAdmin
       .from(table)
       .update(data)
       .eq('id', id)
@@ -147,13 +164,16 @@ router.put('/:table/:id', async (req, res) => {
 router.delete('/:table/:id', async (req, res) => {
   try {
     const { table, id } = req.params;
-    const validTables = ['hero_config', 'about_config', 'cta_config', 'site_settings', 'case_studies', 'services', 'team_members', 'testimonials'];
     
     if (!validTables.includes(table)) {
       return res.status(400).json({ error: '无效的数据表' });
     }
 
-    const { error } = await supabase
+    if (!supabaseAdmin) {
+      return res.status(500).json({ error: '服务端配置错误' });
+    }
+
+    const { error } = await supabaseAdmin
       .from(table)
       .delete()
       .eq('id', id);
