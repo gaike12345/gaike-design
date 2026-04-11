@@ -1,7 +1,8 @@
 import axios from 'axios';
 
 // API 基础地址
-const API_BASE_URL = 'http://localhost:3001/api';
+// VITE_API_URL 在 Vercel 环境变量中设置，本地开发时默认 localhost
+const API_BASE_URL = (import.meta.env.VITE_API_URL as string) || 'http://localhost:3001/api';
 
 // 创建 axios 实例
 const api = axios.create({
