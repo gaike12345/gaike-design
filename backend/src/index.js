@@ -18,6 +18,10 @@ import siteConfigRouter from './routes/site-config.js';
 
 dotenv.config();
 
+// Railway/Render 环境变量会覆盖以下默认值
+// 不在代码中硬编码任何密钥
+
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
