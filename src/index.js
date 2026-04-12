@@ -6,14 +6,14 @@ import rateLimit from 'express-rate-limit';
 
 // 路由
 // import worksRouter removed - works.js missing
-import blogRouter from './routes/blog.js';
-import servicesRouter from './routes/services.js';
-import contactRouter from './routes/contact.js';
-import teamRouter from './routes/team.js';
-import portfolioRouter from './routes/portfolio.js';
-import uploadRouter from './routes/upload.js';
+// [removed] import blogRouter from './routes/blog.js';
+// [removed] import servicesRouter from './routes/services.js';
+// [removed] import contactRouter from './routes/contact.js';
+// [removed] import teamRouter from './routes/team.js';
+// [removed] import portfolioRouter from './routes/portfolio.js';
+// [removed] import uploadRouter from './routes/upload.js';
 import eventsRouter from './routes/events.js';
-import testimonialsRouter from './routes/testimonials.js';
+// [removed] import testimonialsRouter from './routes/testimonials.js';
 import siteConfigRouter from './routes/site-config.js';
 
 dotenv.config();
