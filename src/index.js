@@ -6,14 +6,14 @@ import rateLimit from 'express-rate-limit';
 
 // 路由
 // import worksRouter removed - works.js missing
-// [removed] import blogRouter from './routes/blog.js';
-// [removed] import servicesRouter from './routes/services.js';
-// [removed] import contactRouter from './routes/contact.js';
-// [removed] import teamRouter from './routes/team.js';
-// [removed] import portfolioRouter from './routes/portfolio.js';
-// [removed] import uploadRouter from './routes/upload.js';
+// [removed] // [removed] import blogRouter from './routes/blog.js';
+// [removed] // [removed] import servicesRouter from './routes/services.js';
+// [removed] // [removed] import contactRouter from './routes/contact.js';
+// [removed] // [removed] import teamRouter from './routes/team.js';
+// [removed] // [removed] import portfolioRouter from './routes/portfolio.js';
+// [removed] // [removed] import uploadRouter from './routes/upload.js';
 import eventsRouter from './routes/events.js';
-// [removed] import testimonialsRouter from './routes/testimonials.js';
+// [removed] // [removed] import testimonialsRouter from './routes/testimonials.js';
 import siteConfigRouter from './routes/site-config.js';
 
 dotenv.config();
@@ -116,14 +116,14 @@ app.get('/api/health', (req, res) => {
 
 // API 路由
 // app.use removed
-app.use('/api/blog', blogRouter);
-app.use('/api/services', servicesRouter);
-app.use('/api/contact', contactRouter);
-app.use('/api/team', teamRouter);
-app.use('/api/portfolio', portfolioRouter);
-app.use('/api/upload', uploadLimiter, uploadRouter);
+// [removed] app.use('/api/blog', blogRouter);
+// [removed] app.use('/api/services', servicesRouter);
+// [removed] app.use('/api/contact', contactRouter);
+// [removed] app.use('/api/team', teamRouter);
+// [removed] app.use('/api/portfolio', portfolioRouter);
+// [removed] app.use('/api/upload', uploadLimiter, uploadRouter);
 app.use('/api/events', eventsRouter);
-app.use('/api/testimonials', testimonialsRouter);
+// [removed] app.use('/api/testimonials', testimonialsRouter);
 app.use('/api/config', siteConfigRouter);
 
 // 錯誤處理 - 统一错误响应，不泄露内部信息
