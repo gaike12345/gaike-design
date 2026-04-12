@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import rateLimit from 'express-rate-limit';
 
 // 路由
-import worksRouter from './routes/works.js';
+// import worksRouter removed - works.js missing
 import blogRouter from './routes/blog.js';
 import servicesRouter from './routes/services.js';
 import contactRouter from './routes/contact.js';
@@ -115,7 +115,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // API 路由
-app.use('/api/works', worksRouter);
+// app.use removed
 app.use('/api/blog', blogRouter);
 app.use('/api/services', servicesRouter);
 app.use('/api/contact', contactRouter);
@@ -148,7 +148,7 @@ app.use((req, res) => {
 app.listen(PORT, () => {
   console.log(`✅ 盖可设计圈后端服务运行在: http://localhost:${PORT}`);
   console.log(`📋 API 端点:`);
-  console.log(`   - /api/works        (作品管理)`);
+// console removed
   console.log(`   - /api/blog         (博客文章)`);
   console.log(`   - /api/services     (服务项目)`);
   console.log(`   - /api/contact      (联系咨询)`);
