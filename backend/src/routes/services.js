@@ -1,46 +1,20 @@
 import express from 'express';
-import { supabase } from '../index.js';
+import { supabase, supabaseAdmin } from '../index.js';
 
 const router = express.Router();
 
-// ========== 输入验证辅助函数 ==========
-const validateRequired = (obj, fields) => {
-  const missing = [];
-  for (const field of fields) {
-    if (!obj[field] || (typeof obj[field] === 'string' && obj[field].trim() === '')) {
-      missing.push(field);
-    }
-  }
-  return missing.length > 0 ? `缺少必填字段: ${missing.join(', ')}` : null;
-};
-
-const validateLength = (str, min, max, fieldName) => {
-  if (str && (str.length < min || str.length > max)) {
-    return `${fieldName}长度必须在 ${min}-${max} 个字符之间`;
-  }
-  return null;
-};
-
-const sanitizeInput = (obj) => {
-  const sanitized = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (typeof value === 'string') {
-      sanitized[key] = value.replace(/[<>]/g, '').trim();
-    } else {
-      sanitized[key] = value;
-    }
-  }
-  return sanitized;
-};
-
-// 獲取所有服務
+// 获取所有服务（按 sort_order 排序，只返回 active）
 router.get('/', async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('services').eq('status', 'active')
+    const db = supabaseAdmin || supabase;
+    if (!db) return res.status(500).json({ error: '数据库未初始化' });
+
+    const { data, error } = await db
+      .from('services')
       .select('*')
+      .eq('status', 'active')
       .order('sort_order', { ascending: true });
-    
+
     if (error) throw error;
     res.json(data || []);
   } catch (err) {
@@ -49,28 +23,20 @@ router.get('/', async (req, res) => {
   }
 });
 
-// 獲取單個服務
+// 获取单个服务
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    
-    if (!/^\d+$/.test(id)) {
-      return res.status(400).json({ error: '无效的服务ID' });
-    }
-    
     const { data, error } = await supabase
       .from('services')
       .select('*')
       .eq('id', id)
       .single();
-    
+
     if (error) {
-      if (error.code === 'PGRST116') {
-        return res.status(404).json({ error: '服务不存在' });
-      }
-      throw error;
+      if (error.code === 'PGRST116') return res.status(404).json({ error: '服务不存在' });
+      return res.status(400).json({ error: '无效的服务ID' });
     }
-    
     res.json(data);
   } catch (err) {
     console.error('Error fetching service:', err);
@@ -78,29 +44,20 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// 創建服務
+// 创建服务（需要认证）
 router.post('/', async (req, res) => {
   try {
-    const sanitizedBody = sanitizeInput(req.body);
-    
-    const requiredError = validateRequired(sanitizedBody, ['title', 'description']);
-    if (requiredError) {
-      return res.status(400).json({ error: requiredError });
-    }
-    
-    const titleError = validateLength(sanitizedBody.title, 1, 100, '标题');
-    if (titleError) return res.status(400).json({ error: titleError });
-    
-    const descError = validateLength(sanitizedBody.description, 1, 500, '描述');
-    if (descError) return res.status(400).json({ error: descError });
-    
-    const { title, description, icon, features, sort_order } = sanitizedBody;
-    const { data, error } = await supabase
+    if (!supabaseAdmin) return res.status(500).json({ error: '服务端配置错误' });
+    const requiredError = '缺少必填字段: title, description';
+    const { title, description, icon, features, sort_order } = req.body || {};
+    if (!title || !description) return res.status(400).json({ error: requiredError });
+
+    const { data, error } = await supabaseAdmin
       .from('services')
-      .insert([{ title, description, icon, features, sort_order }])
+      .insert([{ title, description, icon, features, sort_order: sort_order || 0, status: 'active' }])
       .select()
       .single();
-    
+
     if (error) throw error;
     res.status(201).json(data);
   } catch (err) {
@@ -109,42 +66,25 @@ router.post('/', async (req, res) => {
   }
 });
 
-// 更新服務
+// 更新服务（需要认证）
 router.put('/:id', async (req, res) => {
   try {
+    if (!supabaseAdmin) return res.status(500).json({ error: '服务端配置错误' });
     const { id } = req.params;
-    
-    if (!/^\d+$/.test(id)) {
-      return res.status(400).json({ error: '无效的服务ID' });
-    }
-    
-    const sanitizedBody = sanitizeInput(req.body);
-    
-    if (sanitizedBody.title) {
-      const titleError = validateLength(sanitizedBody.title, 1, 100, '标题');
-      if (titleError) return res.status(400).json({ error: titleError });
-    }
-    
-    if (sanitizedBody.description) {
-      const descError = validateLength(sanitizedBody.description, 1, 500, '描述');
-      if (descError) return res.status(400).json({ error: descError });
-    }
-    
-    const { title, description, icon, features, sort_order, status } = sanitizedBody;
-    const { data, error } = await supabase
+    const { title, description, icon, features, sort_order, status } = req.body || {};
+    if (!title || !description) return res.status(400).json({ error: '缺少必填字段: title, description' });
+
+    const { data, error } = await supabaseAdmin
       .from('services')
       .update({ title, description, icon, features, sort_order, status })
       .eq('id', id)
       .select()
       .single();
-    
+
     if (error) {
-      if (error.code === 'PGRST116') {
-        return res.status(404).json({ error: '服务不存在' });
-      }
+      if (error.code === 'PGRST116') return res.status(404).json({ error: '服务不存在' });
       throw error;
     }
-    
     res.json(data);
   } catch (err) {
     console.error('Error updating service:', err);
@@ -152,28 +92,14 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// 刪除服務
+// 删除服务（需要认证）
 router.delete('/:id', async (req, res) => {
   try {
+    if (!supabaseAdmin) return res.status(500).json({ error: '服务端配置错误' });
     const { id } = req.params;
-    
-    if (!/^\d+$/.test(id)) {
-      return res.status(400).json({ error: '无效的服务ID' });
-    }
-    
-    const { error } = await supabase
-      .from('services')
-      .delete()
-      .eq('id', id);
-    
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return res.status(404).json({ error: '服务不存在' });
-      }
-      throw error;
-    }
-    
-    res.json({ message: '服务删除成功' });
+    const { error } = await supabaseAdmin.from('services').delete().eq('id', id);
+    if (error) throw error;
+    res.json({ success: true });
   } catch (err) {
     console.error('Error deleting service:', err);
     res.status(500).json({ error: '删除服务失败' });
