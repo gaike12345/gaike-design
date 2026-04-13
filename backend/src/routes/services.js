@@ -37,7 +37,7 @@ const sanitizeInput = (obj) => {
 router.get('/', async (req, res) => {
   try {
     const { data, error } = await supabase
-      .from('services')
+      .from('services').eq('status', 'active')
       .select('*')
       .order('sort_order', { ascending: true });
     
