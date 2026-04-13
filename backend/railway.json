@@ -1,17 +1,11 @@
 {
-  "$schema": "https://railway.app/schema.json",
+  "$schema": "https://railway.app/railway.schema.json",
   "build": {
-    "builder": "NIXPACKS",
-    "nixpacksPlan": {
-      "env": {
-        "NODE_ENV": "production"
-      }
-    }
+    "builder": "NIXPACKS"
   },
   "deploy": {
     "numReplicas": 1,
     "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 10,
-    "runtime": "NODEJS"
+    "restartPolicyMaxRetries": 10
   }
 }
