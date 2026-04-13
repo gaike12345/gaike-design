@@ -13,8 +13,8 @@ router.get('/home/all', async (req, res) => {
       db.from('hero_config').select('*').limit(1),
       db.from('about_config').select('*').limit(1),
       db.from('cta_config').select('*').limit(1),
-      db.from('services').select('*'),
-      db.from('case_studies').select('*').eq('status', 'active')
+      db.from('services').select('*').eq('status', 'active').order('sort_order', { ascending: true }),
+      db.from('case_studies').select('*').eq('featured', true).order('sort_order', { ascending: true })
     ]);
 
     res.json({
@@ -34,20 +34,25 @@ router.get('/home/all', async (req, res) => {
 
 // ========== 统一的数据表 API ==========
 
-// 获取配置列表
+// 获取配置列表（GET /api/config/:table）
 router.get('/:table', async (req, res) => {
   try {
     const { table } = req.params;
-    
+
     if (!validTables.includes(table)) {
       return res.status(400).json({ error: '无效的数据表' });
     }
 
     const db = supabaseAdmin || supabase;
     let query = db.from(table).select('*');
-    if (table === 'case_studies') {
-      query = query.eq('featured', true);
+
+    // 智能过滤
+    if (table === 'services') {
+      query = query.eq('status', 'active').order('sort_order', { ascending: true });
+    } else if (table === 'case_studies') {
+      query = query.eq('featured', true).order('sort_order', { ascending: true });
     }
+
     const { data, error } = await query;
 
     if (error) {
@@ -61,11 +66,11 @@ router.get('/:table', async (req, res) => {
   }
 });
 
-// 获取单条配置
+// 获取单条配置（GET /api/config/:table/:id）
 router.get('/:table/:id', async (req, res) => {
   try {
     const { table, id } = req.params;
-    
+
     if (!validTables.includes(table)) {
       return res.status(400).json({ error: '无效的数据表' });
     }
@@ -91,11 +96,11 @@ router.get('/:table/:id', async (req, res) => {
   }
 });
 
-// 创建数据
+// 创建数据（POST /api/config/:table）
 router.post('/:table', async (req, res) => {
   try {
     const { table } = req.params;
-    
+
     if (!validTables.includes(table)) {
       return res.status(400).json({ error: '无效的数据表' });
     }
@@ -106,30 +111,26 @@ router.post('/:table', async (req, res) => {
 
     const data = req.body;
     console.log(`[site-config] Creating in ${table}:`, JSON.stringify(data));
-    console.log(`[site-config] Using supabaseAdmin:`, !!supabaseAdmin);
-    
-    const { data: result, error } = await supabaseAdmin
+
+    const { data: created, error } = await supabaseAdmin
       .from(table)
       .insert([data])
       .select()
       .single();
 
-    if (error) {
-      console.error(`[site-config] Insert error:`, error);
-      return res.status(500).json({ error: `创建数据失败: ${error.message}` });
-    }
-    res.status(201).json({ data: result });
+    if (error) throw error;
+    res.status(201).json({ data: created });
   } catch (err) {
     console.error('Error creating data:', err);
     res.status(500).json({ error: '创建数据失败' });
   }
 });
 
-// 更新数据
+// 更新数据（PUT /api/config/:table/:id）
 router.put('/:table/:id', async (req, res) => {
   try {
     const { table, id } = req.params;
-    
+
     if (!validTables.includes(table)) {
       return res.status(400).json({ error: '无效的数据表' });
     }
@@ -139,7 +140,13 @@ router.put('/:table/:id', async (req, res) => {
     }
 
     const data = req.body;
-    const { data: result, error } = await supabaseAdmin
+    console.log(`[site-config] Updating ${table}[${id}]:`, JSON.stringify(data));
+
+    // 移除不可更新的字段
+    delete data.id;
+    delete data.created_at;
+
+    const { data: updated, error } = await supabaseAdmin
       .from(table)
       .update(data)
       .eq('id', id)
@@ -153,18 +160,18 @@ router.put('/:table/:id', async (req, res) => {
       throw error;
     }
 
-    res.json({ data: result });
+    res.json({ data: updated });
   } catch (err) {
     console.error('Error updating data:', err);
     res.status(500).json({ error: '更新数据失败' });
   }
 });
 
-// 删除数据
+// 删除数据（DELETE /api/config/:table/:id）
 router.delete('/:table/:id', async (req, res) => {
   try {
     const { table, id } = req.params;
-    
+
     if (!validTables.includes(table)) {
       return res.status(400).json({ error: '无效的数据表' });
     }
@@ -173,14 +180,9 @@ router.delete('/:table/:id', async (req, res) => {
       return res.status(500).json({ error: '服务端配置错误' });
     }
 
-    const { error } = await supabaseAdmin
-      .from(table)
-      .delete()
-      .eq('id', id);
-
+    const { error } = await supabaseAdmin.from(table).delete().eq('id', id);
     if (error) throw error;
-
-    res.json({ message: '删除成功' });
+    res.json({ success: true });
   } catch (err) {
     console.error('Error deleting data:', err);
     res.status(500).json({ error: '删除数据失败' });
