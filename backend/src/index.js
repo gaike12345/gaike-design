@@ -8,6 +8,14 @@ import jwt from 'jsonwebtoken';
 import eventsRouter from './routes/events.js';
 import siteConfigRouter from './routes/site-config.js';
 import adminRouter from './routes/admin.js';
+import blogRouter from './routes/blog.js';
+import servicesRouter from './routes/services.js';
+import teamRouter from './routes/team.js';
+import testimonialsRouter from './routes/testimonials.js';
+import portfolioRouter from './routes/portfolio.js';
+import worksRouter from './routes/works.js';
+import contactRouter from './routes/contact.js';
+import uploadRouter from './routes/upload.js';
 
 dotenv.config();
 
@@ -70,6 +78,14 @@ app.get('/api/health', (req, res) => {
 
 // ========== API 路由 ==========
 app.use('/api/events', eventsRouter);
+app.use('/api/services', servicesRouter);
+app.use('/api/blog', blogRouter);
+app.use('/api/team', teamRouter);
+app.use('/api/testimonials', testimonialsRouter);
+app.use('/api/portfolio', portfolioRouter);
+app.use('/api/works', worksRouter);
+app.use('/api/contact', contactRouter);
+app.use('/api/upload', uploadRouter);
 app.use('/api/config', siteConfigRouter);
 app.use('/api/admin', adminRouter);
 
@@ -85,5 +101,6 @@ app.use((req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`✅ 盖可设计圈后端服务运行在: http://localhost:${PORT}`);
+  console.log('✅ 盖可设计圈后端服务运行在: http://localhost:' + PORT);
+  console.log('✅ 已注册路由: /api/health, /api/services, /api/blog, /api/team, /api/events, /api/testimonials, /api/portfolio, /api/works, /api/contact, /api/upload, /api/config, /api/admin');
 });
