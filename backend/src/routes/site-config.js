@@ -14,7 +14,7 @@ router.get('/home/all', async (req, res) => {
       db.from('about_config').select('*').limit(1),
       db.from('cta_config').select('*').limit(1),
       db.from('services').select('*'),
-      db.from('case_studies').select('*').eq('featured', true)
+      db.from('case_studies').select('*').eq('status', 'active')
     ]);
 
     res.json({
