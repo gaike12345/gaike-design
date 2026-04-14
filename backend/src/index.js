@@ -40,6 +40,14 @@ app.use(cors({
   },
   credentials: true
 }));
+const allowedOrigins = [
+  'http://localhost:5173',  // 开发前端
+  'http://localhost:3000',  // 开发后端
+  'http://127.0.0.1:5173',
+  process.env.ALLOWED_ORIGIN, // 生产环境域名
+  'https://www.gaike.xyz',     // 前端生产域名
+  'http://www.gaike.xyz'       // 备用
+].filter(Boolean);
 
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
