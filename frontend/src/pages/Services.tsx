@@ -4,8 +4,18 @@ import Footer from '@/components/generated/Footer';
 import { Link } from 'react-router-dom';
 import { FaCube, FaCode, FaPalette, FaUsers, FaGraduationCap } from 'react-icons/fa';
 import { motion } from 'framer-motion';
+import { servicesApi } from '@/lib/api';
+import { useState, useEffect } from 'react';
 
-const services = [
+const iconMap: Record<string, any> = {
+  FaCube,
+  FaCode,
+  FaPalette,
+  FaUsers,
+  FaGraduationCap,
+};
+
+const defaultServices = [
   {
     icon: FaCube,
     title: '3D 建模',
@@ -70,6 +80,52 @@ const services = [
 ];
 
 export default function Services() {
+  const [services, setServices] = useState(defaultServices);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchServices = async () => {
+      setLoading(true);
+      try {
+        const response = await servicesApi.getAll();
+        const data = response.data?.data || [];
+        if (data.length > 0) {
+          const mapped = data
+            .filter((s: any) => s.status === 'active')
+            .map((s: any) => ({
+              icon: iconMap[s.icon] || FaCube,
+              title: s.title,
+              description: s.description,
+              details: typeof s.details === 'string' ? JSON.parse(s.details) : (s.details || s.features || []),
+              tools: s.tools
+                ? typeof s.tools === 'string'
+                  ? JSON.parse(s.tools)
+                  : s.tools
+                : undefined,
+              benefits: s.benefits
+                ? typeof s.benefits === 'string'
+                  ? JSON.parse(s.benefits)
+                  : s.benefits
+                : undefined,
+              process: s.process
+                ? typeof s.process === 'string'
+                  ? JSON.parse(s.process)
+                  : s.process
+                : undefined,
+              color: s.color || 'from-[#4A5BFF] to-[#00F5FF]',
+            }))
+            .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+          setServices(mapped);
+        }
+      } catch (error) {
+        console.error('获取服务列表失败:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchServices();
+  }, []);
+
   return (
     <>
       <PageMeta

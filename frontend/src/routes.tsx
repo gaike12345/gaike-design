@@ -25,6 +25,7 @@ import EventForm from "./pages/Admin/pages/EventForm";
 import TestimonialsList from "./pages/Admin/pages/TestimonialsList";
 import TestimonialForm from "./pages/Admin/pages/TestimonialForm";
 import SiteConfig from "./pages/Admin/pages/SiteConfig";
+import ContactConfig from "./pages/Admin/pages/ContactConfig";
 
 export const routes: RouteObject[] = [
   {
@@ -140,6 +141,10 @@ export const routes: RouteObject[] = [
       {
         path: "site-config",
         element: <SiteConfig />,
+      },
+      {
+        path: "contact-config",
+        element: <ContactConfig />,
       },
     ],
   },

@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { FaCalendar, FaClock, FaCheck } from 'react-icons/fa';
 import { toast } from 'sonner';
+import { configApi, contactApi } from '@/lib/api';
 
 const timeSlots = [
   '09:00-10:00',
@@ -12,7 +13,7 @@ const timeSlots = [
   '19:00-20:00',
 ];
 
-const serviceTypes = [
+const defaultServiceTypes = [
   { id: '3d', name: '3D 建模咨询', price: '¥500/小时', duration: '1 小时' },
   { id: 'dev', name: '应用开发咨询', price: '¥600/小时', duration: '1 小时' },
   { id: 'art', name: '原画设计咨询', price: '¥500/小时', duration: '1 小时' },
@@ -26,19 +27,52 @@ export default function BookingSection() {
   const [selectedService, setSelectedService] = useState('');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [serviceTypes, setServiceTypes] = useState(defaultServiceTypes);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const res = await configApi.getTable('booking_services');
+        const data = res.data?.data || [];
+        if (data.length > 0) {
+          const mapped = data
+            .map((s: any) => ({
+              id: s.id || s.key || s.name,
+              name: s.name || s.title || '未命名服务',
+              price: s.price || s.price_text || '¥500/小时',
+              duration: s.duration || '1 小时',
+            }))
+            .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+          if (mapped.length > 0) setServiceTypes(mapped);
+        }
+      } catch (error) {
+        console.error('获取预约服务失败:', error);
+      }
+    };
+    fetchData();
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-
-    setTimeout(() => {
-      setIsSubmitting(false);
+    try {
+      const service = serviceTypes.find((s) => s.id === selectedService);
+      await contactApi.submit({
+        name: '',
+        email: '',
+        phone: '',
+        message: `预约咨询\n日期: ${selectedDate}\n时间: ${selectedTime}\n服务: ${service?.name || selectedService}\n备注: ${notes}`,
+      });
       toast.success('预约成功！我们将通过微信与您确认');
       setSelectedDate('');
       setSelectedTime('');
       setSelectedService('');
       setNotes('');
-    }, 1500);
+    } catch (error) {
+      toast.error('预约失败，请稍后重试');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const today = new Date();

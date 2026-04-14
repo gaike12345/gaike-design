@@ -3,8 +3,10 @@ import Header from '@/components/generated/Header';
 import Footer from '@/components/generated/Footer';
 import { motion } from 'framer-motion';
 import { FaRocket, FaHeart, FaLightbulb, FaUsers } from 'react-icons/fa';
+import { teamApi } from '@/lib/api';
+import { useState, useEffect } from 'react';
 
-const teamMembers = [
+const defaultTeamMembers = [
   {
     name: 'Alex Chen',
     role: '创始人 & 创意总监',
@@ -59,6 +61,32 @@ const values = [
 ];
 
 export default function About() {
+  const [teamMembers, setTeamMembers] = useState(defaultTeamMembers);
+
+  useEffect(() => {
+    const fetchTeam = async () => {
+      try {
+        const response = await teamApi.getAll();
+        const data = response.data?.data || [];
+        if (data.length > 0) {
+          const active = data
+            .filter((m: any) => m.status === 'active')
+            .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+          const mapped = active.map((m: any) => ({
+            name: m.name,
+            role: m.role,
+            bio: m.bio,
+            image: m.avatar_url || defaultTeamMembers[0]?.image,
+          }));
+          setTeamMembers(mapped);
+        }
+      } catch (error) {
+        console.error('获取团队成员失败:', error);
+      }
+    };
+    fetchTeam();
+  }, []);
+
   return (
     <>
       <PageMeta

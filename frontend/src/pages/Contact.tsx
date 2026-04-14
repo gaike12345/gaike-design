@@ -2,12 +2,25 @@ import { PageMeta } from '@/components/common/PageMeta';
 import Header from '@/components/generated/Header';
 import Footer from '@/components/generated/Footer';
 import BookingSection from '@/components/generated/BookingSection';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { FaWeixin, FaEnvelope, FaPhone } from 'react-icons/fa';
 import { toast } from 'sonner';
+import { configApi, contactApi } from '@/lib/api';
 
-const serviceOptions = [
+const iconMap: Record<string, any> = {
+  wechat: FaWeixin,
+  weixin: FaWeixin,
+  email: FaEnvelope,
+  mail: FaEnvelope,
+  phone: FaPhone,
+  tel: FaPhone,
+  FaWeixin,
+  FaEnvelope,
+  FaPhone,
+};
+
+const defaultServiceOptions = [
   '3D 建模',
   '应用开发',
   '原画设计',
@@ -16,7 +29,7 @@ const serviceOptions = [
   '其他',
 ];
 
-const workflowSteps = [
+const defaultWorkflowSteps = [
   { title: '咨询', description: '提交需求或添加微信' },
   { title: '沟通', description: '详细沟通项目需求' },
   { title: '方案', description: '提供方案和报价' },
@@ -24,7 +37,7 @@ const workflowSteps = [
   { title: '交付', description: '完成项目交付验收' },
 ];
 
-const faqs = [
+const defaultFaqs = [
   {
     question: '服务周期一般是多久？',
     answer: '根据项目复杂程度而定。小型项目（如单个 3D 模型、简单页面设计）通常 1-2 周；中型项目（如完整 App 开发、系列原画）2-4 周；大型项目会提供更详细的时间规划。',
@@ -43,7 +56,17 @@ const faqs = [
   },
 ];
 
+const defaultContactInfo = [
+  { type: 'wechat', label: '微信', value: 'GeekDesignCircle', icon: FaWeixin },
+  { type: 'email', label: '邮箱', value: 'contact@geekdesign.com', icon: FaEnvelope },
+  { type: 'phone', label: '电话', value: '400-XXX-XXXX', icon: FaPhone },
+];
+
 export default function Contact() {
+  const [contactInfo, setContactInfo] = useState(defaultContactInfo);
+  const [serviceOptions, setServiceOptions] = useState(defaultServiceOptions);
+  const [workflowSteps, setWorkflowSteps] = useState(defaultWorkflowSteps);
+  const [faqs, setFaqs] = useState(defaultFaqs);
   const [formData, setFormData] = useState({
     name: '',
     contact: '',
@@ -53,15 +76,75 @@ export default function Contact() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  useEffect(() => {
+    const fetchContactData = async () => {
+      try {
+        const [contactRes, faqRes, workflowRes] = await Promise.all([
+          configApi.getTable('contact_config'),
+          configApi.getTable('faq_items'),
+          configApi.getTable('workflow_steps'),
+        ]);
+
+        const contacts = contactRes.data?.data || [];
+        if (contacts.length > 0) {
+          const mapped = contacts
+            .map((c: any) => ({
+              type: c.type || c.key || 'wechat',
+              label: c.label || c.type || c.key || '联系方式',
+              value: c.value || '',
+              icon: iconMap[c.type] || iconMap[c.key] || FaWeixin,
+            }))
+            .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+          setContactInfo(mapped);
+        }
+
+        const faqData = faqRes.data?.data || [];
+        if (faqData.length > 0) {
+          const mapped = faqData
+            .map((f: any) => ({
+              question: f.question || f.title || '',
+              answer: f.answer || f.content || f.description || '',
+            }))
+            .filter((f: any) => f.question && f.answer)
+            .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+          if (mapped.length > 0) setFaqs(mapped);
+        }
+
+        const workflowData = workflowRes.data?.data || [];
+        if (workflowData.length > 0) {
+          const mapped = workflowData
+            .map((w: any) => ({
+              title: w.title || w.name || '',
+              description: w.description || w.content || '',
+            }))
+            .filter((w: any) => w.title)
+            .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+          if (mapped.length > 0) setWorkflowSteps(mapped);
+        }
+      } catch (error) {
+        console.error('获取联系页数据失败:', error);
+      }
+    };
+    fetchContactData();
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-
-    setTimeout(() => {
-      setIsSubmitting(false);
+    try {
+      await contactApi.submit({
+        name: formData.name,
+        email: formData.contact,
+        phone: formData.contact,
+        message: `服务类型: ${formData.serviceType}\n项目描述: ${formData.description}\n预算: ${formData.budget}`,
+      });
       toast.success('提交成功！我们将在 24 小时内与您联系');
       setFormData({ name: '', contact: '', serviceType: '', description: '', budget: '' });
-    }, 1500);
+    } catch (error) {
+      toast.error('提交失败，请稍后重试');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleChange = (
@@ -106,33 +189,17 @@ export default function Contact() {
                 >
                   <h2 className="text-3xl font-bold text-white mb-8">联系方式</h2>
                   <div className="space-y-6 mb-8">
-                    <div className="flex items-center space-x-4">
-                      <div className="w-12 h-12 bg-gradient-to-br from-[#4A5BFF] to-[#7B3FF2] rounded-xl flex items-center justify-center">
-                        <FaWeixin className="text-white text-xl" />
+                    {contactInfo.map((item) => (
+                      <div key={item.type} className="flex items-center space-x-4">
+                        <div className="w-12 h-12 bg-gradient-to-br from-[#4A5BFF] to-[#7B3FF2] rounded-xl flex items-center justify-center">
+                          <item.icon className="text-white text-xl" />
+                        </div>
+                        <div>
+                          <div className="text-white font-medium">{item.label}</div>
+                          <div className="text-gray-400">{item.value}</div>
+                        </div>
                       </div>
-                      <div>
-                        <div className="text-white font-medium">微信</div>
-                        <div className="text-gray-400">GeekDesignCircle</div>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-4">
-                      <div className="w-12 h-12 bg-gradient-to-br from-[#4A5BFF] to-[#7B3FF2] rounded-xl flex items-center justify-center">
-                        <FaEnvelope className="text-white text-xl" />
-                      </div>
-                      <div>
-                        <div className="text-white font-medium">邮箱</div>
-                        <div className="text-gray-400">contact@geekdesign.com</div>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-4">
-                      <div className="w-12 h-12 bg-gradient-to-br from-[#4A5BFF] to-[#7B3FF2] rounded-xl flex items-center justify-center">
-                        <FaPhone className="text-white text-xl" />
-                      </div>
-                      <div>
-                        <div className="text-white font-medium">电话</div>
-                        <div className="text-gray-400">400-XXX-XXXX</div>
-                      </div>
-                    </div>
+                    ))}
                   </div>
 
                   <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10">

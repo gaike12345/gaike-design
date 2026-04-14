@@ -1,23 +1,93 @@
 import { Link } from 'react-router-dom';
 import { FaWeixin, FaEnvelope, FaGithub, FaZhihu } from 'react-icons/fa';
+import { configApi } from '@/lib/api';
+import { useState, useEffect } from 'react';
+
+const defaultContactInfo = [
+  { type: 'wechat', label: '微信', value: 'GeekDesignCircle', icon: 'FaWeixin' },
+  { type: 'email', label: '邮箱', value: 'contact@geekdesign.com', icon: 'FaEnvelope' },
+];
+
+const defaultSocialLinks = [
+  { platform: 'github', url: '#', icon: FaGithub },
+  { platform: 'zhihu', url: '#', icon: FaZhihu },
+];
+
+const iconMap: Record<string, any> = {
+  FaWeixin,
+  FaEnvelope,
+  FaGithub,
+  FaZhihu,
+};
+
+const quickLinks = [
+  { path: '/services', label: '服务项目' },
+  { path: '/portfolio', label: '作品集' },
+  { path: '/about', label: '关于我们' },
+  { path: '/community', label: '学习社区' },
+];
+
+const services = [
+  '3D 建模',
+  '应用开发',
+  '原画设计',
+  '学习交友',
+  '教育咨询',
+];
 
 export default function Footer() {
   const currentYear = new Date().getFullYear();
+  const [contactInfo, setContactInfo] = useState(defaultContactInfo);
+  const [socialLinks, setSocialLinks] = useState(defaultSocialLinks);
 
-  const quickLinks = [
-    { path: '/services', label: '服务项目' },
-    { path: '/portfolio', label: '作品集' },
-    { path: '/about', label: '关于我们' },
-    { path: '/community', label: '学习社区' },
-  ];
+  useEffect(() => {
+    const fetchFooterData = async () => {
+      try {
+        const contactRes = await configApi.getTable('contact_config');
+        const contacts = contactRes.data?.data || [];
+        if (contacts.length > 0) {
+          const mapped = contacts
+            .map((c: any) => ({
+              type: c.type || c.key || 'wechat',
+              label: c.label || c.type || c.key || '联系方式',
+              value: c.value || '',
+              icon: c.icon || c.type || 'FaWeixin',
+            }))
+            .filter((c: any) => c.value)
+            .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+          if (mapped.length > 0) setContactInfo(mapped);
+        }
 
-  const services = [
-    '3D 建模',
-    '应用开发',
-    '原画设计',
-    '学习交友',
-    '教育咨询',
-  ];
+        const settingsRes = await configApi.getTable('site_settings');
+        const settings = settingsRes.data?.data || [];
+        if (settings.length > 0) {
+          const socialSetting = settings.find((s: any) => s.key === 'social_links');
+          if (socialSetting) {
+            try {
+              const links = typeof socialSetting.value === 'string'
+                ? JSON.parse(socialSetting.value)
+                : socialSetting.value;
+              if (Array.isArray(links) && links.length > 0) {
+                const mapped = links
+                  .map((l: any) => ({
+                    platform: l.platform || l.name || 'link',
+                    url: l.url || l.href || '#',
+                    icon: iconMap[l.icon] || iconMap[`Fa${l.platform}`] || FaZhihu,
+                  }))
+                  .filter((l: any) => l.url && l.url !== '#');
+                if (mapped.length > 0) setSocialLinks(mapped);
+              }
+            } catch {
+              // ignore parse errors
+            }
+          }
+        }
+      } catch (error) {
+        console.error('获取页脚数据失败:', error);
+      }
+    };
+    fetchFooterData();
+  }, []);
 
   return (
     <footer className="bg-[#0A0A0F] border-t border-white/10">
@@ -68,22 +138,28 @@ export default function Footer() {
           <div>
             <h4 className="text-white font-semibold mb-4">联系我们</h4>
             <ul className="space-y-3">
-              <li className="flex items-center space-x-3 text-gray-400 text-sm">
-                <FaWeixin className="text-[#00F5FF]" />
-                <span>GeekDesignCircle</span>
-              </li>
-              <li className="flex items-center space-x-3 text-gray-400 text-sm">
-                <FaEnvelope className="text-[#00F5FF]" />
-                <span>contact@geekdesign.com</span>
-              </li>
+              {contactInfo.map((item) => {
+                const IconComponent = iconMap[item.icon] || FaWeixin;
+                return (
+                  <li key={item.type} className="flex items-center space-x-3 text-gray-400 text-sm">
+                    <IconComponent className="text-[#00F5FF]" />
+                    <span>{item.value}</span>
+                  </li>
+                );
+              })}
             </ul>
             <div className="flex space-x-4 mt-4">
-              <a href="#" className="text-gray-400 hover:text-white transition-colors">
-                <FaGithub size={20} />
-              </a>
-              <a href="#" className="text-gray-400 hover:text-white transition-colors">
-                <FaZhihu size={20} />
-              </a>
+              {socialLinks.map((link) => (
+                <a
+                  key={link.platform}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  <link.icon size={20} />
+                </a>
+              ))}
             </div>
           </div>
         </div>
