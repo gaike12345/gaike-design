@@ -12,6 +12,28 @@ const validTables = [
 ];
 
 // ========== JWT 鉴权中间件 ==========
+router.get('/debug/routes', (req, res) => {
+  const routes = [];
+  app._router.stack.forEach((middleware) => {
+    if (middleware.route) {
+      routes.push({ path: middleware.route.path, methods: middleware.route.methods });
+    } else if (middleware.name === 'router') {
+      routes.push({ name: middleware.name, params: middleware.regexp });
+    }
+  });
+  res.json({ routes });
+});
+
+router.get('/debug/env', (req, res) => {
+  res.json({
+    HAS_SUPABASE_URL: !!process.env.SUPABASE_URL,
+    HAS_SUPABASE_KEY: !!process.env.SUPABASE_ANON_KEY,
+    NODE_ENV: process.env.NODE_ENV,
+    PORT: process.env.PORT,
+  });
+});
+
+// ========== JWT 鉴权中间件 ==========
 function authMiddleware(req, res, next) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith('Bearer ')) {
@@ -93,8 +115,8 @@ router.get('/page/:pageKey', async (req, res) => {
 
 // ========== 以下路由全部需要管理员鉴权 ==========
 
-// 获取配置列表（GET /api/config/:table）
-router.get('/:table', authMiddleware, async (req, res) => {
+// 获取配置列表（GET /api/config/:table）— 公开读
+router.get('/:table', async (req, res) => {
   try {
     const { table } = req.params;
 
@@ -123,7 +145,7 @@ router.get('/:table', authMiddleware, async (req, res) => {
 });
 
 // 获取单条配置（GET /api/config/:table/:id）
-router.get('/:table/:id', authMiddleware, async (req, res) => {
+router.get('/:table/:id', async (req, res) => {
   try {
     const { table, id } = req.params;
 

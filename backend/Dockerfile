@@ -10,8 +10,8 @@ RUN npm install --omit=dev
 COPY src ./src
 
 ENV NODE_ENV=production
-ENV PORT=3001
+ENV PORT=80
 
-EXPOSE 3001
+EXPOSE 80
 
 CMD ["node", "src/index.js"]
