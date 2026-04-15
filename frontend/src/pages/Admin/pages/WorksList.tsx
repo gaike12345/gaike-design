@@ -9,14 +9,14 @@ export default function WorksList() {
 
   useEffect(() => { fetch(); }, []);
   const fetch = async () => { try { const r = await api.get('/works'); setWorks(r.data?.data || []); } catch {} finally { setLoading(false); } };
-  const handleDelete = async (id: number) => { if (!confirm('确定删除�?)) return; try { await deleteWork(id); setWorks(w => w.filter(x => x.id !== id)); } catch { alert('失败'); } };
+  const handleDelete = async (id: number) => { if (!confirm('确定删除？')) return; try { await deleteWork(id); setWorks(w => w.filter(x => x.id !== id)); } catch { alert('失败'); } };
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white tracking-tight">作品管理</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{works.length} 件作�?/p>
+          <p className="text-sm text-gray-500 mt-0.5">{works.length} 件作品</p>
         </div>
         <Link to="/admin/works/new" className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-teal-500 rounded-xl text-white text-sm font-semibold hover:opacity-90 transition-all shadow-lg shadow-purple-600/20">
           <FaPlus size={14} /> 添加作品
@@ -28,7 +28,7 @@ export default function WorksList() {
       ) : works.length === 0 ? (
         <div className="bg-[#0D0D1A] border border-white/5 rounded-2xl p-12 text-center">
           <p className="text-gray-600 text-sm">暂无作品</p>
-          <Link to="/admin/works/new" className="mt-3 inline-block text-sm text-purple-400 hover:text-purple-300">添加第一个作�?/Link>
+          <Link to="/admin/works/new" className="mt-3 inline-block text-sm text-purple-400 hover:text-purple-300">添加第一个作品</Link>
         </div>
       ) : (
         <div className="space-y-2">

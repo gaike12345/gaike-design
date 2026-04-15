@@ -2,12 +2,12 @@ import { useState, useEffect } from 'react'; import { Link } from 'react-router-
 export default function TestimonialsList() {
   const [items, setItems] = useState<any[]>([]); const [loading, setLoading] = useState(true);
   useEffect(() => { (async()=>{try{const r=await api.get('/testimonials');setItems(r.data?.data||[]);}catch{/*s*/}finally{setLoading(false);}})(); }, []);
-  const del = async (id: number) => { if(!confirm('删除�?))return; try{await deleteTestimonial(id);setItems(i=>i.filter(x=>x.id!==id));}catch{alert('失败');} };
+  const del = async (id: number) => { if(!confirm('删除？'))return; try{await deleteTestimonial(id);setItems(i=>i.filter(x=>x.id!==id));}catch{alert('失败');} };
   const card = 'bg-[#0D0D1A] border border-white/5 rounded-xl p-4 hover:border-white/10 transition-all';
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <div><h1 className="text-2xl font-bold text-white tracking-tight">学员见证</h1><p className="text-sm text-gray-500 mt-0.5">{items.length} 条见�?/p></div>
+        <div><h1 className="text-2xl font-bold text-white tracking-tight">学员见证</h1><p className="text-sm text-gray-500 mt-0.5">{items.length} 条见证</p></div>
         <Link to="/admin/testimonials/new" className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-teal-500 rounded-xl text-white text-sm font-semibold hover:opacity-90 transition-all shadow-lg shadow-purple-600/20"><FaPlus size={14}/>添加见证</Link>
       </div>
       {loading ? <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">{[1,2].map(i=><div key={i} className={card+" h-32 animate-pulse"}/>)}</div>

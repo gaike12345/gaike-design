@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react'; import { FaEnvelope, FaCheck, FaTra
 export default function ContactsList() {
   const [contacts, setContacts] = useState<any[]>([]); const [loading, setLoading] = useState(true);
   useEffect(() => { (async()=>{try{const r=await api.get('/contact');setContacts(r.data?.data||[]);}catch{/*s*/}finally{setLoading(false);}})(); }, []);
-  const del = async (id: number) => { if(!confirm('删除�?))return; try{await deleteContact(id);setContacts(c=>c.filter(x=>x.id!==id));}catch{alert('失败');} };
+  const del = async (id: number) => { if(!confirm('删除？'))return; try{await deleteContact(id);setContacts(c=>c.filter(x=>x.id!==id));}catch{alert('失败');} };
   return (
     <div className="space-y-5">
-      <div><h1 className="text-2xl font-bold text-white tracking-tight">咨询管理</h1><p className="text-sm text-gray-500 mt-0.5">{contacts.length} 条咨询记�?/p></div>
+      <div><h1 className="text-2xl font-bold text-white tracking-tight">咨询管理</h1><p className="text-sm text-gray-500 mt-0.5">{contacts.length} 条咨询记录</p></div>
       {loading ? <div className="space-y-2">{[1,2,3].map(i=><div key={i} className={cardCls+" h-20 animate-pulse"} />)}</div>
       : contacts.length===0 ? <div className={cardCls+" text-center py-12"}><FaEnvelope className="mx-auto text-gray-700 mb-3" size={28}/><p className="text-gray-600 text-sm">暂无咨询记录</p></div>
       : <div className="space-y-2">{contacts.map(c=>(<div key={c.id} className={cardCls}>

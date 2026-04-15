@@ -19,7 +19,7 @@ export default function ServicesList() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!window.confirm('确定删除�?)) return;
+    if (!window.confirm('确定删除？')) return;
     try { await deleteService(id); setServices(s => s.filter(sv => sv.id !== id)); }
     catch { alert('删除失败'); }
   };
@@ -51,7 +51,7 @@ export default function ServicesList() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white tracking-tight">服务项目</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{services.length} 个服�?· 实时同步至前�?/p>
+          <p className="text-sm text-gray-500 mt-0.5">{services.length} 个服务 · 实时同步至前台</p>
         </div>
         <button onClick={openNew} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-teal-500 rounded-xl text-white text-sm font-semibold hover:opacity-90 transition-all shadow-lg shadow-purple-600/20">
           <FaPlus size={14} /> 添加服务
@@ -64,7 +64,7 @@ export default function ServicesList() {
         <div className="bg-[#0D0D1A] border border-white/5 rounded-2xl p-12 text-center">
           <FaCog className="mx-auto text-gray-700 mb-3" size={32} />
           <p className="text-gray-600 text-sm">暂无服务项目</p>
-          <button onClick={openNew} className="mt-3 text-sm text-purple-400 hover:text-purple-300">添加第一�?/button>
+          <button onClick={openNew} className="mt-3 text-sm text-purple-400 hover:text-purple-300">添加第一个</button>
         </div>
       ) : (
         <div className="grid gap-3">
@@ -112,22 +112,22 @@ export default function ServicesList() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-400 mb-1.5">描述</label>
-                <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} required rows={2} className="w-full px-4 py-2.5 bg-[#070710] border border-white/10 rounded-xl text-white text-sm placeholder-gray-600 focus:outline-none focus:border-purple-500/60 resize-none transition-all" placeholder="简短描�? />
+                <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} required rows={2} className="w-full px-4 py-2.5 bg-[#070710] border border-white/10 rounded-xl text-white text-sm placeholder-gray-600 focus:outline-none focus:border-purple-500/60 resize-none transition-all" placeholder="简短描述" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1.5">排序�?/label>
+                  <label className="block text-xs font-medium text-gray-400 mb-1.5">排序值</label>
                   <input type="number" value={form.sort_order} onChange={e => setForm({ ...form, sort_order: parseInt(e.target.value) || 99 })} className="w-full px-4 py-2.5 bg-[#070710] border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:border-purple-500/60 transition-all" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1.5">状�?/label>
+                  <label className="block text-xs font-medium text-gray-400 mb-1.5">状态</label>
                   <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} className="w-full px-4 py-2.5 bg-[#070710] border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:border-purple-500/60 transition-all">
                     <option value="active">启用</option><option value="inactive">停用</option>
                   </select>
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1.5">特性标签（逗号分隔�?/label>
+                <label className="block text-xs font-medium text-gray-400 mb-1.5">特性标签（逗号分隔）</label>
                 <input value={form.features} onChange={e => setForm({ ...form, features: e.target.value })} className="w-full px-4 py-2.5 bg-[#070710] border border-white/10 rounded-xl text-white text-sm placeholder-gray-600 focus:outline-none focus:border-purple-500/60 transition-all" placeholder="标签1, 标签2" />
               </div>
               <div className="flex gap-3 pt-2">
