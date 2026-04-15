@@ -2,16 +2,14 @@ FROM node:20-slim
 
 WORKDIR /app
 
-# Install dependencies first (layer caching)
 COPY package*.json ./
 RUN npm install --omit=dev
 
-# Copy source
 COPY src ./src
 
 ENV NODE_ENV=production
-ENV PORT=80
+ENV PORT=8080
 
-EXPOSE 80
+EXPOSE 8080
 
 CMD ["node", "src/index.js"]
