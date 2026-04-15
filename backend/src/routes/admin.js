@@ -42,7 +42,11 @@ router.get('/me', authMiddleware, (req, res) => {
 });
 
 // ========== 统一 CRUD（受保护） ==========
-const writableTables = ['hero_config', 'about_config', 'cta_config', 'services', 'case_studies', 'team_members', 'testimonials'];
+const writableTables = [
+  'hero_config', 'about_config', 'cta_config', 'site_settings', 'case_studies',
+  'services', 'team_members', 'testimonials',
+  'contact_config', 'faq_items', 'workflow_steps', 'booking_services', 'page_contents'
+];
 
 function tableAuth(req, res, next) {
   if (!writableTables.includes(req.params.table)) {

@@ -11,25 +11,25 @@ const defaultTeamMembers = [
     name: 'Alex Chen',
     role: '创始人 & 创意总监',
     bio: '10 年创意设计经验，曾任职于多家知名设计公司',
-    image: 'https://baas-api.wanwang.xin/toc/image/preview/team-member-1.jpg?w=400&h=400&q=80',
+    image: 'https://api.dicebear.com/7.x/avataaars/svg?seed=alex',
   },
   {
     name: 'Sarah Wang',
     role: '3D 艺术总监',
     bio: '资深 3D 艺术家，参与多个 AAA 游戏项目',
-    image: 'https://baas-api.wanwang.xin/toc/image/preview/team-member-2.jpg?w=400&h=400&q=80',
+    image: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sarah',
   },
   {
     name: 'Mike Liu',
     role: '技术负责人',
     bio: '全栈开发者，热衷于用技术实现创意想法',
-    image: 'https://baas-api.wanwang.xin/toc/image/preview/team-member-3.jpg?w=400&h=400&q=80',
+    image: 'https://api.dicebear.com/7.x/avataaars/svg?seed=mike',
   },
   {
     name: 'Emily Zhang',
     role: '教育顾问',
     bio: '资深设计教育专家，帮助数百名学生实现设计梦想',
-    image: 'https://baas-api.wanwang.xin/toc/image/preview/team-member-4.jpg?w=400&h=400&q=80',
+    image: 'https://api.dicebear.com/7.x/avataaars/svg?seed=emily',
   },
 ];
 
@@ -73,10 +73,10 @@ export default function About() {
             .filter((m: any) => m.status === 'active')
             .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
           const mapped = active.map((m: any) => ({
-            name: m.name,
-            role: m.role,
-            bio: m.bio,
-            image: m.avatar_url || defaultTeamMembers[0]?.image,
+            name: m.name || '成员',
+            role: m.role || '团队成员',
+            bio: m.bio || '',
+            image: m.image || defaultTeamMembers[0]?.image,
           }));
           setTeamMembers(mapped);
         }
@@ -139,7 +139,7 @@ export default function About() {
                   <div className="relative">
                     <div className="aspect-square bg-gradient-to-br from-[#4A5BFF]/20 to-[#7B3FF2]/20 rounded-3xl overflow-hidden">
                       <img
-                        src="https://baas-api.wanwang.xin/toc/image/preview/team-collaboration.jpg?w=600&h=600&q=80"
+                        src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=600&h=600&q=80"
                         alt="团队协作"
                         className="w-full h-full object-cover"
                       />

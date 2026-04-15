@@ -35,6 +35,27 @@ const services = [
   '教育咨询',
 ];
 
+const [footerServices, setFooterServices] = useState<string[]>(services);
+
+useEffect(() => {
+  const fetchFooterServices = async () => {
+    try {
+      const res = await configApi.getTable('booking_services');
+      const data = res.data?.data || [];
+      if (data.length > 0) {
+        const names = data
+          .map((s: any) => s.name || s.title)
+          .filter(Boolean)
+          .slice(0, 6);
+        if (names.length > 0) setFooterServices(names);
+      }
+    } catch {
+      // ignore errors, fallback to hardcoded
+    }
+  };
+  fetchFooterServices();
+}, []);
+
 export default function Footer() {
   const currentYear = new Date().getFullYear();
   const [contactInfo, setContactInfo] = useState(defaultContactInfo);
@@ -127,7 +148,7 @@ export default function Footer() {
           <div>
             <h4 className="text-white font-semibold mb-4">服务项目</h4>
             <ul className="space-y-2">
-              {services.map((service) => (
+              {footerServices.map((service) => (
                 <li key={service}>
                   <span className="text-gray-400 text-sm">{service}</span>
                 </li>

@@ -136,6 +136,8 @@ export default function ContactConfig() {
     try {
       if (editingStep?.id) {
         await api.put(`/config/workflow_steps/${editingStep.id}`, data);
+      } else {
+        await api.post('/config/workflow_steps', data);
       }
       setShowStepForm(false);
       setEditingStep(null);
@@ -283,6 +285,18 @@ export default function ContactConfig() {
       {/* 工作流程 Tab */}
       {activeTab === 'workflow' && (
         <div className="space-y-4">
+          <div className="flex justify-end mb-4">
+            <button
+              onClick={() => {
+                setEditingStep({ id: 0, step_number: workflowSteps.length + 1, title: '', description: '', icon: '' });
+                setShowStepForm(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-lg text-white hover:opacity-90 transition-opacity"
+            >
+              <FaPlus />
+              添加步骤
+            </button>
+          </div>
           <div className="flex items-center gap-4 mb-4">
             {workflowSteps.sort((a, b) => a.step_number - b.step_number).map((step, index) => (
               <div key={step.id} className="flex items-center">
@@ -292,6 +306,7 @@ export default function ContactConfig() {
                     setEditingStep(step);
                     setShowStepForm(true);
                   }}
+                  title="点击编辑"
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white font-bold">
@@ -525,7 +540,9 @@ export default function ContactConfig() {
       {showStepForm && editingStep && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-[#0F0F1A] rounded-2xl p-6 max-w-lg w-full">
-            <h2 className="text-2xl font-bold text-white mb-4">编辑工作流程步骤</h2>
+            <h2 className="text-2xl font-bold text-white mb-4">
+              {editingStep?.id ? '编辑工作流程步骤' : '添加工作流程步骤'}
+            </h2>
             <form
               onSubmit={(e) => {
                 e.preventDefault();

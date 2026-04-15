@@ -32,22 +32,37 @@ export default function AdminLayout() {
   const [loginError, setLoginError] = useState('');
 
   useEffect(() => {
-    if (!sessionStorage.getItem('admin_auth')) setShowLogin(true);
+    if (!sessionStorage.getItem('admin_token')) setShowLogin(true);
   }, []);
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    if (loginForm.username === 'admin' && loginForm.password === 'gk2024') {
-      sessionStorage.setItem('admin_auth', 'true');
+    setLoginError('');
+    try {
+      const res = await fetch(
+        (import.meta.env.VITE_API_URL || 'https://gaike-design-production.up.railway.app/api') + '/admin/login',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(loginForm),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setLoginError(data.error || '用户名或密码错误');
+        return;
+      }
+      sessionStorage.setItem('admin_token', data.token);
+      sessionStorage.setItem('admin_username', data.username || loginForm.username);
       setShowLogin(false);
-      setLoginError('');
-    } else {
-      setLoginError('用户名或密码错误');
+    } catch {
+      setLoginError('网络错误，请检查后端服务是否正常');
     }
   };
 
   const handleLogout = () => {
-    sessionStorage.removeItem('admin_auth');
+    sessionStorage.removeItem('admin_token');
+    sessionStorage.removeItem('admin_username');
     setShowLogin(true);
     navigate('/admin');
   };

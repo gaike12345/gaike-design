@@ -1,7 +1,9 @@
 import express from 'express';
+import jwt from 'jsonwebtoken';
 import { supabase, supabaseAdmin } from '../index.js';
 
 const router = express.Router();
+const JWT_SECRET = process.env.JWT_SECRET || 'qclaw_secret_2024';
 
 const validTables = [
   'hero_config', 'about_config', 'cta_config', 'site_settings', 'case_studies',
@@ -9,7 +11,23 @@ const validTables = [
   'contact_config', 'faq_items', 'workflow_steps', 'booking_services', 'page_contents'
 ];
 
-// ========== 首页配置聚合（必须放在 /:table 前面）==========
+// ========== JWT 鉴权中间件 ==========
+function authMiddleware(req, res, next) {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) {
+    return res.status(401).json({ error: '未登录或登录已过期' });
+  }
+  const token = auth.slice(7);
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    req.admin = payload;
+    next();
+  } catch (e) {
+    return res.status(401).json({ error: '无效的 token，请重新登录' });
+  }
+}
+
+// ========== 首页配置聚合（GET /api/config/home/all）— 公开读 ==========
 router.get('/home/all', async (req, res) => {
   try {
     const db = supabaseAdmin || supabase;
@@ -38,170 +56,12 @@ router.get('/home/all', async (req, res) => {
   }
 });
 
-// ========== 统一的数据表 API ==========
-
-// 获取配置列表（GET /api/config/:table）
-router.get('/:table', async (req, res) => {
-  try {
-    const { table } = req.params;
-
-    if (!validTables.includes(table)) {
-      return res.status(400).json({ error: '无效的数据表' });
-    }
-
-    const db = supabaseAdmin || supabase;
-    let query = db.from(table).select('*');
-
-    // 智能过滤
-    if (table === 'services') {
-      query = query.eq('status', 'active').order('sort_order', { ascending: true });
-    } else if (table === 'case_studies') {
-      query = query.eq('featured', true).order('sort_order', { ascending: true });
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error(`Error fetching ${table}:`, error);
-      return res.status(500).json({ error: `获取数据失败: ${error.message}` });
-    }
-    res.json({ data: data || [] });
-  } catch (err) {
-    console.error('Error fetching data:', err);
-    res.status(500).json({ error: '获取数据失败' });
-  }
-});
-
-// 获取单条配置（GET /api/config/:table/:id）
-router.get('/:table/:id', async (req, res) => {
-  try {
-    const { table, id } = req.params;
-
-    if (!validTables.includes(table)) {
-      return res.status(400).json({ error: '无效的数据表' });
-    }
-
-    const db = supabaseAdmin || supabase;
-    const { data, error } = await db
-      .from(table)
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return res.status(404).json({ error: '数据不存在' });
-      }
-      throw error;
-    }
-
-    res.json({ data });
-  } catch (err) {
-    console.error('Error fetching data:', err);
-    res.status(500).json({ error: '获取数据失败' });
-  }
-});
-
-// 创建数据（POST /api/config/:table）
-router.post('/:table', async (req, res) => {
-  try {
-    const { table } = req.params;
-
-    if (!validTables.includes(table)) {
-      return res.status(400).json({ error: '无效的数据表' });
-    }
-
-    if (!supabaseAdmin) {
-      return res.status(500).json({ error: '服务端配置错误' });
-    }
-
-    const data = req.body;
-    console.log(`[site-config] Creating in ${table}:`, JSON.stringify(data));
-
-    const { data: created, error } = await supabaseAdmin
-      .from(table)
-      .insert([data])
-      .select()
-      .single();
-
-    if (error) throw error;
-    res.status(201).json({ data: created });
-  } catch (err) {
-    console.error('Error creating data:', err);
-    res.status(500).json({ error: '创建数据失败' });
-  }
-});
-
-// 更新数据（PUT /api/config/:table/:id）
-router.put('/:table/:id', async (req, res) => {
-  try {
-    const { table, id } = req.params;
-
-    if (!validTables.includes(table)) {
-      return res.status(400).json({ error: '无效的数据表' });
-    }
-
-    if (!supabaseAdmin) {
-      return res.status(500).json({ error: '服务端配置错误' });
-    }
-
-    const data = req.body;
-    console.log(`[site-config] Updating ${table}[${id}]:`, JSON.stringify(data));
-
-    // 移除不可更新的字段
-    delete data.id;
-    delete data.created_at;
-
-    const { data: updated, error } = await supabaseAdmin
-      .from(table)
-      .update(data)
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return res.status(404).json({ error: '数据不存在' });
-      }
-      throw error;
-    }
-
-    res.json({ data: updated });
-  } catch (err) {
-    console.error('Error updating data:', err);
-    res.status(500).json({ error: '更新数据失败' });
-  }
-});
-
-// 删除数据（DELETE /api/config/:table/:id）
-router.delete('/:table/:id', async (req, res) => {
-  try {
-    const { table, id } = req.params;
-
-    if (!validTables.includes(table)) {
-      return res.status(400).json({ error: '无效的数据表' });
-    }
-
-    if (!supabaseAdmin) {
-      return res.status(500).json({ error: '服务端配置错误' });
-    }
-
-    const { error } = await supabaseAdmin.from(table).delete().eq('id', id);
-    if (error) throw error;
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Error deleting data:', err);
-    res.status(500).json({ error: '删除数据失败' });
-  }
-});
-
-// ========== 页面内容聚合 API ==========
+// ========== 页面内容聚合 API（GET /api/config/page/:pageKey）— 公开读 ==========
 const pageConfigMap = {
   contact: ['contact_config', 'faq_items', 'workflow_steps', 'booking_services'],
   home:   ['hero_config', 'about_config', 'cta_config', 'site_settings', 'case_studies'],
 };
 
-// GET /api/config/page/:pageKey — 批量获取页面配置
 router.get('/page/:pageKey', async (req, res) => {
   try {
     const { pageKey } = req.params;
@@ -231,11 +91,164 @@ router.get('/page/:pageKey', async (req, res) => {
   }
 });
 
-// PUT /api/config/page/:pageKey/batch — 批量更新页面配置
-router.put('/page/:pageKey/batch', async (req, res) => {
+// ========== 以下路由全部需要管理员鉴权 ==========
+
+// 获取配置列表（GET /api/config/:table）
+router.get('/:table', authMiddleware, async (req, res) => {
+  try {
+    const { table } = req.params;
+
+    if (!validTables.includes(table)) {
+      return res.status(400).json({ error: '无效的数据表' });
+    }
+
+    let query = supabaseAdmin.from(table).select('*');
+
+    // 智能过滤（管理后台看全部，不限 status）
+    if (table === 'case_studies') {
+      query = query.order('sort_order', { ascending: true });
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error(`Error fetching ${table}:`, error);
+      return res.status(500).json({ error: `获取数据失败: ${error.message}` });
+    }
+    res.json({ data: data || [] });
+  } catch (err) {
+    console.error('Error fetching data:', err);
+    res.status(500).json({ error: '获取数据失败' });
+  }
+});
+
+// 获取单条配置（GET /api/config/:table/:id）
+router.get('/:table/:id', authMiddleware, async (req, res) => {
+  try {
+    const { table, id } = req.params;
+
+    if (!validTables.includes(table)) {
+      return res.status(400).json({ error: '无效的数据表' });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from(table)
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return res.status(404).json({ error: '数据不存在' });
+      }
+      throw error;
+    }
+
+    res.json({ data });
+  } catch (err) {
+    console.error('Error fetching data:', err);
+    res.status(500).json({ error: '获取数据失败' });
+  }
+});
+
+// 创建数据（POST /api/config/:table）
+router.post('/:table', authMiddleware, async (req, res) => {
+  try {
+    const { table } = req.params;
+
+    if (!validTables.includes(table)) {
+      return res.status(400).json({ error: '无效的数据表' });
+    }
+
+    if (!supabaseAdmin) {
+      return res.status(500).json({ error: '服务端配置错误' });
+    }
+
+    const data = req.body;
+    console.log(`[site-config] [${req.admin?.username}] Creating in ${table}:`, JSON.stringify(data));
+
+    const { data: created, error } = await supabaseAdmin
+      .from(table)
+      .insert([data])
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.status(201).json({ data: created });
+  } catch (err) {
+    console.error('Error creating data:', err);
+    res.status(500).json({ error: '创建数据失败' });
+  }
+});
+
+// 更新数据（PUT /api/config/:table/:id）
+router.put('/:table/:id', authMiddleware, async (req, res) => {
+  try {
+    const { table, id } = req.params;
+
+    if (!validTables.includes(table)) {
+      return res.status(400).json({ error: '无效的数据表' });
+    }
+
+    if (!supabaseAdmin) {
+      return res.status(500).json({ error: '服务端配置错误' });
+    }
+
+    const data = req.body;
+    console.log(`[site-config] [${req.admin?.username}] Updating ${table}[${id}]:`, JSON.stringify(data));
+
+    // 移除不可更新的字段
+    delete data.id;
+    delete data.created_at;
+
+    const { data: updated, error } = await supabaseAdmin
+      .from(table)
+      .update(data)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return res.status(404).json({ error: '数据不存在' });
+      }
+      throw error;
+    }
+
+    res.json({ data: updated });
+  } catch (err) {
+    console.error('Error updating data:', err);
+    res.status(500).json({ error: '更新数据失败' });
+  }
+});
+
+// 删除数据（DELETE /api/config/:table/:id）
+router.delete('/:table/:id', authMiddleware, async (req, res) => {
+  try {
+    const { table, id } = req.params;
+
+    if (!validTables.includes(table)) {
+      return res.status(400).json({ error: '无效的数据表' });
+    }
+
+    if (!supabaseAdmin) {
+      return res.status(500).json({ error: '服务端配置错误' });
+    }
+
+    const { error } = await supabaseAdmin.from(table).delete().eq('id', id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting data:', err);
+    res.status(500).json({ error: '删除数据失败' });
+  }
+});
+
+// 批量更新页面配置（PUT /api/config/page/:pageKey/batch）— 鉴权
+router.put('/page/:pageKey/batch', authMiddleware, async (req, res) => {
   try {
     const { pageKey } = req.params;
-    const updates = req.body; // { table: { id, ...fields } }
+    const updates = req.body;
 
     if (!pageConfigMap[pageKey]) {
       return res.status(400).json({ error: '未知的页面配置 key' });
@@ -250,7 +263,7 @@ router.put('/page/:pageKey/batch', async (req, res) => {
         results[table] = { error: '无效的数据表' };
         return;
       }
-      console.log(`[site-config] Batch updating ${table}:`, JSON.stringify(data));
+      console.log(`[site-config] [${req.admin?.username}] Batch updating ${table}:`, JSON.stringify(data));
       const { data: updated, error } = await supabaseAdmin
         .from(table)
         .update(data)

@@ -79,10 +79,11 @@ export default function Contact() {
   useEffect(() => {
     const fetchContactData = async () => {
       try {
-        const [contactRes, faqRes, workflowRes] = await Promise.all([
+        const [contactRes, faqRes, workflowRes, serviceRes] = await Promise.all([
           configApi.getTable('contact_config'),
           configApi.getTable('faq_items'),
           configApi.getTable('workflow_steps'),
+          configApi.getTable('booking_services'),
         ]);
 
         const contacts = contactRes.data?.data || [];
@@ -120,6 +121,16 @@ export default function Contact() {
             .filter((w: any) => w.title)
             .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
           if (mapped.length > 0) setWorkflowSteps(mapped);
+        }
+
+        // 从 booking_services 动态填充服务选项
+        const bookingData = serviceRes.data?.data || [];
+        if (bookingData.length > 0) {
+          const names = bookingData
+            .map((s: any) => s.name || s.title)
+            .filter(Boolean)
+            .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+          if (names.length > 0) setServiceOptions(names);
         }
       } catch (error) {
         console.error('获取联系页数据失败:', error);

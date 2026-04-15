@@ -8,6 +8,7 @@ import Community from "./pages/Community";
 import Contact from "./pages/Contact";
 import Blog from "./pages/Blog";
 import BlogDetail from "./pages/BlogDetail";
+import NotFound from "./pages/NotFound";
 
 // Admin (注意大小写)
 import AdminLayout from "./pages/Admin/AdminLayout";
@@ -147,5 +148,10 @@ export const routes: RouteObject[] = [
         element: <ContactConfig />,
       },
     ],
+  },
+  // 404 — 必须放在最后
+  {
+    path: "*",
+    element: <NotFound />,
   },
 ];
