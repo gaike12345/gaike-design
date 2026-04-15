@@ -1,10 +1,10 @@
-import { useState } from 'react'; import { useParams, useNavigate } from 'react-router-dom'; import { FaArrowLeft, FaSave } from 'react-icons/fa'; import { api } from '../api';
+import { useState } from 'react'; import { useParams, useNavigate } from 'react-router-dom'; import { FaArrowLeft, FaSave } from 'react-icons/fa'; import { api, createWork, updateWork } from '../api';
 export default function WorkForm() {
   const { id } = useParams(); const navigate = useNavigate(); const isEdit = Boolean(id);
   const [form, setForm] = useState({ title:'', category:'', description:'', image:'', featured:false });
   const [saving, setSaving] = useState(false); const [msg, setMsg] = useState('');
   const save = async (e: React.FormEvent) => { e.preventDefault(); setSaving(true);
-    try { if(isEdit) await api.put(`/works/${id}`, form); else await api.post('/works', form); navigate('/admin/works'); }
+    try { if(isEdit) await updateWork(id, form); else await createWork(form); navigate('/admin/works'); }
     catch { setMsg('保存失败'); } finally { setSaving(false); }
   };
   return (
@@ -20,12 +20,12 @@ export default function WorkForm() {
         <div><label className="block text-xs font-medium text-gray-400 mb-1.5">封面图URL</label><input value={form.image} onChange={e=>setForm({...form,image:e.target.value})} className={I} placeholder="https://..."/></div>
         <div className="flex items-center gap-3">
           <input type="checkbox" checked={form.featured} onChange={e=>setForm({...form,featured:e.target.checked})} className="accent-purple-500 w-4 h-4"/>
-          <span className="text-sm text-gray-400">精选作品</span>
+          <span className="text-sm text-gray-400">精选作�?/span>
         </div>
         {msg&&<p className="text-red-400 text-sm">{msg}</p>}
         <div className="flex gap-3 pt-2">
           <button type="button" onClick={()=>navigate('/admin/works')} className="flex-1 py-2.5 bg-white/5 border border-white/10 rounded-xl text-gray-400 text-sm hover:bg-white/8 transition-all">取消</button>
-          <button type="submit" disabled={saving} className={BTN}>{saving?'保存中...':'保存'}</button>
+          <button type="submit" disabled={saving} className={BTN}>{saving?'保存�?..':'保存'}</button>
         </div>
       </form>
     </div>

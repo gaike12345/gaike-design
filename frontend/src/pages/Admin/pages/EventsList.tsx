@@ -1,13 +1,13 @@
-import { useState, useEffect } from 'react'; import { Link } from 'react-router-dom'; import { FaPlus, FaEdit, FaTrash, FaCalendarAlt } from 'react-icons/fa'; import { api } from '../api';
+import { useState, useEffect } from 'react'; import { Link } from 'react-router-dom'; import { FaPlus, FaEdit, FaTrash, FaCalendarAlt } from 'react-icons/fa'; import { api, deleteEvent } from '../api';
 export default function EventsList() {
   const [events, setEvents] = useState<any[]>([]); const [loading, setLoading] = useState(true);
   useEffect(() => { (async()=>{try{const r=await api.get('/events');setEvents(r.data?.data||[]);}catch{/*s*/}finally{setLoading(false);}})(); }, []);
-  const del = async (id: number) => { if(!confirm('删除？'))return; try{await api.delete(`/events/${id}`);setEvents(e=>e.filter(x=>x.id!==id));}catch{alert('失败');} };
+  const del = async (id: number) => { if(!confirm('删除�?))return; try{await deleteEvent(id);setEvents(e=>e.filter(x=>x.id!==id));}catch{alert('失败');} };
   const card = 'bg-[#0D0D1A] border border-white/5 rounded-xl p-4 hover:border-white/10 transition-all';
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <div><h1 className="text-2xl font-bold text-white tracking-tight">社群活动</h1><p className="text-sm text-gray-500 mt-0.5">{events.length} 个活动</p></div>
+        <div><h1 className="text-2xl font-bold text-white tracking-tight">社群活动</h1><p className="text-sm text-gray-500 mt-0.5">{events.length} 个活�?/p></div>
         <Link to="/admin/events/new" className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-teal-500 rounded-xl text-white text-sm font-semibold hover:opacity-90 transition-all shadow-lg shadow-purple-600/20"><FaPlus size={14}/>添加活动</Link>
       </div>
       {loading ? <div className="space-y-2">{[1,2].map(i=><div key={i} className={card+" h-20 animate-pulse"}/>)}</div>

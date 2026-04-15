@@ -4,7 +4,7 @@ import {
   FaPlus, FaEdit, FaTrash, FaServer, FaUsers,
   FaQuoteLeft, FaEnvelope, FaQuestionCircle, FaCalendarAlt, FaFileAlt
 } from 'react-icons/fa';
-import { api } from '../api';
+import { api, createRecord, updateRecord, deleteRecord } from '../api';
 
 // 全部 13 张配置表
 type TableKey =
@@ -78,10 +78,10 @@ export default function SiteConfig() {
         }
       });
       if (editingId === '__NEW__') {
-        await api.post(`/config/${activeTab}`, payload);
+        await createRecord(activeTab, payload);
         showMsg('success', '创建成功');
       } else {
-        await api.put(`/config/${activeTab}/${editingId}`, payload);
+        await updateRecord(activeTab, editingId, payload);
         showMsg('success', '保存成功');
       }
       setEditingId(null);
@@ -97,7 +97,7 @@ export default function SiteConfig() {
   const handleDelete = async (id: string) => {
     if (!window.confirm('确定删除？')) return;
     try {
-      await api.delete(`/config/${activeTab}/${id}`);
+      await deleteRecord(activeTab, id);
       showMsg('success', '删除成功');
       fetchRecords();
     } catch {

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { FaArrowLeft, FaImage, FaCalendar, FaMapMarker, FaUsers } from 'react-icons/fa';
-import { api } from '../api';
+import { api, createEvent, updateEvent } from '../api';
 import { toast } from 'sonner';
 
 interface EventFormData {
@@ -70,7 +70,7 @@ export default function EventForm() {
     e.preventDefault();
     
     if (!formData.title.trim()) {
-      toast.error('请输入活动标题');
+      toast.error('请输入活动标�?);
       return;
     }
     if (!formData.event_date) {
@@ -86,10 +86,10 @@ export default function EventForm() {
       };
 
       if (isEditing && id) {
-        await api.put(`/events/${id}`, submitData);
+        await updateEvent(id, submitData);
         toast.success('活动更新成功');
       } else {
-        await api.post('/events', submitData);
+        await createEvent(submitData);
         toast.success('活动创建成功');
       }
       navigate('/admin/events');
@@ -136,11 +136,11 @@ export default function EventForm() {
             value={formData.title}
             onChange={handleChange}
             className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
-            placeholder="请输入活动标题"
+            placeholder="请输入活动标�?
           />
         </div>
 
-        {/* 活动类型和时间 */}
+        {/* 活动类型和时�?*/}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label className="block text-gray-300 mb-2">活动类型</label>
@@ -152,8 +152,8 @@ export default function EventForm() {
             >
               <option value="online">线上活动</option>
               <option value="offline">线下活动</option>
-              <option value="workshop">工作坊</option>
-              <option value="sharing">分享会</option>
+              <option value="workshop">工作�?/option>
+              <option value="sharing">分享�?/option>
             </select>
           </div>
           <div>
@@ -171,7 +171,7 @@ export default function EventForm() {
           </div>
         </div>
 
-        {/* 地点和人数 */}
+        {/* 地点和人�?*/}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label className="block text-gray-300 mb-2">
@@ -190,8 +190,7 @@ export default function EventForm() {
           <div>
             <label className="block text-gray-300 mb-2">
               <FaUsers className="inline mr-2" />
-              最大参与人数
-            </label>
+              最大参与人�?            </label>
             <input
               type="number"
               name="max_participants"
@@ -204,19 +203,19 @@ export default function EventForm() {
           </div>
         </div>
 
-        {/* 状态 */}
+        {/* 状�?*/}
         <div>
-          <label className="block text-gray-300 mb-2">活动状态</label>
+          <label className="block text-gray-300 mb-2">活动状�?/label>
           <select
             name="status"
             value={formData.status}
             onChange={handleChange}
             className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-blue-500"
           >
-            <option value="upcoming">即将开始</option>
-            <option value="ongoing">进行中</option>
-            <option value="ended">已结束</option>
-            <option value="cancelled">已取消</option>
+            <option value="upcoming">即将开�?/option>
+            <option value="ongoing">进行�?/option>
+            <option value="ended">已结�?/option>
+            <option value="cancelled">已取�?/option>
           </select>
         </div>
 
@@ -257,7 +256,7 @@ export default function EventForm() {
             onChange={handleChange}
             rows={4}
             className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 resize-none"
-            placeholder="请输入活动详细描述..."
+            placeholder="请输入活动详细描�?.."
           />
         </div>
 
@@ -274,7 +273,7 @@ export default function EventForm() {
             disabled={loading}
             className="px-6 py-3 bg-gradient-to-r from-teal-500 to-green-600 rounded-xl text-white font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
           >
-            {loading ? '保存中...' : isEditing ? '保存修改' : '创建活动'}
+            {loading ? '保存�?..' : isEditing ? '保存修改' : '创建活动'}
           </button>
         </div>
       </form>
