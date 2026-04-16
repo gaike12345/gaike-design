@@ -1,9 +1,11 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import rateLimit from 'express-rate-limit';
 import jwt from 'jsonwebtoken';
+import { fileURLToPath } from 'url';
 
 import eventsRouter from './routes/events.js';
 import siteConfigRouter from './routes/site-config.js';
@@ -21,6 +23,12 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// ========== 前端静态文件服务 ==========
+import { fileURLToPath } from 'url';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const distPath = path.join(__dirname, '../../dist');
+app.use(express.static(distPath));
 
 // ========== 安全中间件配置 ==========
 
@@ -125,6 +133,10 @@ app.use((err, req, res, next) => {
 });
 
 app.use((req, res) => {
+  // SPA 路由支持：对于非 API 请求返回 index.html
+  if (!req.path.startsWith('/api/')) {
+    return res.sendFile(path.join(distPath, 'index.html'));
+  }
   res.status(404).json({ error: '请求的资源不存在' });
 });
 
