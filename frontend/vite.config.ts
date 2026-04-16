@@ -5,6 +5,7 @@ import path from "path";
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: '/',
   plugins: [
     react(),
     svgr({
@@ -31,7 +32,5 @@ export default defineConfig({
       },
     },
   },
-  ssr: {
-    noExternal: ["react-helmet-async", "react-router", "react-router-dom"],
-  },
+  ssr: false,
 });
