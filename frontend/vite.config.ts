@@ -24,14 +24,4 @@ export default defineConfig({
     port: 5173,
     host: "0.0.0.0",
   },
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks: undefined,
-      },
-    },
-  },
-  ssr: {
-    noExternal: ["react-helmet-async", "react-router", "react-router-dom"],
-  },
 });
