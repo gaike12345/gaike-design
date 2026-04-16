@@ -84,6 +84,26 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// ========== 调试端点 ==========
+app.get('/api/debug/db', async (req, res) => {
+  try {
+    const db = supabaseAdmin || supabase;
+    if (!db) {
+      return res.json({ 
+        status: 'no_supabase', 
+        supabaseUrl: !!process.env.SUPABASE_URL,
+        supabaseKey: !!process.env.SUPABASE_ANON_KEY,
+        supabaseAdminKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY
+      });
+    }
+    // 尝试查询 hero_config 表
+    const r = await db.from('hero_config').select('title,id').limit(1);
+    res.json({ status: 'ok', hero: r.data, error: r.error?.message });
+  } catch (e) {
+    res.json({ status: 'error', message: e.message });
+  }
+});
+
 // ========== API 路由 ==========
 app.use('/api/events', eventsRouter);
 app.use('/api/services', servicesRouter);
