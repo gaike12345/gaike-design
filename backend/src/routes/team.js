@@ -1,5 +1,5 @@
 import express from 'express';
-import { supabase } from '../index.js';
+import { supabase, supabaseAdmin } from '../index.js';
 
 const router = express.Router();
 
@@ -16,7 +16,7 @@ const validateRequired = (obj, fields) => {
 
 const validateLength = (str, min, max, fieldName) => {
   if (str && (str.length < min || str.length > max)) {
-    return `${fieldName}长度必须在 ${min}-${max} 个字符之间`;
+    return `${fieldName}长度必须�?${min}-${max} 个字符之间`;
   }
   return null;
 };
@@ -33,7 +33,7 @@ const sanitizeInput = (obj) => {
   return sanitized;
 };
 
-// 獲取所有團隊成員
+// 獲取所有團隊成�?
 router.get('/', async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -49,12 +49,12 @@ router.get('/', async (req, res) => {
   }
 });
 
-// 獲取單個成員
+// 獲取單個成�?
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    if (!/^\d+$/.test(id)) {
+    if (!/^[\w-]+$/.test(id)) {
       return res.status(400).json({ error: '无效的成员ID' });
     }
     
@@ -66,7 +66,7 @@ router.get('/:id', async (req, res) => {
     
     if (error) {
       if (error.code === 'PGRST116') {
-        return res.status(404).json({ error: '成员不存在' });
+        return res.status(404).json({ error: '成员不存�? });
       }
       throw error;
     }
@@ -95,13 +95,13 @@ router.post('/', async (req, res) => {
     if (roleError) return res.status(400).json({ error: roleError });
     
     if (sanitizedBody.bio) {
-      const bioError = validateLength(sanitizedBody.bio, 0, 500, '简介');
+      const bioError = validateLength(sanitizedBody.bio, 0, 500, '简�?);
       if (bioError) return res.status(400).json({ error: bioError });
     }
     
     const { name, role, bio, avatar_url, social_links, sort_order } = sanitizedBody;
-    const { data, error } = await supabase
-      .from('team_members')
+    const { data, error } = await supabaseAdmin?
+      .from('team_members')?
       .insert([{ name, role, bio, avatar_url, social_links, sort_order }])
       .select()
       .single();
@@ -119,7 +119,7 @@ router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    if (!/^\d+$/.test(id)) {
+    if (!/^[\w-]+$/.test(id)) {
       return res.status(400).json({ error: '无效的成员ID' });
     }
     
@@ -136,13 +136,13 @@ router.put('/:id', async (req, res) => {
     }
     
     if (sanitizedBody.bio) {
-      const bioError = validateLength(sanitizedBody.bio, 0, 500, '简介');
+      const bioError = validateLength(sanitizedBody.bio, 0, 500, '简�?);
       if (bioError) return res.status(400).json({ error: bioError });
     }
     
     const { name, role, bio, avatar_url, social_links, sort_order, status } = sanitizedBody;
-    const { data, error } = await supabase
-      .from('team_members')
+    const { data, error } = await supabaseAdmin?
+      .from('team_members')?
       .update({ name, role, bio, avatar_url, social_links, sort_order, status })
       .eq('id', id)
       .select()
@@ -150,7 +150,7 @@ router.put('/:id', async (req, res) => {
     
     if (error) {
       if (error.code === 'PGRST116') {
-        return res.status(404).json({ error: '成员不存在' });
+        return res.status(404).json({ error: '成员不存�? });
       }
       throw error;
     }
@@ -167,18 +167,18 @@ router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    if (!/^\d+$/.test(id)) {
+    if (!/^[\w-]+$/.test(id)) {
       return res.status(400).json({ error: '无效的成员ID' });
     }
     
-    const { error } = await supabase
-      .from('team_members')
+    const { error } = await supabaseAdmin?
+      .from('team_members')?
       .delete()
       .eq('id', id);
     
     if (error) {
       if (error.code === 'PGRST116') {
-        return res.status(404).json({ error: '成员不存在' });
+        return res.status(404).json({ error: '成员不存�? });
       }
       throw error;
     }

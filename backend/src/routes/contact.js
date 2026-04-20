@@ -1,5 +1,5 @@
 import express from 'express';
-import { supabase } from '../index.js';
+import { supabase, supabaseAdmin } from '../index.js';
 
 const router = express.Router();
 
@@ -16,7 +16,7 @@ const validateRequired = (obj, fields) => {
 
 const validateLength = (str, min, max, fieldName) => {
   if (str && (str.length < min || str.length > max)) {
-    return `${fieldName}长度必须在 ${min}-${max} 个字符之间`;
+    return `${fieldName}长度必须�?${min}-${max} 个字符之间`;
   }
   return null;
 };
@@ -47,7 +47,7 @@ const sanitizeInput = (obj) => {
   return sanitized;
 };
 
-// 獲取所有咨詢記錄
+// 獲取所有咨詢記�?
 router.get('/', async (req, res) => {
   try {
     const { status, page = 1, limit = 20 } = req.query;
@@ -89,7 +89,7 @@ router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    if (!/^\d+$/.test(id)) {
+    if (!/^[\\w-]+$/.test(id)) {
       return res.status(400).json({ error: '无效的咨询ID' });
     }
     
@@ -101,7 +101,7 @@ router.get('/:id', async (req, res) => {
     
     if (error) {
       if (error.code === 'PGRST116') {
-        return res.status(404).json({ error: '咨询记录不存在' });
+        return res.status(404).json({ error: '咨询记录不存�? });
       }
       throw error;
     }
@@ -128,13 +128,13 @@ router.post('/', async (req, res) => {
     const nameError = validateLength(sanitizedBody.name, 2, 50, '姓名');
     if (nameError) return res.status(400).json({ error: nameError });
     
-    // 验证邮箱格式（如果有）
+    // 验证邮箱格式（如果有�?
     if (sanitizedBody.email) {
       const emailError = validateEmail(sanitizedBody.email);
       if (emailError) return res.status(400).json({ error: emailError });
     }
     
-    // 验证手机号码格式（如果有）
+    // 验证手机号码格式（如果有�?
     if (sanitizedBody.phone) {
       const phoneError = validatePhone(sanitizedBody.phone);
       if (phoneError) return res.status(400).json({ error: phoneError });
@@ -146,7 +146,7 @@ router.post('/', async (req, res) => {
     }
     
     const { name, email, phone, wechat, service_type, project_description, budget } = sanitizedBody;
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('contact_submissions')
       .insert([{ 
         name, 
@@ -169,21 +169,21 @@ router.post('/', async (req, res) => {
   }
 });
 
-// 更新狀態
+// 更新狀�?
 router.patch('/:id/status', async (req, res) => {
   try {
     const { id } = req.params;
     
-    if (!/^\d+$/.test(id)) {
+    if (!/^[\\w-]+$/.test(id)) {
       return res.status(400).json({ error: '无效的咨询ID' });
     }
     
     const { status, notes } = req.body;
     
-    // 验证状态值
+    // 验证状态�?
     const validStatuses = ['pending', 'read', 'contacted', 'completed', 'archived'];
     if (status && !validStatuses.includes(status)) {
-      return res.status(400).json({ error: '无效的状态值' });
+      return res.status(400).json({ error: '无效的状态�? });
     }
     
     if (notes) {
@@ -191,7 +191,7 @@ router.patch('/:id/status', async (req, res) => {
       if (notesError) return res.status(400).json({ error: notesError });
     }
     
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('contact_submissions')
       .update({ 
         status, 
@@ -204,7 +204,7 @@ router.patch('/:id/status', async (req, res) => {
     
     if (error) {
       if (error.code === 'PGRST116') {
-        return res.status(404).json({ error: '咨询记录不存在' });
+        return res.status(404).json({ error: '咨询记录不存�? });
       }
       throw error;
     }
@@ -212,7 +212,7 @@ router.patch('/:id/status', async (req, res) => {
     res.json(data);
   } catch (err) {
     console.error('Error updating contact status:', err);
-    res.status(500).json({ error: '更新状态失败' });
+    res.status(500).json({ error: '更新状态失�? });
   }
 });
 
@@ -221,18 +221,18 @@ router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    if (!/^\d+$/.test(id)) {
+    if (!/^[\\w-]+$/.test(id)) {
       return res.status(400).json({ error: '无效的咨询ID' });
     }
     
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from('contact_submissions')
       .delete()
       .eq('id', id);
     
     if (error) {
       if (error.code === 'PGRST116') {
-        return res.status(404).json({ error: '咨询记录不存在' });
+        return res.status(404).json({ error: '咨询记录不存�? });
       }
       throw error;
     }

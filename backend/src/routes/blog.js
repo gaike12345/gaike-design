@@ -1,5 +1,5 @@
 import express from 'express';
-import { supabase } from '../index.js';
+import { supabase, supabaseAdmin } from '../index.js';
 
 const router = express.Router();
 
@@ -79,7 +79,8 @@ router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    if (!/^\d+$/.test(id)) {
+    // Accept UUID or integer for compatibility
+    if (!/^[\w-]+$/.test(id)) {
       return res.status(400).json({ error: '无效的文章ID' });
     }
     
@@ -122,7 +123,7 @@ router.post('/', async (req, res) => {
     }
     
     const { title, excerpt, content, category, author, image_url, read_time, published } = sanitizedBody;
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('blog_posts')
       .insert([{ 
         title, 
@@ -151,10 +152,12 @@ router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    if (!/^\d+$/.test(id)) {
+    // Accept UUID or integer for compatibility
+    if (!/^[\w-]+$/.test(id)) {
       return res.status(400).json({ error: '无效的文章ID' });
     }
     
+    // blog_posts uses UUID, accept both UUID and numeric for compatibility
     const sanitizedBody = sanitizeInput(req.body);
     
     if (sanitizedBody.title) {
@@ -163,7 +166,7 @@ router.put('/:id', async (req, res) => {
     }
     
     const { title, excerpt, content, category, author, image_url, read_time, published, status } = sanitizedBody;
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('blog_posts')
       .update({ 
         title, 
@@ -200,11 +203,12 @@ router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    if (!/^\d+$/.test(id)) {
+    // Accept UUID or integer for compatibility
+    if (!/^[\w-]+$/.test(id)) {
       return res.status(400).json({ error: '无效的文章ID' });
     }
     
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from('blog_posts')
       .delete()
       .eq('id', id);

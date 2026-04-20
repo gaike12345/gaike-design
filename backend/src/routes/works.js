@@ -1,5 +1,5 @@
 import express from 'express';
-import { supabase } from '../index.js';
+import { supabase, supabaseAdmin } from '../index.js';
 
 const router = express.Router();
 
@@ -16,10 +16,10 @@ const validateRequired = (obj, fields) => {
   return missing.length > 0 ? `缺少必填字段: ${missing.join(', ')}` : null;
 };
 
-// 验证字符串长度
+// 验证字符串长�?
 const validateLength = (str, min, max, fieldName) => {
   if (str && (str.length < min || str.length > max)) {
-    return `${fieldName}长度必须在 ${min}-${max} 个字符之间`;
+    return `${fieldName}长度必须�?${min}-${max} 个字符之间`;
   }
   return null;
 };
@@ -37,7 +37,7 @@ const sanitizeInput = (obj) => {
   const sanitized = {};
   for (const [key, value] of Object.entries(obj)) {
     if (typeof value === 'string') {
-      // 移除潜在的危险字符，但保留基本标点
+      // 移除潜在的危险字符，但保留基本标�?
       sanitized[key] = value
         .replace(/[<>]/g, '') // 移除 < > 防止 XSS
         .trim();
@@ -48,7 +48,7 @@ const sanitizeInput = (obj) => {
   return sanitized;
 };
 
-// 獲取所有作品
+// 獲取所有作�?
 router.get('/', async (req, res) => {
   try {
     const { category, status, limit = 20, offset = 0 } = req.query;
@@ -84,7 +84,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// 獲取單個作品
+// 獲取單個作�?
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -102,7 +102,7 @@ router.get('/:id', async (req, res) => {
     
     if (error) {
       if (error.code === 'PGRST116') {
-        return res.status(404).json({ error: '作品不存在' });
+        return res.status(404).json({ error: '作品不存�? });
       }
       throw error;
     }
@@ -139,8 +139,8 @@ router.post('/', async (req, res) => {
     }
     
     const { title, description, category, image_url, tags, featured } = sanitizedBody;
-    const { data, error } = await supabase
-      .from('works')
+    const { data, error } = await supabaseAdmin?
+      .from('works')?
       .insert([{ 
         title, 
         description, 
@@ -189,8 +189,8 @@ router.put('/:id', async (req, res) => {
     }
     
     const { title, description, category, image_url, tags, featured, status } = sanitizedBody;
-    const { data, error } = await supabase
-      .from('works')
+    const { data, error } = await supabaseAdmin?
+      .from('works')?
       .update({ 
         title, 
         description, 
@@ -207,7 +207,7 @@ router.put('/:id', async (req, res) => {
     
     if (error) {
       if (error.code === 'PGRST116') {
-        return res.status(404).json({ error: '作品不存在' });
+        return res.status(404).json({ error: '作品不存�? });
       }
       throw error;
     }
@@ -229,14 +229,14 @@ router.delete('/:id', async (req, res) => {
       return res.status(400).json({ error: '无效的作品ID' });
     }
     
-    const { error } = await supabase
-      .from('works')
+    const { error } = await supabaseAdmin?
+      .from('works')?
       .delete()
       .eq('id', id);
     
     if (error) {
       if (error.code === 'PGRST116') {
-        return res.status(404).json({ error: '作品不存在' });
+        return res.status(404).json({ error: '作品不存�? });
       }
       throw error;
     }

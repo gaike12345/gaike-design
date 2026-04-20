@@ -1,11 +1,11 @@
-ï»¿import express from 'express';
-import { supabase } from '../index.js';
+import express from 'express';
+import { supabase, supabaseAdmin } from '../index.js';
 
 const router = express.Router();
 
-// ========== è¾“å…¥éªŒè¯è¾…åŠ©å‡½æ•° ==========
+// ========== ÊäÈëÑéÖ¤¸¨Öúº¯Êı ==========
 
-// éªŒè¯å¿…å¡«å­—æ®µ
+// ÑéÖ¤±ØÌî×Ö¶Î
 const validateRequired = (obj, fields) => {
   const missing = [];
   for (const field of fields) {
@@ -13,37 +13,37 @@ const validateRequired = (obj, fields) => {
       missing.push(field);
     }
   }
-  return missing.length > 0 ? `ç¼ºå°‘å¿…å¡«å­—æ®µ: ${missing.join(', ')}` : null;
+  return missing.length > 0 ? `È±ÉÙ±ØÌî×Ö¶Î: ${missing.join(', ')}` : null;
 };
 
-// éªŒè¯å­—ç¬¦ä¸²é•¿åº¦
+// ÑéÖ¤×Ö·û´®³¤¶È
 const validateLength = (str, min, max, fieldName) => {
   if (str && (str.length < min || str.length > max)) {
-    return `${fieldName}é•¿åº¦å¿…é¡»åœ¨ ${min}-${max} ä¸ªå­—ç¬¦ä¹‹é—´`;
+    return `${fieldName}³¤¶È±ØĞëÔÚ ${min}-${max} ¸ö×Ö·ûÖ®¼ä`;
   }
   return null;
 };
 
-// éªŒè¯æ—¥æœŸæ ¼å¼
+// ÑéÖ¤ÈÕÆÚ¸ñÊ½
 const validateDate = (dateStr) => {
   if (!dateStr) return null;
   const date = new Date(dateStr);
   if (isNaN(date.getTime())) {
-    return 'æ— æ•ˆçš„æ—¥æœŸæ ¼å¼';
+    return 'ÎŞĞ§µÄÈÕÆÚ¸ñÊ½';
   }
   return null;
 };
 
-// éªŒè¯çŠ¶æ€å€¼
+// ÑéÖ¤×´Ì¬Öµ
 const validateStatus = (status) => {
   const validStatuses = ['upcoming', 'ongoing', 'completed', 'cancelled'];
   if (status && !validStatuses.includes(status)) {
-    return `çŠ¶æ€å¿…é¡»æ˜¯ä»¥ä¸‹ä¹‹ä¸€: ${validStatuses.join(', ')}`;
+    return `×´Ì¬±ØĞëÊÇÒÔÏÂÖ®Ò»: ${validStatuses.join(', ')}`;
   }
   return null;
 };
 
-// æ¸…ç†è¾“å…¥æ•°æ® - é˜²æ­¢ XSS
+// ÇåÀíÊäÈëÊı¾İ - ·ÀÖ¹ XSS
 const sanitizeInput = (obj) => {
   const sanitized = {};
   for (const [key, value] of Object.entries(obj)) {
@@ -58,7 +58,7 @@ const sanitizeInput = (obj) => {
   return sanitized;
 };
 
-// è·å–æ‰€æœ‰æ´»åŠ¨ï¼ˆæ”¯æŒåˆ†é¡µã€ç­›é€‰ï¼‰
+// »ñÈ¡ËùÓĞ»î¶¯£¨Ö§³Ö·ÖÒ³¡¢É¸Ñ¡£©
 router.get('/', async (req, res) => {
   try {
     const { 
@@ -74,22 +74,22 @@ router.get('/', async (req, res) => {
       .select('*', { count: 'exact' })
       .order('start_time', { ascending: true });
     
-    // çŠ¶æ€ç­›é€‰
+    // ×´Ì¬É¸Ñ¡
     if (status) {
       query = query.eq('status', status);
     }
     
-    // æ´»åŠ¨ç±»å‹ç­›é€‰
+    // »î¶¯ÀàĞÍÉ¸Ñ¡
     if (event_type) {
       query = query.eq('event_type', event_type);
     }
     
-    // åªè·å–å³å°†å¼€å§‹çš„æ´»åŠ¨
+    // Ö»»ñÈ¡¼´½«¿ªÊ¼µÄ»î¶¯
     if (upcoming === 'true') {
       query = query.gte('start_time', new Date().toISOString());
     }
     
-    // æ·»åŠ åˆ†é¡µ
+    // Ìí¼Ó·ÖÒ³
     const from = parseInt(offset);
     const to = from + parseInt(limit) - 1;
     query = query.range(from, to);
@@ -105,19 +105,19 @@ router.get('/', async (req, res) => {
     });
   } catch (err) {
     console.error('Error fetching events:', err);
-    res.status(500).json({ error: 'è·å–æ´»åŠ¨åˆ—è¡¨å¤±è´¥' });
+    res.status(500).json({ error: '»ñÈ¡»î¶¯ÁĞ±íÊ§°Ü' });
   }
 });
 
-// è·å–å•ä¸ªæ´»åŠ¨
+// »ñÈ¡µ¥¸ö»î¶¯
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    // éªŒè¯ UUID æ ¼å¼
+    // ÑéÖ¤ UUID ¸ñÊ½
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidRegex.test(id)) {
-      return res.status(400).json({ error: 'æ— æ•ˆçš„æ´»åŠ¨ID' });
+      return res.status(400).json({ error: 'ÎŞĞ§µÄ»î¶¯ID' });
     }
     
     const { data, error } = await supabase
@@ -128,7 +128,7 @@ router.get('/:id', async (req, res) => {
     
     if (error) {
       if (error.code === 'PGRST116') {
-        return res.status(404).json({ error: 'æ´»åŠ¨ä¸å­˜åœ¨' });
+        return res.status(404).json({ error: '»î¶¯²»´æÔÚ' });
       }
       throw error;
     }
@@ -136,41 +136,41 @@ router.get('/:id', async (req, res) => {
     res.json(data);
   } catch (err) {
     console.error('Error fetching event:', err);
-    res.status(500).json({ error: 'è·å–æ´»åŠ¨å¤±è´¥' });
+    res.status(500).json({ error: '»ñÈ¡»î¶¯Ê§°Ü' });
   }
 });
 
-// åˆ›å»ºæ´»åŠ¨
+// ´´½¨»î¶¯
 router.post('/', async (req, res) => {
   try {
     const sanitizedBody = sanitizeInput(req.body);
     
-    // éªŒè¯å¿…å¡«å­—æ®µ
+    // ÑéÖ¤±ØÌî×Ö¶Î
     const requiredError = validateRequired(sanitizedBody, ['title']);
     if (requiredError) {
       return res.status(400).json({ error: requiredError });
     }
     
-    // éªŒè¯å­—æ®µé•¿åº¦
-    const titleError = validateLength(sanitizedBody.title, 1, 200, 'æ ‡é¢˜');
+    // ÑéÖ¤×Ö¶Î³¤¶È
+    const titleError = validateLength(sanitizedBody.title, 1, 200, '±êÌâ');
     if (titleError) {
       return res.status(400).json({ error: titleError });
     }
     
     if (sanitizedBody.description) {
-      const descError = validateLength(sanitizedBody.description, 0, 5000, 'æè¿°');
+      const descError = validateLength(sanitizedBody.description, 0, 5000, 'ÃèÊö');
       if (descError) {
         return res.status(400).json({ error: descError });
       }
     }
     
-    // éªŒè¯æ—¥æœŸ
+    // ÑéÖ¤ÈÕÆÚ
     const dateError = validateDate(sanitizedBody.event_date);
     if (dateError) {
       return res.status(400).json({ error: dateError });
     }
     
-    // éªŒè¯çŠ¶æ€
+    // ÑéÖ¤×´Ì¬
     const statusError = validateStatus(sanitizedBody.status);
     if (statusError) {
       return res.status(400).json({ error: statusError });
@@ -187,8 +187,8 @@ router.post('/', async (req, res) => {
       status 
     } = sanitizedBody;
     
-    const { data, error } = await supabase
-      .from('community_events')
+    const { data, error } = await supabaseAdmin?
+      .from('community_events')?
       .insert([{ 
         title, 
         description, 
@@ -206,45 +206,45 @@ router.post('/', async (req, res) => {
     res.status(201).json(data);
   } catch (err) {
     console.error('Error creating event:', err);
-    res.status(500).json({ error: 'åˆ›å»ºæ´»åŠ¨å¤±è´¥' });
+    res.status(500).json({ error: '´´½¨»î¶¯Ê§°Ü' });
   }
 });
 
-// æ›´æ–°æ´»åŠ¨
+// ¸üĞÂ»î¶¯
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    // éªŒè¯ UUID æ ¼å¼
+    // ÑéÖ¤ UUID ¸ñÊ½
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidRegex.test(id)) {
-      return res.status(400).json({ error: 'æ— æ•ˆçš„æ´»åŠ¨ID' });
+      return res.status(400).json({ error: 'ÎŞĞ§µÄ»î¶¯ID' });
     }
     
     const sanitizedBody = sanitizeInput(req.body);
     
-    // éªŒè¯å­—æ®µé•¿åº¦
+    // ÑéÖ¤×Ö¶Î³¤¶È
     if (sanitizedBody.title) {
-      const titleError = validateLength(sanitizedBody.title, 1, 200, 'æ ‡é¢˜');
+      const titleError = validateLength(sanitizedBody.title, 1, 200, '±êÌâ');
       if (titleError) {
         return res.status(400).json({ error: titleError });
       }
     }
     
     if (sanitizedBody.description) {
-      const descError = validateLength(sanitizedBody.description, 0, 5000, 'æè¿°');
+      const descError = validateLength(sanitizedBody.description, 0, 5000, 'ÃèÊö');
       if (descError) {
         return res.status(400).json({ error: descError });
       }
     }
     
-    // éªŒè¯æ—¥æœŸ
+    // ÑéÖ¤ÈÕÆÚ
     const dateError = validateDate(sanitizedBody.event_date);
     if (dateError) {
       return res.status(400).json({ error: dateError });
     }
     
-    // éªŒè¯çŠ¶æ€
+    // ÑéÖ¤×´Ì¬
     const statusError = validateStatus(sanitizedBody.status);
     if (statusError) {
       return res.status(400).json({ error: statusError });
@@ -261,8 +261,8 @@ router.put('/:id', async (req, res) => {
       status 
     } = sanitizedBody;
     
-    const { data, error } = await supabase
-      .from('community_events')
+    const { data, error } = await supabaseAdmin?
+      .from('community_events')?
       .update({ 
         title, 
         description, 
@@ -280,7 +280,7 @@ router.put('/:id', async (req, res) => {
     
     if (error) {
       if (error.code === 'PGRST116') {
-        return res.status(404).json({ error: 'æ´»åŠ¨ä¸å­˜åœ¨' });
+        return res.status(404).json({ error: '»î¶¯²»´æÔÚ' });
       }
       throw error;
     }
@@ -288,37 +288,37 @@ router.put('/:id', async (req, res) => {
     res.json(data);
   } catch (err) {
     console.error('Error updating event:', err);
-    res.status(500).json({ error: 'æ›´æ–°æ´»åŠ¨å¤±è´¥' });
+    res.status(500).json({ error: '¸üĞÂ»î¶¯Ê§°Ü' });
   }
 });
 
-// åˆ é™¤æ´»åŠ¨
+// É¾³ı»î¶¯
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    // éªŒè¯ UUID æ ¼å¼
+    // ÑéÖ¤ UUID ¸ñÊ½
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidRegex.test(id)) {
-      return res.status(400).json({ error: 'æ— æ•ˆçš„æ´»åŠ¨ID' });
+      return res.status(400).json({ error: 'ÎŞĞ§µÄ»î¶¯ID' });
     }
     
-    const { error } = await supabase
-      .from('community_events')
+    const { error } = await supabaseAdmin?
+      .from('community_events')?
       .delete()
       .eq('id', id);
     
     if (error) {
       if (error.code === 'PGRST116') {
-        return res.status(404).json({ error: 'æ´»åŠ¨ä¸å­˜åœ¨' });
+        return res.status(404).json({ error: '»î¶¯²»´æÔÚ' });
       }
       throw error;
     }
     
-    res.json({ message: 'æ´»åŠ¨åˆ é™¤æˆåŠŸ' });
+    res.json({ message: '»î¶¯É¾³ı³É¹¦' });
   } catch (err) {
     console.error('Error deleting event:', err);
-    res.status(500).json({ error: 'åˆ é™¤æ´»åŠ¨å¤±è´¥' });
+    res.status(500).json({ error: 'É¾³ı»î¶¯Ê§°Ü' });
   }
 });
 
