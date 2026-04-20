@@ -1,5 +1,6 @@
 import { useState } from 'react'; import { FaSave, FaKey, FaDatabase } from 'react-icons/fa';
 const inputCls = 'w-full px-4 py-2.5 bg-[#070710] border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:border-purple-500/60 focus:ring-1 focus:ring-purple-500/20 transition-all';
+const btnPrimary = 'px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-xl transition-all';
 export default function Settings() {
   const [saved, setSaved] = useState(false);
   const handleSave = (e: React.FormEvent) => { e.preventDefault(); setSaved(true); setTimeout(()=>setSaved(false),2500); };
