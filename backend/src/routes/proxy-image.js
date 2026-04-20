@@ -1,119 +1,95 @@
 import express from 'express';
-import { createProxyMiddleware } from 'http-proxy-middleware';
 
 const router = express.Router();
 
-// 允许代理的域名白名单（防止 SSRF 攻击）
-const ALLOWED_DOMAINS = [
+// 允许代理的域名白名单
+const ALLOWED_HOSTS = [
   'images.unsplash.com',
   'unsplash.com',
   'i.imgur.com',
-  'imgur.com',
   'pbs.twimg.com',
-  'twimg.com',
-  'github.com',
-  'raw.githubusercontent.com',
   'assets.mixkit.co',
   'cdn.pixabay.com',
-  'pixabay.com',
   'images.pexels.com',
-  'pexels.com',
+  'picsum.photos',
 ];
 
-// 缓存配置
-const imageCache = new Map();
-const CACHE_TTL = 24 * 60 * 60 * 1000; // 24小时
-const MAX_CACHE_SIZE = 100; // 最多缓存100张图片
-
 router.get('/', async (req, res) => {
-  let targetUrl = req.query.url;
+  const rawUrl = req.query.url;
 
-  if (!targetUrl) {
+  if (!rawUrl) {
     return res.status(400).json({ error: '缺少 url 参数' });
   }
 
-  // URL 解码
+  // URL 解码并验证
+  let targetUrl;
   try {
-    targetUrl = decodeURIComponent(targetUrl);
+    targetUrl = decodeURIComponent(rawUrl);
   } catch {
     return res.status(400).json({ error: 'URL 解码失败' });
   }
 
-  // 验证 URL 格式
-  let parsedUrl;
+  let parsed;
   try {
-    parsedUrl = new URL(targetUrl);
+    parsed = new URL(targetUrl);
   } catch {
-    return res.status(400).json({ error: '无效的 URL' });
+    return res.status(400).json({ error: '无效的 URL 格式' });
   }
 
-  if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
-    return res.status(400).json({ error: '仅支持 http/https 协议' });
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    return res.status(400).json({ error: '仅支持 http/https' });
   }
 
   // 域名白名单检查
-  const hostname = parsedUrl.hostname.toLowerCase();
-  const isAllowed = ALLOWED_DOMAINS.some(domain =>
-    hostname === domain || hostname.endsWith('.' + domain)
+  const hostname = parsed.hostname.toLowerCase();
+  const allowed = ALLOWED_HOSTS.some(h =>
+    hostname === h || hostname.endsWith('.' + h)
   );
 
-  if (!isAllowed) {
+  if (!allowed) {
     return res.status(403).json({ error: '该域名不在代理白名单中' });
   }
 
-  // 检查缓存
-  const cacheKey = targetUrl;
-  const cached = imageCache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    res.set('Content-Type', cached.contentType);
-    res.set('Cache-Control', 'public, max-age=86400');
-    res.set('X-Cache', 'HIT');
-    return res.send(cached.data);
-  }
+  // 请求图片，设置 15 秒超时
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
 
-  // 从源站获取图片
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-
     const response = await fetch(targetUrl, {
       signal: controller.signal,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'image/*,*/*',
+        'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+        'Accept-Encoding': 'identity', // 不压缩，方便处理
       },
     });
 
-    clearTimeout(timeout);
+    clearTimeout(timer);
 
     if (!response.ok) {
-      return res.status(response.status).json({ error: '源站返回错误' });
+      return res.status(502).json({ error: `源站返回 ${response.status}` });
     }
 
     const contentType = response.headers.get('content-type') || 'image/jpeg';
-    const buffer = Buffer.from(await response.arrayBuffer());
+    const buffer = await response.arrayBuffer();
 
-    // 写入缓存
-    if (imageCache.size >= MAX_CACHE_SIZE) {
-      // 删除最早的缓存
-      const oldest = imageCache.keys().next().value;
-      imageCache.delete(oldest);
+    // 限制大小 20MB
+    if (buffer.byteLength > 20 * 1024 * 1024) {
+      return res.status(413).json({ error: '图片超过 20MB 限制' });
     }
-    imageCache.set(cacheKey, {
-      data: buffer,
-      contentType,
-      timestamp: Date.now(),
-    });
 
     res.set('Content-Type', contentType);
-    res.set('Cache-Control', 'public, max-age=86400');
-    res.set('X-Cache', 'MISS');
-    res.send(buffer);
+    res.set('Cache-Control', 'public, max-age=86400, s-maxage=604800');
+    res.set('X-Content-Type-Options', 'nosniff');
+    res.set('Connection', 'close');
+    res.send(Buffer.from(buffer));
+
   } catch (err) {
+    clearTimeout(timer);
     if (err.name === 'AbortError') {
-      return res.status(504).json({ error: '获取图片超时' });
+      return res.status(504).json({ error: '获取图片超时（超过15秒）' });
     }
-    console.error('Image proxy error:', err.message);
+    console.error('[proxy-image] fetch error:', err.message);
     return res.status(502).json({ error: '代理获取图片失败' });
   }
 });
