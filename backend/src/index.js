@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import helmet from 'helmet';
 import { createClient } from '@supabase/supabase-js';
 import rateLimit from 'express-rate-limit';
 import jwt from 'jsonwebtoken';
@@ -23,7 +24,26 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ========== 安全中间件配置 ==========
+// ========== 安全中间件 ==========
+// helmet 提供完整的安全 HTTP 头集合
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:", "https:", "blob:"],
+      connectSrc: ["'self'", "https://*.supabase.co", "https://*.railway.app", "wss://*.supabase.co"],
+      frameAncestors: ["'none'"],
+      formAction: ["'self'"],
+      baseUri: ["'self'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+}));
+
+// ========== CORS 配置 ==========
 
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN;
 app.use(cors({
@@ -41,14 +61,6 @@ app.use(cors({
   },
   credentials: true
 }));
-
-app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('X-XSS-Protection', '1; mode=block');
-  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-  next();
-});
 
 const generalLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100, message: { error: '请求过于频繁' }, standardHeaders: true, legacyHeaders: false });
 const uploadLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, message: { error: '上传过于频繁' } });
