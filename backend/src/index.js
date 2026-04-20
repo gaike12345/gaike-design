@@ -16,6 +16,7 @@ import portfolioRouter from './routes/portfolio.js';
 import worksRouter from './routes/works.js';
 import contactRouter from './routes/contact.js';
 import uploadRouter from './routes/upload.js';
+import proxyImageRouter from './routes/proxy-image.js';
 
 dotenv.config();
 
@@ -88,6 +89,64 @@ app.use('/api/contact', contactRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/config', siteConfigRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/proxy-image', proxyImageRouter);
+
+// ========== 图片 URL 自动代理中间件 ==========
+// 将 API 响应中的外部图片 URL 自动替换为代理 URL
+app.use('/api', (req, res, next) => {
+  if (req.method !== 'GET') return next();
+
+  const originalJson = res.json.bind(res);
+  res.json = (data) => {
+    if (data && typeof data === 'object') {
+      const backendHost = `${req.protocol}://${req.get('host')}`;
+      rewriteImageUrls(data, backendHost);
+    }
+    return originalJson(data);
+  };
+  next();
+});
+
+// 需要代理的图片域名
+const PROXY_DOMAINS = [
+  'images.unsplash.com',
+  'unsplash.com',
+  'i.imgur.com',
+  'pbs.twimg.com',
+  'assets.mixkit.co',
+  'cdn.pixabay.com',
+  'images.pexels.com',
+];
+
+function shouldProxyUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  try {
+    const parsed = new URL(url);
+    return PROXY_DOMAINS.some(d =>
+      parsed.hostname === d || parsed.hostname.endsWith('.' + d)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function rewriteImageUrls(obj, backendHost) {
+  if (!obj || typeof obj !== 'object') return;
+
+  if (Array.isArray(obj)) {
+    obj.forEach(item => rewriteImageUrls(item, backendHost));
+    return;
+  }
+
+  for (const key of Object.keys(obj)) {
+    const val = obj[key];
+    if (typeof val === 'string' && shouldProxyUrl(val)) {
+      obj[key] = `${backendHost}/api/proxy-image?url=${encodeURIComponent(val)}`;
+    } else if (typeof val === 'object' && val !== null) {
+      rewriteImageUrls(val, backendHost);
+    }
+  }
+}
 
 // ========== 错误处理 ==========
 app.use((err, req, res, next) => {
