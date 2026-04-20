@@ -91,7 +91,60 @@ app.use('/api/config', siteConfigRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/proxy-image', proxyImageRouter);
 
+// ========== 图片 URL 自动代理中间件 ==========
+// 自动将 API 响应中的外部图片 URL 替换为代理 URL
+const PROXY_DOMAINS = [
+  'images.unsplash.com',
+  'unsplash.com',
+  'i.imgur.com',
+  'pbs.twimg.com',
+  'assets.mixkit.co',
+  'cdn.pixabay.com',
+  'images.pexels.com',
+];
 
+function proxyUrl(url, backendHost) {
+  if (!url || typeof url !== 'string') return url;
+  try {
+    const parsed = new URL(url);
+    if (PROXY_DOMAINS.some(d => parsed.hostname === d || parsed.hostname.endsWith('.' + d))) {
+      return `${backendHost}/api/proxy-image?url=${encodeURIComponent(url)}`;
+    }
+  } catch { /* invalid URL, return as-is */ }
+  return url;
+}
+
+function rewriteImageUrls(obj, backendHost) {
+  if (!obj || typeof obj !== 'object') return;
+  if (Array.isArray(obj)) { obj.forEach(item => rewriteImageUrls(item, backendHost)); return; }
+  if (obj.error !== undefined) return; // 跳过错误响应
+  for (const key of Object.keys(obj)) {
+    const val = obj[key];
+    if (typeof val === 'string') {
+      obj[key] = proxyUrl(val, backendHost);
+    } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+      rewriteImageUrls(val, backendHost);
+    } else if (Array.isArray(val)) {
+      val.forEach(item => {
+        if (item && typeof item === 'object') rewriteImageUrls(item, backendHost);
+      });
+    }
+  }
+}
+
+app.use('/api', (req, res, next) => {
+  if (req.path === '/proxy-image' || req.path === '/health') return next();
+  if (req.method !== 'GET') return next();
+  const originalJson = res.json.bind(res);
+  const backendHost = `${req.protocol}://${req.get('host')}`;
+  res.json = (data) => {
+    if (data && typeof data === 'object' && !data.error) {
+      rewriteImageUrls(data, backendHost);
+    }
+    return originalJson(data);
+  };
+  next();
+});
 
 // ========== 错误处理 ==========
 app.use((err, req, res, next) => {
