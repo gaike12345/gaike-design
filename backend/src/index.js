@@ -41,6 +41,9 @@ app.use(helmet({
     },
   },
   crossOriginEmbedderPolicy: false,
+  frameguard: {
+    action: 'deny',
+  },
 }));
 
 // ========== CORS 配置 ==========
