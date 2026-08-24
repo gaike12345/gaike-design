@@ -2,23 +2,52 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" href="/favicon.ico" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>盖可朋友圈 - 设计师作品集</title>
-    <meta name="description" content="盖可朋友圈，专注于AI辅助设计、概念艺术、场景设计、数字绘画的专业设计师作品集。涵盖游戏、影视、广告等多领域视觉创意。" />
-    <meta name="theme-color" content="#0f172a" />
-    <!-- Open Graph -->
-    <meta property="og:title" content="盖可朋友圈 - 设计师作品集" />
-    <meta property="og:description" content="专业设计师作品集，涵盖AI辅助设计、概念艺术、场景设计等创意视觉作品。" />
+
+    <!-- ============== 基础 SEO Meta（已修复：盖可朋友圈 → 盖可设计圈） ============== -->
+    <title>盖可设计圈 - 让创意落地，让设计发声</title>
+    <meta
+      name="description"
+      content="盖可设计圈，专注于AI辅助设计、3D建模、应用开发、概念艺术、场景设计、数字绘画的专业设计师成长社区。涵盖游戏、影视、广告等多领域视觉创意。"
+    />
+    <meta
+      name="keywords"
+      content="盖可设计圈, 3D 建模, 应用开发, 原画设计, 设计服务, 创意社区, 设计师作品集, Gaike Design"
+    />
+    <meta name="author" content="盖可设计圈 Gaike Design Circle" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#6366f1" />
+
+    <!-- ============== Open Graph / Facebook（已修复品牌名） ============== -->
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://www.gaike.xyz" />
-    <!-- 站点配置注入 -->
-    <script>
-      window.__CONFIG__ = { siteId: "WS20260329122613000001" };
-    </script>
+    <meta property="og:site_name" content="盖可设计圈" />
+    <meta property="og:title" content="盖可设计圈 - 让创意落地，让设计发声" />
+    <meta
+      property="og:description"
+      content="盖可设计圈：技能 + 学习 + 社交一体化的设计师成长社区。提供 3D 建模、应用开发、原画设计、学习交友、教育咨询五大服务。"
+    />
+    <meta property="og:url" content="https://www.gaike.xyz/" />
+    <meta property="og:image" content="https://www.gaike.xyz/og-cover.png" />
+    <meta property="og:locale" content="zh_CN" />
+
+    <!-- ============== Twitter Card ============== -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="盖可设计圈 - 让创意落地，让设计发声" />
+    <meta
+      name="twitter:description"
+      content="盖可设计圈：技能 + 学习 + 社交一体化的设计师成长社区。"
+    />
+    <meta name="twitter:image" content="https://www.gaike.xyz/og-cover.png" />
+
+    <!-- ============== 规范链接（防止重复收录） ============== -->
+    <link rel="canonical" href="https://www.gaike.xyz/" />
+    <link rel="dns-prefetch" href="https://gaike-design-production.up.railway.app" />
+    <link rel="preconnect" href="https://gaike-design-production.up.railway.app" crossorigin />
+    <link rel="preconnect" href="https://baas-api.wanwang.xin" crossorigin />
   </head>
   <body>
-    <div id="root"><!--app-html--></div>
+    <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
