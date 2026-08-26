@@ -1,0 +1,2 @@
+﻿:root { --brand-500:#3B82F6; }
+body { /* 中文字 漫剧圈 与 引号 "test" 'single' 与模板 ${foo} */ }
