@@ -14,9 +14,10 @@ import { useProjectStore } from '../../store/useProjectStore'
 import { useQuotaStore } from '../../store/useQuotaStore'
 import { formatTokensCompact } from '../../services/cost'
 import {
-  UBaseNode, UNODE_META, renderUnifiedNodeContent, ImageSettingsPanel, VideoSettingsPanel,
+  UNODE_META,
   HEADER_HEIGHT, PORT_GAP, PORT_Y_OFFSET,
 } from './UnifiedNodes'
+import { CanvasNode } from './CanvasNode'
 import { Plus, Trash2, Maximize2, Wand2, Move, Wrench, Library, Users, History, Keyboard, BookOpen, Save, Shuffle, Link2Off, Grid3x3, ZoomIn, ZoomOut, Share2, AlignHorizontalJustifyCenter, CircleHelp, Sparkles, Eye, EyeOff, X, RotateCcw, Minus, Type, FileText, Image as ImageIcon, Film, Music, Ban, SlidersHorizontal, Layers, Upload, Clock, RefreshCw, Box, GalleryHorizontalEnd, ChevronRight, ChevronDown, Home, FolderOpen } from 'lucide-react'
 
 import { cn } from '../../lib/utils'
@@ -680,23 +681,42 @@ export default function UnifiedCanvas() {
   }
 
   // 节点拖拽开始
-  const onNodeDragStart = (e: MouseEvent, node: UCanvasNode) => {
+  // useCallback 稳定引用：避免每次渲染时新建函数，配合 CanvasNode memo 生效
+  const handleNodeMouseDown = useCallback((e: MouseEvent, nodeId: string) => {
     e.stopPropagation()
-    selectNode(node.id)
+    selectNode(nodeId)
+    const node = useUnifiedCanvasStore.getState().nodes.find((n) => n.id === nodeId)
+    if (!node) return
     const c = toCanvasRef.current(e.clientX, e.clientY)
     dragNodeRef.current = {
-      nodeId: node.id,
+      nodeId,
       offsetX: c.x - node.position.x,
       offsetY: c.y - node.position.y,
     }
-  }
+  }, [selectNode])
+
+  // 节点右键菜单
+  const handleNodeContextMenu = useCallback((e: MouseEvent, nodeId: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const rect = containerRef.current?.getBoundingClientRect()
+    setContextMenu({
+      x: e.clientX - (rect?.left ?? 0),
+      y: e.clientY - (rect?.top ?? 0),
+      kind: 'node',
+      nodeId,
+    })
+  }, [])
 
   // 端口拖拽开始
-  const onPortStart = (e: MouseEvent, node: UCanvasNode, portId: string, type: UnifiedPortType, isOutput: boolean) => {
+  const handlePortStart = useCallback((e: MouseEvent, nodeId: string, portId: string, type: UnifiedPortType, isOutput: boolean) => {
     e.stopPropagation()
     e.preventDefault()
+    const state = useUnifiedCanvasStore.getState()
+    const node = state.nodes.find((n) => n.id === nodeId)
+    if (!node) return
     const pos = getPortPos(node, portId, isOutput)
-    const fromPort = { nodeId: node.id, portId, type, isOutput }
+    const fromPort = { nodeId, portId, type, isOutput }
     // 关键：先设置 ref，确保立即生效，不等待 React 异步
     dragActiveRef.current = true
     dragFromPortRef.current = fromPort
@@ -718,12 +738,12 @@ export default function UnifiedCanvas() {
       svgEl.appendChild(pathEl)
       dragPathRef.current = pathEl
     }
-  }
+  }, [startDrag])
 
-  // 端口释放 ——  所有连接逻辑统一在 window 级 onUp 中处理
-  const onPortUp = (_e: MouseEvent) => {
+  // 端口释放 —— 所有连接逻辑统一在 window 级 onUp 中处理
+  const handlePortUp = useCallback((_e: MouseEvent) => {
     // 不再阻止冒泡，确保 window 级 mouseup 处理器能接收到事件并创建连接
-  }
+  }, [])
 
   return (
     <div className="canvas-dark relative h-full w-full overflow-hidden bg-black">
@@ -943,47 +963,25 @@ export default function UnifiedCanvas() {
         </svg>
 
         {/* 节点层（画布坐标变换） */}
-        <div
-          className="absolute left-0 top-0 origin-top-left"
-          style={{
-            transform: 'translate(' + viewport.x + 'px, ' + viewport.y + 'px) scale(' + viewport.zoom + ')',
-          }}
-        >
-          {nodes.map((node) => {
-            const meta = UNODE_META[node.type]
-            const ports = UNODE_PORTS[node.type]
-            const size = UNODE_SIZE[node.type]
-            const isSelected = selectedNodeId === node.id
-            const settingsPanel = isSelected && node.type === 'image' ? (
-              <ImageSettingsPanel node={node} />
-            ) : isSelected && node.type === 'video' ? (
-              <VideoSettingsPanel node={node} />
-            ) : null
-            return (
-              <UBaseNode
+          {/* 性能优化：每个 CanvasNode 按 id 粒度订阅 store，
+              只有变化的节点才重渲染，而非全量重渲 */}
+          <div
+            className="absolute left-0 top-0 origin-top-left"
+            style={{
+              transform: 'translate(' + viewport.x + 'px, ' + viewport.y + 'px) scale(' + viewport.zoom + ')',
+            }}
+          >
+            {nodes.map((node) => (
+              <CanvasNode
                 key={node.id}
-                node={node}
-                selected={isSelected}
-                meta={meta}
-                ports={ports}
-                size={size}
-                onMouseDown={(e) => onNodeDragStart(e, node)}
-                onContextMenu={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  const rect = containerRef.current?.getBoundingClientRect()
-                  setContextMenu({ x: e.clientX - (rect?.left ?? 0), y: e.clientY - (rect?.top ?? 0), kind: 'node', nodeId: node.id })
-                }}
-                onPortStart={(e, portId, type, isOutput) => onPortStart(e, node, portId, type, isOutput)}
-                onPortUp={(e) => onPortUp(e)}
-                onDelete={() => useUnifiedCanvasStore.getState().removeNode(node.id)}
-                settingsPanel={settingsPanel}
-              >
-                {renderUnifiedNodeContent(node)}
-              </UBaseNode>
-            )
-          })}
-        </div>
+                nodeId={node.id}
+                onNodeMouseDown={handleNodeMouseDown}
+                onNodeContextMenu={handleNodeContextMenu}
+                onPortStart={handlePortStart}
+                onPortUp={handlePortUp}
+              />
+            ))}
+          </div>
       </div>
 
       {/* 右键上下文菜单 */}

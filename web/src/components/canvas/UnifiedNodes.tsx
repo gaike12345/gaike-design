@@ -4,7 +4,7 @@
 // UBaseNode: 节点容器(header + 端口 + 内容 + 删除)
 // 具体节点: TextNode / ScriptNode / ImageNode / VideoNode / AudioNode / UNegativeNode / UParamsNode
 
-import { useRef, useState, useCallback, useEffect, type ReactNode, type MouseEvent, type ComponentType, type SVGProps } from 'react'
+import { useRef, useState, useCallback, useEffect, memo, type ReactNode, type MouseEvent, type ComponentType, type SVGProps } from 'react'
 import { createPortal } from 'react-dom'
 import {
   X, Dices, Loader2, Wand2, RotateCcw, Play, Pause, Minus, Plus,
@@ -85,7 +85,7 @@ export function removeConnection(connId: string) {
 }
 
 // 引用小图标组件（带 hover 预览 —— 使用 state 控制 + fixed 定位避免父容器裁剪）
-function RefIcon({
+const RefIcon = memo(function RefIcon({
   refData,
   accentColor,
   onPreview,
@@ -213,7 +213,7 @@ function RefIcon({
       )}
     </>
   )
-}
+})
 
 // 节点元信息（标签/图标/颜色）
 export const UNODE_META: Record<UnifiedNodeType, { label: string; icon: IconComponent; color: string }> = {
@@ -263,7 +263,10 @@ const INPUT_PORT_X = 0 - NODE_BORDER      // = -1
 const OUTPUT_PORT_X = (w: number) => w - NODE_BORDER // = w - 1
 
 // 节点容器基类：header + 内容区（hover 时在端口位置显示可见的 + 号连接按钮）
-export function UBaseNode({
+// memo 化：仅当 node/selected/meta/ports/size 等 props 变化时才重渲染
+// children 和 settingsPanel 是 ReactNode，memo 浅比较会判为不同引用，
+// 但上层 CanvasNode 组件会通过稳定订阅来减少触发频率
+export const UBaseNode = memo(function UBaseNode({
   node, selected, meta, ports, size, onMouseDown, onContextMenu, onPortStart, onPortUp, onDelete, children, settingsPanel,
 }: BaseNodeProps) {
   const Icon = meta.icon
@@ -423,13 +426,13 @@ export function UBaseNode({
       )}
     </div>
   )
-}
+})
 
 // 端口连接热区：
 // - invisible 模式：12x12 热区 不变，用于精准连线
 // - plusVisible=true 时：在同坐标叠加一个可见的 "+ 圆形锚点"（图 1），用户视觉上看到的连接按钮
 // - virtual=true：虚拟端口，只显示 +号锚点，不渲染小原点壳
-function UPortHandle({
+const UPortHandle = memo(function UPortHandle({
   port, isOutput, x, y, onPortStart, onPortUp, invisible, plusVisible, virtual,
 }: {
   port: UPort
@@ -502,11 +505,11 @@ function UPortHandle({
       </div>
     </div>
   )
-}
+})
 
 // ==================== 图片生成节点（仅预览，设置面板独立浮动） ====================
 
-export function ImageNode({ node }: { node: UCanvasNode }) {
+export const ImageNode = memo(function ImageNode({ node }: { node: UCanvasNode }) {
   const runImageGen = useUnifiedCanvasStore((s) => s.runImageGen)
   const updateNodeData = useUnifiedCanvasStore((s) => s.updateNodeData)
   const selectNode = useUnifiedCanvasStore((s) => s.selectNode)
@@ -727,7 +730,7 @@ export function ImageNode({ node }: { node: UCanvasNode }) {
       )}
     </div>
   )
-}
+})
 
 // ==================== 图片设置面板（独立浮动窗口） ====================
 export function ImageSettingsPanel({ node }: { node: UCanvasNode }) {
@@ -1379,7 +1382,7 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
 }
 
 // ==================== 视频生成节点 ====================
-export function VideoNode({ node }: { node: UCanvasNode }) {
+export const VideoNode = memo(function VideoNode({ node }: { node: UCanvasNode }) {
   const status = node.data.videoStatus ?? 'idle'
   const selectNode = useUnifiedCanvasStore((s) => s.selectNode)
   const meta = UNODE_META['video']
@@ -1477,10 +1480,10 @@ export function VideoNode({ node }: { node: UCanvasNode }) {
       )}
     </div>
   )
-}
+})
 
 // ==================== 音频生成节点 ====================
-export function AudioNode({ node }: { node: UCanvasNode }) {
+export const AudioNode = memo(function AudioNode({ node }: { node: UCanvasNode }) {
   const update = useUnifiedCanvasStore((s) => s.updateNodeData)
   const runAudioGen = useUnifiedCanvasStore((s) => s.runAudioGen)
   useUnifiedCanvasStore((s) => s.connections) // 订阅变化以刷新引用卡片
@@ -1599,7 +1602,7 @@ export function AudioNode({ node }: { node: UCanvasNode }) {
       <p className="text-[10px] text-neutral-500">直接填写 TTS 朗读内容</p>
     </div>
   )
-}
+})
 
 // 节点内容渲染分发
 export function renderUnifiedNodeContent(node: UCanvasNode): ReactNode {
