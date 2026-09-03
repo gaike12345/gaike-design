@@ -6,6 +6,7 @@ import prisma from './prisma'
 import { signToken } from './jwt'
 import { cfgNum } from './siteConfig'
 import { generateNextUid } from './uidGenerator'
+import logger from './logger'
 
 // 验证码存储（内存模式）— 格式：{ [email]: { code, expireAt, sendAt } }
 const codeStore = new Map<string, { code: string; expireAt: number; sendAt: number }>()
@@ -43,7 +44,7 @@ export async function sendEmailCode(email: string): Promise<{ ok: boolean; error
 
   // 未配置 SMTP 时使用开发模式（验证码打印到控制台 + 直接返回 code）
   if (!smtpUser || !smtpPass) {
-    console.warn(`[DEV MODE] 邮箱验证码（${trimmed}）：${code}（未配置 SMTP，验证码仅输出到控制台）`)
+    logger.warn('邮箱验证码输出到控制台（开发模式，未配置 SMTP）', { email: trimmed, code })
     codeStore.set(trimmed, { code, expireAt: now + CODE_EXPIRE, sendAt: now })
     return { ok: true }
   }
@@ -88,7 +89,7 @@ export async function sendEmailCode(email: string): Promise<{ ok: boolean; error
     codeStore.set(trimmed, { code, expireAt: now + CODE_EXPIRE, sendAt: now })
     return { ok: true }
   } catch (e) {
-    console.error('发送邮箱验证码失败：', e)
+    logger.error('发送邮箱验证码失败', { error: e instanceof Error ? e.message : String(e), email: trimmed })
     return { ok: false, error: '验证码发送失败，请稍后重试' }
   }
 }

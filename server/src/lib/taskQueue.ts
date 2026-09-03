@@ -27,6 +27,7 @@
 
 import { getRedis, isRedisReady } from './redis'
 import prisma from './prisma'
+import logger from './logger'
 import { EventEmitter } from 'events'
 
 // ========== 类型定义 ==========
@@ -241,12 +242,12 @@ class TaskQueueService {
       if (isRedisReady()) {
         this.backend = new RedisBackend()
         this.useRedis = true
-        console.info('[TaskQueue] 使用 Redis 后端')
+        logger.info('任务队列使用 Redis 后端')
       } else {
         redis.once('ready', () => {
           this.backend = new RedisBackend()
           this.useRedis = true
-          console.info('[TaskQueue] 已切换到 Redis 后端')
+          logger.info('任务队列已切换到 Redis 后端')
         })
       }
 
@@ -262,7 +263,7 @@ class TaskQueueService {
       })
       redis.subscribe(STATUS_CHANNEL).catch(() => {})
     } else {
-      console.info('[TaskQueue] 使用内存后端（开发/降级模式）')
+      logger.info('任务队列使用内存后端（开发/降级模式）')
     }
   }
 
@@ -452,7 +453,7 @@ class TaskQueueService {
       }
     } catch (e) {
       // 数据库同步失败不影响队列主流程
-      console.warn('[TaskQueue] 数据库同步失败：', e)
+      logger.warn('任务队列数据库同步失败', { error: e instanceof Error ? e.message : String(e) })
     }
   }
 }

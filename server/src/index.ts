@@ -84,12 +84,12 @@ app.use(cors({
     if (matched) {
       // 生产环境额外检查：必须是 HTTPS
       if (IS_PROD && origin.startsWith('http://') && !origin.includes('localhost')) {
-        console.warn('[CORS] 拒绝非 HTTPS 源:', origin)
+        logger.warn('CORS 拒绝非 HTTPS 源', { origin })
         return callback(new Error('生产环境仅允许 HTTPS 跨域请求'), false)
       }
       callback(null, true)
     } else {
-      console.warn('[CORS] 拒绝未授权的源:', origin)
+      logger.warn('CORS 拒绝未授权的源', { origin })
       callback(new Error('CORS 策略不允许该来源'), false)
     }
   },

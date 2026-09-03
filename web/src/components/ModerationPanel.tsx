@@ -134,7 +134,10 @@ export default function ModerationPanel() {
     try {
       const r = await apiGet<{ ok: boolean; stats: Stats }>('/api/admin/moderation/stats')
       if (r.ok && r.stats) setStats(r.stats)
-    } catch { /* ignore */ }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[Moderation] 加载统计失败:', e)
+    }
   }, [])
 
   const loadLogs = useCallback(async () => {
@@ -148,7 +151,10 @@ export default function ModerationPanel() {
         `/api/admin/moderation/logs?${params}`,
       )
       if (r.ok) setLogs({ items: r.items || [], total: r.total || 0 })
-    } catch { /* ignore */ } finally { setLoading(false) }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[Moderation] 加载违规记录失败:', e)
+    } finally { setLoading(false) }
   }, [page, filter])
 
   const loadUsers = useCallback(async () => {
@@ -159,7 +165,10 @@ export default function ModerationPanel() {
         `/api/admin/moderation/risk-users?${params}`,
       )
       if (r.ok) setUsers({ items: r.items || [], total: r.total || 0 })
-    } catch { /* ignore */ } finally { setLoading(false) }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[Moderation] 加载风险用户失败:', e)
+    } finally { setLoading(false) }
   }, [page])
 
   const loadConfig = useCallback(async () => {
@@ -172,7 +181,10 @@ export default function ModerationPanel() {
         for (const k of Object.keys(r.config.sensitiveWords || {})) nw[k] = ''
         setNewWord(nw)
       }
-    } catch { /* ignore */ }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[Moderation] 加载审核配置失败:', e)
+    }
   }, [])
 
   useEffect(() => { loadStats() }, [loadStats])
@@ -202,7 +214,10 @@ export default function ModerationPanel() {
       await apiPut<{ ok: boolean }>('/api/admin/moderation/config', body)
       setConfirmModal(null)
       await loadConfig()
-    } catch { /* ignore */ } finally { setSavingCfg(false) }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[Moderation] 保存配置失败:', e)
+    } finally { setSavingCfg(false) }
   }
   // 敏感词库编辑（本地草稿，保存时整体提交）
   const addWord = (cat: string) => {
@@ -219,7 +234,10 @@ export default function ModerationPanel() {
     try {
       const r = await apiPut<{ ok: boolean }>('/api/admin/moderation/sensitive-words', { words: editWords })
       if (r.ok) await loadConfig()
-    } catch { /* ignore */ } finally { setSavingCfg(false) }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[Moderation] 保存敏感词失败:', e)
+    } finally { setSavingCfg(false) }
   }
 
   const openRiskModal = (u: RiskUser) => {
@@ -235,14 +253,20 @@ export default function ModerationPanel() {
       setRiskModal(null)
       loadUsers()
       loadStats()
-    } catch { /* ignore */ } finally { setOperating(false) }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[Moderation] 风险操作失败:', e)
+    } finally { setOperating(false) }
   }
 
   const markHandled = async (id: string) => {
     try {
       await apiPost(`/api/admin/moderation/logs/${id}/handle`, {})
       loadLogs()
-    } catch { /* ignore */ }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[Moderation] 标记已处理失败:', e)
+    }
   }
 
   const totalPages = Math.ceil((tab === 'logs' ? logs.total : users.total) / pageSize)

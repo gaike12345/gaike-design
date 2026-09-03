@@ -12,6 +12,7 @@ import prisma from './prisma'
 import { signToken } from './jwt'
 import { cfgNum } from './siteConfig'
 import { generateNextUid } from './uidGenerator'
+import logger from './logger'
 
 // 扫码场景存储（内存模式）
 // sceneId -> { status, openId?, user?, createdAt, expireAt }
@@ -127,7 +128,7 @@ export async function createWechatScanScene(): Promise<{
 
     return { sceneId, qrCodeUrl, expireAt }
   } catch (e) {
-    console.error('微信扫码登录：生成二维码失败', e)
+    logger.error('微信扫码登录：生成二维码失败', { error: e instanceof Error ? e.message : String(e) })
     // 失败时回退到开发模式
     const qrcode = await import('qrcode')
     const qrData = `wechat-login://scan?sceneId=${sceneId}`

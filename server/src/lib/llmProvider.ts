@@ -6,6 +6,7 @@
 // 切换供应商：设置 LLM_PROVIDER=<provider> + 对应 API Key
 
 import fetch from 'node-fetch'
+import logger from './logger'
 
 // ---- 供应商配置 ----
 type LlmProviderName = 'zhipu' | 'pollinations'
@@ -42,7 +43,7 @@ interface LlmMessage {
 export async function callLlm(systemPrompt: string, userPrompt: string, model?: string): Promise<string> {
   // 无 API Key 时走 fallback 模板
   if (!ACTIVE.key) {
-    console.warn(`[LLM] ${ACTIVE.name} 供应商未配置 API Key，走模板兜底`)
+    logger.warn('LLM 供应商未配置 API Key，使用模板兜底', { provider: ACTIVE.name })
     return fallbackTemplate(systemPrompt, userPrompt)
   }
 
@@ -69,7 +70,7 @@ export async function callLlm(systemPrompt: string, userPrompt: string, model?: 
 
   if (!res.ok) {
     const errText = await res.text()
-    console.error(`[LLM] ${ACTIVE.name} API error:`, res.status, errText)
+    logger.error('LLM API 调用失败', { provider: ACTIVE.name, status: res.status, error: errText.slice(0, 200) })
     return fallbackTemplate(systemPrompt, userPrompt)
   }
 
@@ -125,7 +126,7 @@ export async function callLlmJson<T>(systemPrompt: string, userPrompt: string, m
   try {
     return JSON.parse(jsonStr) as T
   } catch {
-    console.error('[LLM] JSON parse failed, raw:', text.slice(0, 200))
+    logger.error('LLM 返回 JSON 解析失败', { raw: text.slice(0, 200) })
     throw new Error('LLM 返回内容无法解析为 JSON')
   }
 }

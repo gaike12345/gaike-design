@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from 'express'
+import logger from '../lib/logger'
 
 // 是否为生产环境
 const IS_PROD = process.env.NODE_ENV === 'production'
@@ -7,7 +8,11 @@ const IS_PROD = process.env.NODE_ENV === 'production'
 // 生产环境不向客户端泄漏内部错误细节（如 Prisma 错误、堆栈、表名/字段名）
 export function errorHandler(err: Error, _req: Request, res: Response, _next: NextFunction) {
   // 完整错误信息（含 stack）写入服务端日志，便于排查
-  console.error('[Error]', err.message, '\n', err.stack)
+  logger.error('未捕获异常', {
+    message: err.message,
+    stack: err.stack,
+    name: err.name,
+  })
 
   // 客户端可见的友好错误信息
   const clientMessage = IS_PROD

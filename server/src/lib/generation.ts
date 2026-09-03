@@ -1,4 +1,5 @@
 import prisma from './prisma'
+import logger from './logger'
 
 // 生成日志 + 扣减额度的统一工具函数
 export interface LogGenerationParams {
@@ -94,7 +95,7 @@ export async function atomicRefundQuota(userId: string, tokensToRefund: number):
     })
   } catch {
     // 退还失败仅记录日志，不影响主流程
-    console.error('[Quota] refund failed:', userId, tokensToRefund)
+    logger.error('额度退还失败', { userId, tokens: tokensToRefund })
   }
 }
 
@@ -111,6 +112,6 @@ export async function recordUsedTokens(userId: string, tokensUsed: number): Prom
       },
     })
   } catch {
-    console.error('[Quota] record usedTokens failed:', userId, tokensUsed)
+    logger.error('记录使用额度失败', { userId, tokens: tokensUsed })
   }
 }

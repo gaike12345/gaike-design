@@ -106,7 +106,10 @@ export default function SettingsPage() {
   useEffect(() => {
     api.get<{ total: number; used: number; remaining: number }>('/api/user/quota')
       .then((r) => setQuota(r))
-      .catch(() => { /* 忽略 */ })
+      .catch((e) => {
+        // eslint-disable-next-line no-console
+        console.warn('[Settings] 加载积分失败:', e)
+      })
   }, [])
 
   const handleLogout = () => {

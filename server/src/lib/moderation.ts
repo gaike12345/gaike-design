@@ -256,7 +256,7 @@ async function scanAliyun(text: string): Promise<{
     const data = (await res.json()) as any
 
     if (data.Code !== 200) {
-      console.warn('[moderation] aliyun error:', data.Message || data.Code)
+      logger.warn('阿里云审核返回错误', { code: data.Code, message: data.Message })
       return null
     }
 
@@ -279,7 +279,7 @@ async function scanAliyun(text: string): Promise<{
       reason: `阿里云审核违规：${details.map((d: any) => d.label).join('、')}`,
     }
   } catch (e) {
-    console.error('[moderation] aliyun scan failed:', e)
+    logger.warn('阿里云审核调用失败', { error: e instanceof Error ? e.message : String(e) })
     return null // 服务商故障时降级，不阻断
   }
 }
@@ -310,7 +310,7 @@ async function scanZhipu(text: string): Promise<{
     clearTimeout(timeoutId)
 
     if (!res.ok) {
-      console.warn('[moderation] zhipu error:', res.status)
+      logger.warn('智谱审核返回错误', { status: res.status })
       return null
     }
 
@@ -336,7 +336,7 @@ async function scanZhipu(text: string): Promise<{
       reason: `智谱审核违规：${results[0].category_scores ? Object.keys(results[0].category_scores).filter((k) => (results[0].category_scores as any)[k] > 0.5).join('、') : '违规内容'}`,
     }
   } catch (e) {
-    console.error('[moderation] zhipu scan failed:', e)
+    logger.warn('智谱审核调用失败', { error: e instanceof Error ? e.message : String(e) })
     return null // 服务商故障时降级，不阻断
   }
 }
@@ -493,7 +493,7 @@ export async function recordViolation(opts: {
     })
   } catch (e) {
     // 审核记录写入失败不应阻断主流程，仅记日志
-    console.error('[moderation] recordViolation failed:', e)
+    logger.error('违规记录写入失败', { error: e instanceof Error ? e.message : String(e) })
   }
 }
 

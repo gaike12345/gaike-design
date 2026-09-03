@@ -12,6 +12,7 @@
 //   3) 管理端 PATCH 更新某模型积分后 → 调用 invalidateModelCostCache() → 下一次请求立即重新拉
 // ================================================================
 import prisma from './prisma'
+import logger from './logger'
 
 // ------- 缓存结构 -------
 type CostEntry = { tokens: number; loadedAt: number }
@@ -37,9 +38,9 @@ export async function preloadModelCosts(): Promise<void> {
     })
     const now = Date.now()
     for (const m of all) costCache.set(m.name, { tokens: m.costTokens, loadedAt: now })
-    console.info(`[modelCost] preloaded ${all.length} active model costs`)
+    logger.info('模型成本缓存预加载完成', { count: all.length })
   } catch (e) {
-    console.warn('[modelCost] preload failed (will lazy-load):', e instanceof Error ? e.message : e)
+    logger.warn('模型成本缓存预加载失败，将延迟加载', { error: e instanceof Error ? e.message : String(e) })
   }
 }
 
@@ -47,7 +48,7 @@ export async function preloadModelCosts(): Promise<void> {
 export function invalidateModelCostCache(): void {
   costCache.clear()
   typeFallbackCache.clear()
-  console.info('[modelCost] cache invalidated — next request will reload from DB')
+  logger.info('模型成本缓存已失效，下次请求将重新从数据库加载')
 }
 
 // ------- 读取单个模型的 costTokens（同步/异步结合） -------

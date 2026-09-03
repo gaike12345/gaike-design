@@ -17,6 +17,7 @@
  */
 
 import Redis, { RedisOptions } from 'ioredis'
+import logger from './logger'
 
 let redisInstance: Redis | null = null
 let isConnecting = false
@@ -48,7 +49,7 @@ export function getRedis(): Redis | null {
       retryStrategy(times: number) {
         // 指数退避：100ms → 200ms → 400ms → ... → 最大 30s
         const delay = Math.min(times * 100, 30000)
-        console.warn(`[Redis] 连接失败，${delay}ms 后第 ${times} 次重试...`)
+        logger.warn('Redis 连接重试', { attempt: times, delayMs: delay })
         return delay
       },
       reconnectOnError(err: Error) {
@@ -72,24 +73,24 @@ export function getRedis(): Redis | null {
 
     // 连接事件监听
     redisInstance.on('connect', () => {
-      console.info('[Redis] 连接中...')
+      logger.info('Redis 连接中')
     })
 
     redisInstance.on('ready', () => {
-      console.info('[Redis] 连接就绪，队列服务可用')
+      logger.info('Redis 连接就绪，队列服务可用')
     })
 
     redisInstance.on('error', (err: Error) => {
-      console.error('[Redis] 连接错误：', err.message)
+      logger.error('Redis 连接错误', { error: err.message })
     })
 
     redisInstance.on('close', () => {
-      console.warn('[Redis] 连接已关闭')
+      logger.warn('Redis 连接已关闭')
     })
 
     // 异步发起连接（不阻塞主进程）
     redisInstance.connect().catch((err: Error) => {
-      console.error('[Redis] 初始连接失败，将使用降级模式：', err.message)
+      logger.error('Redis 初始连接失败，使用降级模式', { error: err.message })
       // 连接失败时置空，让上层走内存队列
       redisInstance = null
       isConnecting = false
@@ -102,7 +103,7 @@ export function getRedis(): Redis | null {
 
     return redisInstance
   } catch (e: any) {
-    console.error('[Redis] 初始化失败：', e.message)
+    logger.error('Redis 初始化失败', { error: e.message })
     redisInstance = null
     isConnecting = false
     return null
@@ -125,7 +126,7 @@ export async function closeRedis(): Promise<void> {
     await redisInstance.quit()
     redisInstance = null
     isConnecting = false
-    console.info('[Redis] 连接已关闭')
+    logger.info('Redis 连接已关闭')
   }
 }
 

@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express'
+import logger from '../lib/logger'
 import {
   logGeneration,
   checkQuota,
@@ -50,7 +51,7 @@ export function withGeneration(
       actualCost = typeof tokensRequired === 'function' ? await tokensRequired(req) : tokensRequired
     } catch (e) {
       const fallback = typeof tokensRequired === 'number' ? tokensRequired : 1000
-      console.warn('[withGeneration] 动态计算积分失败，使用兜底值:', fallback, e instanceof Error ? e.message : e)
+      logger.warn('动态计算积分失败，使用兜底值', { fallback, error: e instanceof Error ? e.message : String(e) })
       actualCost = fallback
     }
     actualCost = Math.max(0, Math.trunc(actualCost)) // 规范化：非负整数
@@ -111,7 +112,7 @@ export function withGeneration(
               await atomicRefundQuota(req.user!.userId, actualCost)
             }
           } catch (e) {
-            console.error('[withGeneration] post-finish error (async):', e)
+            logger.error('异步任务后置处理失败', { error: e instanceof Error ? e.message : String(e) })
           }
         })()
         return
@@ -145,7 +146,7 @@ export function withGeneration(
             if (actualCost > 0) await atomicRefundQuota(req.user!.userId, actualCost)
           }
         } catch (e) {
-          console.error('[withGeneration] post-finish error:', e)
+          logger.error('同步任务后置处理失败', { error: e instanceof Error ? e.message : String(e) })
         }
       })()
     })
