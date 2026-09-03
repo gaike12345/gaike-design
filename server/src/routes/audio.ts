@@ -1,7 +1,7 @@
 import { Router, Request } from 'express'
 import { authRequired } from '../middleware/auth'
 import { withGeneration } from '../middleware/generation'
-import { upload } from '../middleware/upload'
+import { upload, validateUploadedFiles } from '../middleware/upload'
 import { audioLimiter } from '../middleware/rate-limit'
 import { getModelCost } from '../lib/modelCost'
 import { moderateUpload, cleanupUploadedFile, moderateText, recordViolation, checkUserRiskGate } from '../lib/moderation'
@@ -144,7 +144,7 @@ router.post('/music', withGeneration('audio', costForMusic), async (req, res) =>
 })
 
 // POST /api/audio/upload — 上传音频文件
-router.post('/upload', upload.single('audio'), async (req, res) => {
+router.post('/upload', upload.single('audio'), validateUploadedFiles, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: '未上传文件' })
   // 内容审核：文件名
   const mod = await moderateUpload(req.file, {

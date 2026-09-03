@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { authRequired } from '../middleware/auth'
-import { upload } from '../middleware/upload'
+import { upload, validateUploadedFiles } from '../middleware/upload'
 import { authLimiter } from '../middleware/rate-limit'
 import { moderateUpload, cleanupUploadedFile } from '../lib/moderation'
 
@@ -11,7 +11,7 @@ router.use(authRequired)
 router.use(authLimiter)
 
 // POST /api/upload/image — 通用图片上传
-router.post('/image', upload.single('file'), async (req, res) => {
+router.post('/image', upload.single('file'), validateUploadedFiles, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: '未上传文件' })
   // 内容审核：文件名 + 文本内容
   const mod = await moderateUpload(req.file, {
@@ -26,7 +26,7 @@ router.post('/image', upload.single('file'), async (req, res) => {
 })
 
 // POST /api/upload/file — 通用文件上传
-router.post('/file', upload.single('file'), async (req, res) => {
+router.post('/file', upload.single('file'), validateUploadedFiles, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: '未上传文件' })
   // 内容审核：文件名 + 文本内容
   const mod = await moderateUpload(req.file, {

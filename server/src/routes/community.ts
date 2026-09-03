@@ -2,7 +2,7 @@
 import prisma from '../lib/prisma'
 import type { Prisma } from '@prisma/client'
 import { authRequired, authOptional, roleLevel } from '../middleware/auth'
-import { upload } from '../middleware/upload'
+import { upload, validateUploadedFiles } from '../middleware/upload'
 import { validate, z, commonSchemas } from '../middleware/validate'
 import { moderateUpload, cleanupUploadedFile } from '../lib/moderation'
 
@@ -300,7 +300,7 @@ router.post('/works/:id/comments', authRequired, validate({
 })
 
 // POST /api/community/upload — 社区作品封面上传
-router.post('/upload', authRequired, upload.single('cover'), async (req, res) => {
+router.post('/upload', authRequired, upload.single('cover'), validateUploadedFiles, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: '未上传文件' })
   // 内容审核：文件名
   const mod = await moderateUpload(req.file, {

@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import prisma from '../lib/prisma'
 import { authRequired } from '../middleware/auth'
-import { upload } from '../middleware/upload'
+import { upload, validateUploadedFiles } from '../middleware/upload'
 import { moderateUpload, cleanupUploadedFile } from '../lib/moderation'
 
 const router = Router()
@@ -54,7 +54,7 @@ router.put('/profile', async (req: Request, res: Response, next: NextFunction) =
 })
 
 // POST /api/user/banner — 上传个人中心 Banner 背景
-router.post('/banner', upload.single('banner'), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/banner', upload.single('banner'), validateUploadedFiles, async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (!req.file) return res.status(400).json({ error: '未接收到文件' })
     // 内容审核：文件名

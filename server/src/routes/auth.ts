@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs'
 import prisma from '../lib/prisma'
 import { signToken } from '../lib/jwt'
 import { authRequired, UNIQUE_SUPERADMIN_EMAIL } from '../middleware/auth'
-import { upload } from '../middleware/upload'
+import { upload, validateUploadedFiles } from '../middleware/upload'
 import { authLimiter } from '../middleware/rate-limit'
 import { validate, z } from '../middleware/validate'
 import { cfgNum } from '../lib/siteConfig'
@@ -155,7 +155,7 @@ router.put('/profile', authRequired, async (req, res, next) => {
 })
 
 // POST /api/auth/avatar
-router.post('/avatar', authRequired, upload.single('avatar'), async (req, res) => {
+router.post('/avatar', authRequired, upload.single('avatar'), validateUploadedFiles, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: '未上传文件' })
   // 内容审核：文件名
   const mod = await moderateUpload(req.file, {

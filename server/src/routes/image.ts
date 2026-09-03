@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express'
 import { createHmac } from 'crypto'
 import { authRequired } from '../middleware/auth'
 import { withGeneration } from '../middleware/generation'
-import { upload } from '../middleware/upload'
+import { upload, validateUploadedFiles } from '../middleware/upload'
 import { imageLimiter } from '../middleware/rate-limit'
 import { getModelCost } from '../lib/modelCost'
 import { moderateUpload, cleanupUploadedFile, moderateText, recordViolation, checkUserRiskGate } from '../lib/moderation'
@@ -125,12 +125,52 @@ router.get('/proxy', async (req, res) => {
       return res.status(upstream.status).send('Upstream error')
     }
     const contentType = upstream.headers.get('content-type') || 'image/png'
+    const contentLength = upstream.headers.get('content-length')
     res.setHeader('content-type', contentType)
     res.setHeader('cache-control', 'public, max-age=86400')
-    const arrayBuffer = await upstream.arrayBuffer()
-    res.send(Buffer.from(arrayBuffer))
+    if (contentLength) {
+      res.setHeader('content-length', contentLength)
+    }
+    // 流式转发：直接 pipe 响应体，不加载到内存
+    // 大幅降低大图片的内存占用和首字节延迟
+    if (!upstream.body) {
+      return res.status(502).send('Proxy error: no response body')
+    }
+    // Node.js 18+ fetch 返回 ReadableStream，需转成 Node.js Readable
+    const reader = upstream.body.getReader()
+    const pump = async () => {
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) {
+            res.end()
+            break
+          }
+          if (!res.write(value)) {
+            // 背压处理：等待 drain 事件再继续
+            await new Promise<void>((resolve) => {
+              res.once('drain', resolve)
+            })
+          }
+        }
+      } catch {
+        if (!res.headersSent) {
+          res.status(502).send('Proxy stream error')
+        } else {
+          res.destroy()
+        }
+      }
+    }
+    pump()
+
+    // 客户端断开时取消上游读取
+    req.on('close', () => {
+      reader.cancel().catch(() => {})
+    })
   } catch {
-    res.status(502).send('Proxy error')
+    if (!res.headersSent) {
+      res.status(502).send('Proxy error')
+    }
   }
 })
 
@@ -237,7 +277,7 @@ router.post('/img2img', withGeneration('image', costForImage), async (req, res, 
 
 // POST /api/image/upload — 上传图片到素材库
 // 注：/enhance-prompt 已统一到 /api/llm/enhance-prompt（H2），不再在此重复实现
-router.post('/upload', upload.single('image'), async (req, res) => {
+router.post('/upload', upload.single('image'), validateUploadedFiles, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: '未上传文件' })
   // 内容审核：文件名 + 文本内容
   const mod = await moderateUpload(req.file, {
