@@ -13,7 +13,6 @@ import type { MouseEvent } from 'react'
 import { shallow } from 'zustand/shallow'
 import {
   useUnifiedCanvasStore,
-  UNODE_META,
   UNODE_PORTS,
   UNODE_SIZE,
   type UCanvasNode,
@@ -21,6 +20,7 @@ import {
 } from '../../store/useUnifiedCanvasStore'
 import {
   UBaseNode,
+  UNODE_META,
   ImageSettingsPanel,
   VideoSettingsPanel,
   renderUnifiedNodeContent,
