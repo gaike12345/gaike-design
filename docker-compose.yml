@@ -10,7 +10,17 @@
 #
 #   # 仅启动数据库（外部部署后端时）
 #   docker compose --profile db up -d
+#
+# 资源限制说明（可通过 .env 覆盖）：
+#   各服务均设置了 CPU / 内存上限，防止单服务失控影响整体
+#   日志轮转：单个 50MB，最多 5 个文件，避免日志占满磁盘
 # =====================================================
+
+x-common-logging: &common-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "5"
 
 services:
   # ============== 后端 API 服务 ==============
@@ -52,6 +62,15 @@ services:
       - "3000:3000"
     networks:
       - manktv-network
+    deploy:
+      resources:
+        limits:
+          cpus: '${BACKEND_CPU_LIMIT:-2.0}'
+          memory: ${BACKEND_MEM_LIMIT:-1g}
+        reservations:
+          cpus: '0.5'
+          memory: 256m
+    logging: *common-logging
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -72,6 +91,15 @@ services:
       - "8080:80"
     networks:
       - manktv-network
+    deploy:
+      resources:
+        limits:
+          cpus: '${FRONTEND_CPU_LIMIT:-0.5}'
+          memory: ${FRONTEND_MEM_LIMIT:-128m}
+        reservations:
+          cpus: '0.1'
+          memory: 32m
+    logging: *common-logging
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
       interval: 30s
@@ -95,6 +123,15 @@ services:
       - "5432:5432"
     networks:
       - manktv-network
+    deploy:
+      resources:
+        limits:
+          cpus: '${POSTGRES_CPU_LIMIT:-2.0}'
+          memory: ${POSTGRES_MEM_LIMIT:-1g}
+        reservations:
+          cpus: '0.5'
+          memory: 256m
+    logging: *common-logging
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-manktv} -d ${POSTGRES_DB:-manktv}"]
       interval: 10s
@@ -115,6 +152,15 @@ services:
       - "6379:6379"
     networks:
       - manktv-network
+    deploy:
+      resources:
+        limits:
+          cpus: '${REDIS_CPU_LIMIT:-1.0}'
+          memory: ${REDIS_MEM_LIMIT:-512m}
+        reservations:
+          cpus: '0.1'
+          memory: 64m
+    logging: *common-logging
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -141,6 +187,15 @@ services:
       - nginx-logs:/var/log/nginx
     networks:
       - manktv-network
+    deploy:
+      resources:
+        limits:
+          cpus: '${NGINX_CPU_LIMIT:-1.0}'
+          memory: ${NGINX_MEM_LIMIT:-128m}
+        reservations:
+          cpus: '0.1'
+          memory: 32m
+    logging: *common-logging
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
       interval: 30s
