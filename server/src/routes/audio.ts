@@ -1,4 +1,4 @@
-import { Router, Request } from 'express'
+﻿import { Router, Request } from 'express'
 import { authRequired } from '../middleware/auth'
 import { withGeneration } from '../middleware/generation'
 import { upload, validateUploadedFiles } from '../middleware/upload'
@@ -152,7 +152,7 @@ router.post('/upload', upload.single('audio'), validateUploadedFiles, async (req
     userId: req.user!.userId,
   })
   if (!mod.passed) {
-    cleanupUploadedFile(req.file.path)
+    void cleanupUploadedFile(req.file.path)
     return res.status(403).json({ error: mod.reason, moderation: mod.result })
   }
   res.json({ url: `/uploads/${req.file.filename}`, size: req.file.size, mime: req.file.mimetype })

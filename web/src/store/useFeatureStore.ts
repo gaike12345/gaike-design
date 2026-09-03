@@ -9,7 +9,7 @@ export interface ModuleFeature {
   type: string  // input | textarea | slider | select | toggle | upload | color | custom
   status: string
   sort: number
-  config: any   // 已解析的 JSON 对象
+  config: Record<string, unknown>   // 已解析的 JSON 对象
 }
 
 interface FeatureState {
@@ -41,8 +41,8 @@ export const useFeatureStore = create<FeatureState>((set, get) => ({
         },
         loading: false,
       }))
-    } catch (e: any) {
-      set({ loading: false, error: e.message || 'Failed to fetch features' })
+    } catch (e: unknown) {
+      set({ loading: false, error: (e as { message?: string })?.message || 'Failed to fetch features' })
     }
   },
 

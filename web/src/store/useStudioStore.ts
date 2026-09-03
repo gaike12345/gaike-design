@@ -27,6 +27,7 @@ export interface GenTask {
   status: GenStatus
   results: GenImage[]
   createdAt: number
+  errorMessage?: string
 }
 
 interface StudioState {
@@ -138,7 +139,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         status: 'running',
         history: [task, ...state.history].slice(0, 50),
       }))
-    } catch (e: any) {
+    } catch (e: unknown) {
       // 审核不通过或生成失败
       set({ status: 'error' })
       // 用一个失败的 task 占位，展示错误信息
@@ -154,8 +155,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         status: 'error',
         results: [],
         createdAt: Date.now(),
-        errorMessage: e?.message || '生成失败',
-      } as any
+        errorMessage: (e as { message?: string })?.message || '生成失败',
+      }
       set((state) => ({
         history: [task, ...state.history].slice(0, 50),
       }))

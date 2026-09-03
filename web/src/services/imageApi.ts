@@ -122,8 +122,9 @@ export async function generateViaBackend(opts: {
 }): Promise<BackendGenResult> {
   try {
     return await api.post<BackendGenResult>('/api/image/generate', opts)
-  } catch (e: any) {
-    throw new Error(e?.response?.data?.error || e?.message || '图像生成失败')
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { error?: string } }; message?: string }
+    throw new Error(err?.response?.data?.error || err?.message || '图像生成失败')
   }
 }
 

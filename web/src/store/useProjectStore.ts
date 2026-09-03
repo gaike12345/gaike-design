@@ -27,8 +27,19 @@ export interface Project {
   }
 }
 
+interface RawProject {
+  id: string
+  title: string
+  genre?: string
+  cover?: string
+  synopsis?: string
+  createdAt: string | number | Date
+  updatedAt: string | number | Date
+  [key: string]: unknown
+}
+
 // 后端 API 返回的项目结构 → 前端 Project 映射
-function mapProject(raw: any): Project {
+function mapProject(raw: RawProject): Project {
   return {
     id: raw.id,
     name: raw.title,
@@ -79,7 +90,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   fetchProjects: async () => {
     set({ loading: true, error: null })
     try {
-      const res = await api.get<{ list: any[]; total: number }>('/api/projects')
+      const res = await api.get<{ list: RawProject[]; total: number }>('/api/projects')
       const projects = res.list.map(mapProject)
       set((state) => ({
         projects,
@@ -94,7 +105,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   createProject: async (name, type = 'script', description) => {
     set({ loading: true, error: null })
     try {
-      const res = await api.post<{ project: any }>('/api/projects', {
+      const res = await api.post<{ project: RawProject }>('/api/projects', {
         title: name.trim() || '未命名项目',
         genre: type,
         synopsis: description,

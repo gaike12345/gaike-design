@@ -34,7 +34,7 @@ const _cache = new Map<CacheKey, { value: number; ts: number }>()
 
 function cacheKey(kind: EstimateKind, params: EstimateParams): CacheKey {
   const keys = Object.keys(params).sort()
-  return JSON.stringify([kind, keys.map((k) => [k, (params as any)[k]])])
+  return JSON.stringify([kind, keys.map((k) => [k, params[k as keyof EstimateParams]])])
 }
 
 function getCached(key: CacheKey): number | undefined {

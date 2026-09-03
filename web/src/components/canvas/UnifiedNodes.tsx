@@ -4,7 +4,7 @@
 // UBaseNode: 节点容器(header + 端口 + 内容 + 删除)
 // 具体节点: TextNode / ScriptNode / ImageNode / VideoNode / AudioNode / UNegativeNode / UParamsNode
 
-import { useRef, useState, useCallback, useEffect, type ReactNode, type MouseEvent } from 'react'
+import { useRef, useState, useCallback, useEffect, type ReactNode, type MouseEvent, type ComponentType, type SVGProps } from 'react'
 import { createPortal } from 'react-dom'
 import {
   X, Dices, Loader2, Wand2, RotateCcw, Play, Pause, Minus, Plus,
@@ -51,6 +51,8 @@ export const PORT_GAP = 26
 // 此常量必须与 UnifiedCanvas.tsx 的 getPortPos 完全一致，确保连线端点与±号锚点视觉重合
 export const PORT_Y_OFFSET = 14
 
+type IconComponent = ComponentType<SVGProps<SVGSVGElement> & { size?: number | string }>
+
 // 获取连接到指定输入端口的源节点完整引用信息
 export function getSourceRefs(nodeId: string, portId: string): Array<{ connId: string; srcLabel: string; srcType: UnifiedNodeType; srcImage?: string }> {
   const { connections, nodes } = useUnifiedCanvasStore.getState()
@@ -62,15 +64,15 @@ export function getSourceRefs(nodeId: string, portId: string): Array<{ connId: s
       if (!srcNode) return null
       const meta = UNODE_META[srcNode.type]
       if (!meta) return null
-      const label = (srcNode.data as any)?.__label || meta.label
+      const label = srcNode.data.__label || meta.label
       let srcImage: string | undefined
       if (srcNode.type === 'image') {
-        const imgs = ((srcNode.data as any)?.imageResults ?? []).filter((r: any) => r.status === 'done')
+        const imgs = (srcNode.data.imageResults ?? []).filter((r) => r.status === 'done')
         srcImage = imgs[0]?.url
       } else if (srcNode.type === 'video') {
-        srcImage = (srcNode.data as any)?.videoResult?.thumbnail
+        srcImage = srcNode.data.videoResult?.thumbnail
       } else if (srcNode.type === 'audio') {
-        srcImage = (srcNode.data as any)?.audioResult?.url
+        srcImage = srcNode.data.audioResult?.url
       }
       return { connId: conn.id, srcLabel: label, srcType: srcNode.type, srcImage }
     })
@@ -214,7 +216,7 @@ function RefIcon({
 }
 
 // 节点元信息（标签/图标/颜色）
-export const UNODE_META: Record<UnifiedNodeType, { label: string; icon: any; color: string }> = {
+export const UNODE_META: Record<UnifiedNodeType, { label: string; icon: IconComponent; color: string }> = {
   image: { label: '图片生成', icon: ImageIcon, color: '#22d3ee' },
   video: { label: '视频生成', icon: Film, color: '#fbbf24' },
   audio: { label: '音频生成', icon: Music, color: '#f472b6' },
@@ -233,7 +235,7 @@ export const UPORT_COLOR: Record<UnifiedPortType, string> = {
 interface BaseNodeProps {
   node: UCanvasNode
   selected: boolean
-  meta: { label: string; icon: any; color: string }
+  meta: { label: string; icon: IconComponent; color: string }
   ports: { inputs: UPort[]; outputs: UPort[] }
   size: { width: number; height: number }
   onMouseDown: (e: MouseEvent) => void
@@ -339,7 +341,7 @@ export function UBaseNode({
       {/* 节点标签 - 浮动在顶部边框外，左对齐 */}
       <div className="absolute -top-[28px] left-2 whitespace-nowrap pointer-events-none">
         <span className="text-[11px] font-medium" style={{ color: meta.color + '73' /* 透明度 ≈ 45%，不干扰视觉主体 */ }}>
-          {(node.data as any).__label || meta.label}
+          {node.data.__label || meta.label}
         </span>
       </div>
 

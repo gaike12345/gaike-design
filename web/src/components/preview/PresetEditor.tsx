@@ -112,11 +112,11 @@ export function PresetEditor({ section, accent }: { section: SectionKey; accent:
   const [savedMsg, setSavedMsg] = useState('')
 
   // 当前编辑态（全部键值）
-  const [form, setForm] = useState<Record<string, any>>({})
+  const [form, setForm] = useState<Record<string, string | number>>({})
 
   // 1) 首次：从 SiteConfig 载入当前值 + 拉取模型列表
   useEffect(() => {
-    const base: Record<string, any> = {}
+    const base: Record<string, string | number> = {}
     for (const f of fields) base[f.key] = get(presetKey(section, f.key), defaultFor(f))
     for (const s of modelSlots) base[s.keySuffix] = get(presetKey(section, s.keySuffix), '')
     setForm(base)
@@ -145,7 +145,7 @@ export function PresetEditor({ section, accent }: { section: SectionKey; accent:
     return () => { alive = false }
   }, [section, modelSlots])
 
-  const setField = (k: string, v: any) => setForm((prev) => ({ ...prev, [k]: v }))
+  const setField = (k: string, v: string | number) => setForm((prev) => ({ ...prev, [k]: v }))
 
   // 保存：批量写入 siteconfig
   const handleSave = async () => {
@@ -159,14 +159,15 @@ export function PresetEditor({ section, accent }: { section: SectionKey; accent:
       await reload()
       setSavedOk(r.ok ? 'ok' : 'warn')
       setSavedMsg(r.ok ? `已保存 ${r.updated ?? items.length} 项预设；下次请求立即生效。` : '保存未生效，请稍后重试。')
-    } catch (e: any) {
-      const status = e?.status ?? e?.response?.status ?? 0
+    } catch (e: unknown) {
+      const err = e as { status?: number; response?: { status?: number }; message?: string }
+      const status = err?.status ?? err?.response?.status ?? 0
       if (status === 401 || status === 403) {
         setSavedOk('warn')
         setSavedMsg('当前账号没有预设保存权限。内容已在本地预览，超级管理员登录后可写入全站预设。')
       } else {
         setSavedOk('err')
-        setSavedMsg('保存失败：' + (e?.message || '未知错误'))
+        setSavedMsg('保存失败：' + (err?.message || '未知错误'))
       }
     } finally {
       setSaving(false)
@@ -268,7 +269,7 @@ export function PresetEditor({ section, accent }: { section: SectionKey; accent:
 }
 
 // ============ 子组件 ============
-function defaultFor(f: PresetField): any {
+function defaultFor(f: PresetField): string | number {
   if (f.type === 'slider' || f.type === 'number') {
     if (f.min !== undefined && f.max !== undefined) return Math.round((f.min + f.max) / 2)
     if (f.key === 'steps') return 30
@@ -326,8 +327,8 @@ function FieldInput({
 }: {
   field: PresetField
   accent: AccentColors
-  value: any
-  onChange: (v: any) => void
+  value: string | number
+  onChange: (v: string | number) => void
   wide?: boolean
 }) {
   const baseInp =

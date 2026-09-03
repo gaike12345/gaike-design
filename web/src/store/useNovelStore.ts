@@ -32,6 +32,10 @@ export interface NovelState {
   setNovelPov: (v: string) => void
   setNovelLength: (v: string) => void
 
+  // 当前选择的小说 AI 模型（null = 使用后端默认）
+  novelModel: string | null
+  setNovelModel: (modelId: string | null) => void
+
   wizardStep: number
   wizardActive: boolean
   setWizardStep: (step: number) => void
@@ -103,6 +107,9 @@ export const useNovelStore = create<NovelState>((set, get) => ({
   setNovelPov: (v) => set({ novelPov: v }),
   setNovelLength: (v) => set({ novelLength: v }),
 
+  novelModel: null,
+  setNovelModel: (modelId) => set({ novelModel: modelId }),
+
   wizardStep: 0,
   wizardActive: false,
   setWizardStep: (step) => set({ wizardStep: Math.max(0, Math.min(3, step)) }),
@@ -113,10 +120,10 @@ export const useNovelStore = create<NovelState>((set, get) => ({
   synopsisStatus: 'idle',
   selectedSynopsis: null,
   runSynopsisOptions: async (topic) => {
-    const { novelGenre, novelAudience, novelPov, novelLength, synopsisStatus } = get()
+    const { novelGenre, novelAudience, novelPov, novelLength, novelModel, synopsisStatus } = get()
     if (!topic.trim() || synopsisStatus === 'running') return
     set({ synopsisStatus: 'running', synopsisOptions: [], selectedSynopsis: null })
-    const resp = await synopsisOptions({ topic, genre: novelGenre, audience: novelAudience, pov: novelPov, length: novelLength })
+    const resp = await synopsisOptions({ topic, genre: novelGenre, audience: novelAudience, pov: novelPov, length: novelLength, model: novelModel || undefined })
     if (!resp.ok || !resp.data) { set({ synopsisStatus: 'error' }); return }
     set({ synopsisStatus: 'done', synopsisOptions: resp.data.options })
   },
@@ -237,21 +244,21 @@ export const useNovelStore = create<NovelState>((set, get) => ({
   continuePlotData: null,
   continuePlotStatus: 'idle',
   runContinueText: async (volumeId, chapterId, words = 500) => {
-    const { volumes, masterOutlineData, continueTextStatus } = get()
+    const { volumes, masterOutlineData, novelModel, continueTextStatus } = get()
     const ch = volumes.find((v) => v.id === volumeId)?.chapters.find((c) => c.id === chapterId)
     if (!ch || !ch.content || continueTextStatus === 'running') return
     set({ continueTextStatus: 'running' })
-    const resp = await continueText({ text: ch.content, chapterContext: masterOutlineData?.mainline || '', words })
+    const resp = await continueText({ text: ch.content, chapterContext: masterOutlineData?.mainline || '', words, model: novelModel || undefined })
     if (!resp.ok || !resp.data) { set({ continueTextStatus: 'error' }); return }
     set({ continueTextStatus: 'done' })
     get().updateChapter(volumeId, chapterId, { content: ch.content + '\n' + resp.data.content })
   },
   runContinuePlot: async (volumeId, chapterId, direction) => {
-    const { volumes, continuePlotStatus } = get()
+    const { volumes, novelModel, continuePlotStatus } = get()
     const ch = volumes.find((v) => v.id === volumeId)?.chapters.find((c) => c.id === chapterId)
     if (!ch || !ch.content || continuePlotStatus === 'running') return
     set({ continuePlotStatus: 'running', continuePlotData: null })
-    const resp = await continuePlot({ text: ch.content, direction })
+    const resp = await continuePlot({ text: ch.content, direction, model: novelModel || undefined })
     if (!resp.ok || !resp.data) { set({ continuePlotStatus: 'error' }); return }
     set({ continuePlotStatus: 'done', continuePlotData: resp.data })
   },

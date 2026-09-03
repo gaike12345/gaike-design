@@ -1,4 +1,4 @@
-import { Router } from 'express'
+﻿import { Router } from 'express'
 import { authRequired } from '../middleware/auth'
 import { upload, validateUploadedFiles } from '../middleware/upload'
 import { authLimiter } from '../middleware/rate-limit'
@@ -19,7 +19,7 @@ router.post('/image', upload.single('file'), validateUploadedFiles, async (req, 
     userId: req.user!.userId,
   })
   if (!mod.passed) {
-    cleanupUploadedFile(req.file.path)
+    void cleanupUploadedFile(req.file.path)
     return res.status(403).json({ error: mod.reason, moderation: mod.result })
   }
   res.json({ url: `/uploads/${req.file.filename}` })
@@ -34,7 +34,7 @@ router.post('/file', upload.single('file'), validateUploadedFiles, async (req, r
     userId: req.user!.userId,
   })
   if (!mod.passed) {
-    cleanupUploadedFile(req.file.path)
+    void cleanupUploadedFile(req.file.path)
     return res.status(403).json({ error: mod.reason, moderation: mod.result })
   }
   res.json({

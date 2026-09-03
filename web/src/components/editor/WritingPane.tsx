@@ -1,11 +1,11 @@
-// 写作板块 — 蛙蛙写作对标版（小说编辑器 IDE）
+﻿// 写作板块 — 蛙蛙写作对标版（小说编辑器 IDE）
 //
 // 布局：顶栏(元数据+字数) | 左(章节树) | 中(编辑器+AI工具栏) | 右(智能助手)
 // 引导流程：一句话灵感 → 故事梗概3选1 → 大纲角色 → 正文
 // AI工具栏：总纲/角色/角色关系/卷纲/章纲/续写正文/续写情节/去AI味/书名/导语/灵感/工作流
 // 旧版 WR 工具（大纲/世界观/Lorebook/Prompt助手/DeepSeek/文风模仿/AI消痕）保留为"工具集"面板
 
-import { useState, useRef, useEffect, type ReactNode } from 'react'
+import { useState, useRef, useEffect, type ReactNode, type ComponentType, type SVGProps } from 'react'
 import {
   Sparkles, Wand2, Loader2, Dices, BookOpen, FileText, Users,
   Send, Layers, Brain, Type as TypeIcon,
@@ -13,7 +13,9 @@ import {
   BookMarked, Network, ScrollText, Lightbulb, PenLine, Bot,
   X, ArrowRight, RefreshCw, Globe,
 } from 'lucide-react'
-import { useScriptStore } from '../../store/useScriptStore'
+import { useScriptStore, type WritingPaneState } from '../../store/useScriptStore'
+import { useNovelStore } from '../../store/useNovelStore'
+import { useModelStore } from '../../store/useModelStore'
 import { useStudioStore as studioStoreHook } from '../../store/useStudioStore'
 import { useProjectStore } from '../../store/useProjectStore'
 
@@ -21,6 +23,7 @@ import { cn } from '../../lib/utils'
 import type { ChapterNode } from '../../services/textApi'
 
 type JumpTarget = 'writing' | 'image' | 'audio' | 'video' | 'community'
+type IconComponent = ComponentType<SVGProps<SVGSVGElement> & { size?: number | string }>
 
 interface Props {
   onJumpTo: (target: JumpTarget) => void
@@ -43,6 +46,16 @@ export default function WritingPane({ onJumpTo }: Props) {
   const activeProjectId = useProjectStore((st) => st.activeProjectId)
   const [leftTab, setLeftTab] = useState<'info' | 'body'>('body')
   const [showToolPanel, setShowToolPanel] = useState(false)
+
+  // 加载小说模型列表
+  const { getModelsByType, fetchModels } = useModelStore()
+  const novelModels = getModelsByType('novel')
+  const novelModel = useNovelStore((st) => st.novelModel)
+  const setNovelModel = useNovelStore((st) => st.setNovelModel)
+
+  useEffect(() => {
+    fetchModels('novel')
+  }, [fetchModels])
 
   // 当前活跃章节
   const activeVolume = s.volumes.find((v) => v.id === s.activeVolumeId)
@@ -96,7 +109,13 @@ export default function WritingPane({ onJumpTo }: Props) {
         {/* 中栏：编辑器 */}
         <main className="flex flex-1 flex-col overflow-hidden">
           {/* AI 工具栏 */}
-          <AIToolbar s={s} onShowToolPanel={() => setShowToolPanel(true)} />
+          <AIToolbar
+            s={s}
+            onShowToolPanel={() => setShowToolPanel(true)}
+            models={novelModels}
+            activeModel={novelModel}
+            onModelChange={setNovelModel}
+          />
           {/* 编辑区或向导 */}
           <div className="flex-1 overflow-y-auto">
             {s.wizardActive ? (
@@ -125,7 +144,7 @@ export default function WritingPane({ onJumpTo }: Props) {
 
 // ==================== 引导式创作向导 ====================
 
-function GuidedWizard({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
+function GuidedWizard({ s }: { s: WritingPaneState }) {
   return (
     <div className="mx-auto w-full max-w-3xl p-6">
       {/* 进度导航 */}
@@ -283,10 +302,10 @@ function GuidedWizard({ s }: { s: ReturnType<typeof useScriptStore.getState> }) 
 
 // ==================== 作品信息面板 ====================
 
-function WorkInfoPanel({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
+function WorkInfoPanel({ s }: { s: WritingPaneState }) {
   const [open, setOpen] = useState<string | null>('synopsis')
   const toggle = (k: string) => setOpen(open === k ? null : k)
-  const Section = ({ id, label, icon: Icon, children }: { id: string; label: string; icon: any; children: ReactNode }) => (
+  const Section = ({ id, label, icon: Icon, children }: { id: string; label: string; icon: IconComponent; children: ReactNode }) => (
     <div className="card overflow-hidden p-0">
       <button onClick={() => toggle(id)} className="flex w-full items-center gap-1.5 px-3 py-2 text-left">
         <Icon className="h-3 w-3 text-violet-600" />
@@ -447,7 +466,7 @@ function WorkInfoPanel({ s }: { s: ReturnType<typeof useScriptStore.getState> })
 
 // ==================== 章节树 ====================
 
-function ChapterTree({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
+function ChapterTree({ s }: { s: WritingPaneState }) {
   return (
     <div className="space-y-2">
       <button
@@ -468,7 +487,7 @@ function ChapterTree({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
             <BookMarked className="h-3 w-3 text-violet-600" />
             <input
               value={vol.name}
-              onChange={(e) => { const newName = e.target.value; useScriptStore.setState((st) => ({ volumes: st.volumes.map((v) => v.id === vol.id ? { ...v, name: newName } : v) })) }}
+              onChange={(e) => { const newName = e.target.value; useNovelStore.setState((st) => ({ volumes: st.volumes.map((v) => v.id === vol.id ? { ...v, name: newName } : v) })) }}
               className="flex-1 bg-transparent text-[11px] font-medium text-ink-800 outline-none"
             />
           </div>
@@ -510,7 +529,19 @@ function ChapterTree({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
 
 // ==================== AI 工具栏 ====================
 
-function AIToolbar({ s, onShowToolPanel }: { s: ReturnType<typeof useScriptStore.getState>; onShowToolPanel: () => void }) {
+function AIToolbar({
+  s,
+  onShowToolPanel,
+  models,
+  activeModel,
+  onModelChange,
+}: {
+  s: WritingPaneState
+  onShowToolPanel: () => void
+  models: Array<{ id: string; name: string; displayName: string }>
+  activeModel: string | null
+  onModelChange: (modelId: string | null) => void
+}) {
   const tools = [
     { label: '生成总纲', icon: BookOpen, action: s.runMasterOutline, busy: s.masterOutlineStatus === 'running', disabled: !s.topic.trim() },
     { label: '生成角色', icon: Users, action: () => studioStoreHook.getState(), busy: false, disabled: !s.script, isJump: 'image' as const },
@@ -545,11 +576,32 @@ function AIToolbar({ s, onShowToolPanel }: { s: ReturnType<typeof useScriptStore
           </button>
         )
       })}
+
+      {/* 模型选择器（有可用模型时才显示） */}
+      {models.length > 0 && (
+        <>
+          <div className="mx-1 h-4 w-px bg-ink-200" aria-hidden />
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] font-medium text-ink-400">模型</span>
+            <select
+              value={activeModel || ''}
+              onChange={(e) => onModelChange(e.target.value || null)}
+              className="rounded border border-ink-200 bg-white px-1.5 py-0.5 text-[10px] text-ink-600 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-200"
+              title="选择 AI 模型"
+            >
+              <option value="">默认</option>
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>{m.displayName || m.name}</option>
+              ))}
+            </select>
+          </div>
+        </>
+      )}
     </div>
   )
 }
 
-function activeChapterContent(s: ReturnType<typeof useScriptStore.getState>): string {
+function activeChapterContent(s: WritingPaneState): string {
   const vol = s.volumes.find((v) => v.id === s.activeVolumeId)
   const ch = vol?.chapters.find((c) => c.id === s.activeChapterId)
   return ch?.content || ''
@@ -558,7 +610,7 @@ function activeChapterContent(s: ReturnType<typeof useScriptStore.getState>): st
 // ==================== 编辑区 ====================
 
 function EditorArea({ s, volumeId, chapterId, chapter }: {
-  s: ReturnType<typeof useScriptStore.getState>
+  s: WritingPaneState
   volumeId: string
   chapterId: string
   chapter: ChapterNode
@@ -611,7 +663,7 @@ function EditorArea({ s, volumeId, chapterId, chapter }: {
   )
 }
 
-function EmptyEditor({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
+function EmptyEditor({ s }: { s: WritingPaneState }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
       <PenLine className="h-10 w-10 text-ink-300" />
@@ -631,7 +683,7 @@ function EmptyEditor({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
 
 // ==================== 底部工具栏 ====================
 
-function BottomToolbar({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
+function BottomToolbar({ s }: { s: WritingPaneState }) {
   return (
     <div className="flex shrink-0 items-center gap-3 border-t border-ink-200 bg-white px-3 py-1 text-[10px] text-ink-500">
       <span>字数：{s.currentChapterWordCount()}</span>
@@ -655,7 +707,7 @@ function BottomToolbar({ s }: { s: ReturnType<typeof useScriptStore.getState> })
 
 // ==================== 智能助手 ====================
 
-function SmartAssistant({ s, onJumpToImage }: { s: ReturnType<typeof useScriptStore.getState>; onJumpToImage: () => void }) {
+function SmartAssistant({ s, onJumpToImage }: { s: WritingPaneState; onJumpToImage: () => void }) {
   const [tab, setTab] = useState<'chat' | 'cards'>('chat')
   return (
     <div className="flex h-full flex-col">
@@ -745,7 +797,7 @@ function SmartAssistant({ s, onJumpToImage }: { s: ReturnType<typeof useScriptSt
 // ==================== 旧版工具集弹层 ====================
 
 function ToolPanelModal({ s, onClose, onJumpToImage }: {
-  s: ReturnType<typeof useScriptStore.getState>
+  s: WritingPaneState
   onClose: () => void
   onJumpToImage: () => void
 }) {
@@ -788,7 +840,7 @@ function ToolPanelModal({ s, onClose, onJumpToImage }: {
   )
 }
 
-function MiniOutline({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
+function MiniOutline({ s }: { s: WritingPaneState }) {
   return (
     <div>
       <button onClick={s.runOutline} disabled={!s.topic.trim() || s.outlineStatus === 'running'} className="btn-primary mb-3 px-3 py-1.5 text-xs">
@@ -809,7 +861,7 @@ function MiniOutline({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
   )
 }
 
-function MiniWorldview({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
+function MiniWorldview({ s }: { s: WritingPaneState }) {
   return (
     <div>
       <button onClick={s.runWorldview} disabled={!s.topic.trim() || s.worldviewStatus === 'running'} className="btn-primary mb-3 px-3 py-1.5 text-xs">
@@ -827,7 +879,7 @@ function MiniWorldview({ s }: { s: ReturnType<typeof useScriptStore.getState> })
   )
 }
 
-function MiniLorebook({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
+function MiniLorebook({ s }: { s: WritingPaneState }) {
   return (
     <div>
       <div className="mb-2 text-[10px] text-ink-500">{s.lorebook.length} 条词条</div>
@@ -844,7 +896,7 @@ function MiniLorebook({ s }: { s: ReturnType<typeof useScriptStore.getState> }) 
   )
 }
 
-function MiniPrompt({ s, onJumpToImage }: { s: ReturnType<typeof useScriptStore.getState>; onJumpToImage: () => void }) {
+function MiniPrompt({ s, onJumpToImage }: { s: WritingPaneState; onJumpToImage: () => void }) {
   return (
     <div>
       <textarea value={s.promptInput} onChange={(e) => s.setPromptInput(e.target.value)} rows={2} placeholder="自然语言描述" className="input mb-2 text-xs" />
@@ -861,7 +913,7 @@ function MiniPrompt({ s, onJumpToImage }: { s: ReturnType<typeof useScriptStore.
   )
 }
 
-function MiniDeepseek({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
+function MiniDeepseek({ s }: { s: WritingPaneState }) {
   return (
     <div>
       <textarea value={s.deepseekSituation} onChange={(e) => s.setDeepseekSituation(e.target.value)} rows={2} placeholder="剧情节点" className="input mb-2 text-xs" />
@@ -883,7 +935,7 @@ function MiniDeepseek({ s }: { s: ReturnType<typeof useScriptStore.getState> }) 
   )
 }
 
-function MiniStyle({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
+function MiniStyle({ s }: { s: WritingPaneState }) {
   return (
     <div>
       <textarea value={s.styleSample} onChange={(e) => s.setStyleSample(e.target.value)} rows={3} placeholder="样本文本" className="input mb-2 text-xs" />
@@ -896,7 +948,7 @@ function MiniStyle({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
   )
 }
 
-function MiniErase({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
+function MiniErase({ s }: { s: WritingPaneState }) {
   return (
     <div>
       <textarea value={s.eraseInput} onChange={(e) => s.setEraseInput(e.target.value)} rows={3} placeholder="AI 生成文本" className="input mb-2 text-xs" />

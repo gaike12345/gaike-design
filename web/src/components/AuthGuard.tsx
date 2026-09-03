@@ -3,19 +3,15 @@
 // 用法：<AuthGuard><WritingPage /></AuthGuard>
 // 放在需要登录的路由组件外层
 // 未登录 → 打开 LoginModal + 记录当前路径为跳转目标；登录成功 → 自动跳转
+//
+// 开发模式自动登录说明：
+//   仅在 Vite 开发模式 (import.meta.env.DEV) 下生效，
+//   生产构建时该代码块会被 dead-code elimination 完全移除。
+//   手动启用：在浏览器控制台执行 localStorage.setItem('mank_tv_dev_auth', '1') 后刷新。
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { useAuthStore, type AuthUser } from '../store/useAuthStore'
+import { useAuthStore } from '../store/useAuthStore'
 import { getToken, setToken } from '../services/api'
-
-const DEV_USER: AuthUser = {
-  id: 'dev-user-001',
-  email: 'dev@mank.tv',
-  nickname: '漫剧圈开发者',
-  avatar: null,
-  bio: '本地开发模式自动注入的演示账号',
-  role: 'user',
-}
 
 export function AuthGuard({ children }: { children: ReactNode }) {
   const user = useAuthStore((s) => s.user)
@@ -27,19 +23,34 @@ export function AuthGuard({ children }: { children: ReactNode }) {
   const hasFetchedRef = useRef(false)
 
   useEffect(() => {
-    // Dev 模式自动登录
-    const isDevBuild = import.meta.env?.DEV === true
-    const devBypass = isDevBuild ? localStorage.getItem('mank_tv_dev_auth') : null
-    if (devBypass === '1') {
-      if (!getToken()) setToken('dev-token-local-injected')
-      const store = useAuthStore.getState()
-      if (!store.user) {
-        const setState = (store as any).setState
-        if (setState) setState({ user: DEV_USER })
-        else (store as any).setUser?.(DEV_USER)
+    // —— 开发模式自动登录（仅开发构建，生产构建会被完全移除）——
+    // 注意：DEV_USER 定义在 if 内部以确保生产构建时被 tree-shake 掉
+    if (import.meta.env.DEV) {
+      const devBypass = localStorage.getItem('mank_tv_dev_auth')
+      if (devBypass === '1') {
+        const DEV_USER = {
+          id: 'dev-user-001',
+          email: 'dev@mank.tv',
+          nickname: '漫剧圈开发者',
+          avatar: null,
+          bio: '本地开发模式自动注入的演示账号',
+          role: 'user' as const,
+        }
+        if (!getToken()) setToken('dev-token-local-injected')
+        const store = useAuthStore.getState()
+        if (!store.user) {
+          useAuthStore.setState({ user: DEV_USER })
+        }
+        // 开发模式下给出明确提示，避免误用
+        // eslint-disable-next-line no-console
+        console.warn(
+          '%c[DEV MODE] 已启用开发模式自动登录',
+          'background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-weight:bold',
+          '禁用：localStorage.removeItem("mank_tv_dev_auth")'
+        )
+        setState('authed')
+        return
       }
-      setState('authed')
-      return
     }
 
     const token = getToken()

@@ -2,7 +2,7 @@
 // 双审核违规记录 + 风险用户管理 + 风险操作
 // 数据来自 /api/admin/moderation/*
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, type ComponentType, type SVGProps } from 'react'
 import {
   Shield, AlertTriangle, ShieldAlert, ShieldCheck, Users,
   FileWarning, Activity, Filter, ChevronLeft, ChevronRight,
@@ -11,6 +11,8 @@ import {
 } from 'lucide-react'
 import { getToken } from '../services/api'
 import { cn } from '../lib/utils'
+
+type IconComponent = ComponentType<SVGProps<SVGSVGElement> & { size?: number | string }>
 
 interface ModerationLog {
   id: string
@@ -124,7 +126,7 @@ export default function ModerationPanel() {
   const [editWords, setEditWords] = useState<Record<string, string[]>>({})  // 敏感词库编辑草稿
   const [newWord, setNewWord] = useState<Record<string, string>>({})  // 各类别新增词输入
   const [savingCfg, setSavingCfg] = useState(false)
-  const [confirmModal, setConfirmModal] = useState<null | { type: 'enabled' | 'level'; value: any; label: string }>(null)
+  const [confirmModal, setConfirmModal] = useState<null | { type: 'enabled' | 'level'; value: boolean | string; label: string }>(null)
 
   const pageSize = 20
 
@@ -570,7 +572,7 @@ export default function ModerationPanel() {
   )
 }
 
-function StatCard({ icon: Icon, label, value, sub, color }: { icon: any; label: string; value: number; sub?: string; color: string }) {
+function StatCard({ icon: Icon, label, value, sub, color }: { icon: IconComponent; label: string; value: number; sub?: string; color: string }) {
   const bg = { rose: 'bg-rose-50', amber: 'bg-amber-50', orange: 'bg-orange-50', red: 'bg-red-50' }[color] || 'bg-ink-50'
   const text = { rose: 'text-rose-600', amber: 'text-amber-600', orange: 'text-orange-600', red: 'text-red-600' }[color] || 'text-ink-600'
   return (
@@ -586,7 +588,7 @@ function StatCard({ icon: Icon, label, value, sub, color }: { icon: any; label: 
   )
 }
 
-function TabBtn({ active, onClick, icon: Icon, label, count }: { active: boolean; onClick: () => void; icon: any; label: string; count: number }) {
+function TabBtn({ active, onClick, icon: Icon, label, count }: { active: boolean; onClick: () => void; icon: IconComponent; label: string; count: number }) {
   return (
     <button onClick={onClick} className={cn('flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 -mb-px',
       active ? 'border-rose-500 text-rose-600' : 'border-transparent text-ink-500 hover:text-ink-700')}>

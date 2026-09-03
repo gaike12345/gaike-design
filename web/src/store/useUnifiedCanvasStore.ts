@@ -1,157 +1,89 @@
-// 统一创作画布 - 状态管理（合并图像+视频）
+﻿// 统一创作画布 - 状态管理（合并图像+视频+音频）
 //
 // 对标 LibTV：3 大基础节点 + 输出节点
-// 节点类型：
-//   image     - 图片生成（输出: image）
-//   video     - 视频生成（输出: video）
-//   audio     - 音频生成（输出: audio）
+// 节点类型：image / video / audio
 //
-// 数据流：直接操作各节点内部配置，完成生产
+// 公共类型、常量、工具函数已提取到 canvasBase.ts，
+// 本文件只包含 Zustand store 状态和业务逻辑。
 
 import { create } from 'zustand'
 import { api } from '../services/api'
 import { buildImageUrl, buildRetryUrl, generateViaBackend } from '../services/imageApi'
 import { useQuotaStore } from './useQuotaStore'
-import type { AspectRatio } from './useStudioStore'
+import {
+  // 类型
+  type UnifiedNodeType,
+  type UnifiedPortType,
+  type UPort,
+  type GenStatus,
+  type ImageStatus,
+  type GenImage,
+  type VideoResult,
+  type AudioResult,
+  type ScriptShot,
+  type UnifiedNodeData,
+  type UCanvasNode,
+  type UConnection,
+  type UViewport,
+  type UDragState,
+  // 常量
+  UNODE_PORTS,
+  UNODE_SIZE,
+  UNODE_LABELS,
+  GRID_SIZE,
+  IMAGE_MODELS,
+  IMAGE_RESOLUTIONS,
+  IMAGE_RATIOS,
+  VIDEO_MODELS,
+  VIDEO_RESOLUTIONS,
+  VIDEO_DURATIONS,
+  AUDIO_VOICES,
+  // 工具函数
+  uid,
+  isBusy,
+  randomSeed,
+  snapToGrid,
+  canConnect,
+  normalizePortRef,
+  defaultNodeData,
+  panViewport,
+  zoomViewport,
+  PollRegistry,
+} from './canvasBase'
 
-export type UnifiedNodeType =
-  | 'image'
-  | 'video'
-  | 'audio'
-
-export type UnifiedPortType =
-  | 'text'
-  | 'script'
-  | 'image'
-  | 'video'
-  | 'audio'
-  | 'negative'
-  | 'params'
-
-export interface UPort {
-  id: string
-  label: string
-  type: UnifiedPortType
+export type {
+  UnifiedNodeType,
+  UnifiedPortType,
+  UPort,
+  GenStatus,
+  ImageStatus,
+  GenImage,
+  VideoResult,
+  AudioResult,
+  ScriptShot,
+  UnifiedNodeData,
+  UCanvasNode,
+  UConnection,
+  UViewport,
 }
 
-export type GenStatus = 'idle' | 'queued' | 'running' | 'done' | 'error'
-export type ImageStatus = 'loading' | 'done' | 'error'
-
-export interface GenImage {
-  id: string
-  url: string
-  prompt: string
-  seed: number
-  ratio: AspectRatio
-  status: ImageStatus
-  createdAt: number
+export {
+  UNODE_PORTS,
+  UNODE_SIZE,
+  UNODE_LABELS,
+  GRID_SIZE,
+  IMAGE_MODELS,
+  IMAGE_RESOLUTIONS,
+  IMAGE_RATIOS,
+  VIDEO_MODELS,
+  VIDEO_RESOLUTIONS,
+  VIDEO_DURATIONS,
+  AUDIO_VOICES,
+  snapToGrid,
+  canConnect,
 }
 
-export interface VideoResult {
-  taskId: string
-  url?: string
-  status: GenStatus
-  prompt: string
-  type: 'text2video' | 'img2video'
-  placeholder?: boolean
-  createdAt: number
-  thumbnail?: string
-}
-
-export interface AudioResult {
-  url: string
-  status: GenStatus
-  text: string
-  voice?: string
-  placeholder?: boolean
-}
-
-export interface ScriptShot {
-  id: string
-  index: number
-  duration: number
-  scene: string
-  shot: string
-  camera: string
-  dialogue: string
-  prompt: string
-}
-
-export interface UnifiedNodeData {
-  // text
-  text?: string
-  // script
-  script?: string
-  shots?: ScriptShot[]
-  scriptStatus?: GenStatus
-  // image
-  imagePrompt?: string
-  negativePrompt?: string
-  imageResults?: GenImage[]
-  imageStatus?: GenStatus
-  imageModel?: string
-  imageRatio?: AspectRatio | string
-  imageCount?: number
-  imageResolution?: string
-  imageSteps?: number
-  imageCfg?: number
-  imageSampler?: string
-  imageSeed?: number
-  // video
-  videoStatus?: GenStatus
-  videoTaskId?: string
-  videoResult?: VideoResult
-  videoPrompt?: string
-  videoModel?: string
-  videoResolution?: string
-  videoDuration?: string
-  videoRatio?: string
-  // audio
-  audioText?: string
-  audioVoice?: string
-  audioResult?: AudioResult
-  audioStatus?: GenStatus
-  // negative
-  negative?: string
-  // params
-  ratio?: AspectRatio
-  steps?: number
-  cfg?: number
-  seed?: number | null
-  batch?: number
-  duration?: number
-  resolution?: '720p' | '1080p'
-  fps?: number
-  // internal labels (display only)
-  __label?: string
-}
-
-export interface UCanvasNode {
-  id: string
-  type: UnifiedNodeType
-  position: { x: number; y: number }
-  data: UnifiedNodeData
-}
-
-export interface UConnection {
-  id: string
-  source: { nodeId: string; portId: string }
-  target: { nodeId: string; portId: string }
-}
-
-export interface UViewport {
-  x: number
-  y: number
-  zoom: number
-}
-
-interface UDragState {
-  active: boolean
-  fromPort: { nodeId: string; portId: string; type: UnifiedPortType; isOutput: boolean } | null
-  cursor: { x: number; y: number } | null
-}
-
-const pollRegistry = new Map<string, ReturnType<typeof setInterval>>()
+const pollRegistry = new PollRegistry()
 
 let nodeTypeCounters: Record<string, number> = {}
 
@@ -168,8 +100,8 @@ interface UnifiedCanvasState {
   resetViewport: () => void
 
   addNode: {
-    (type: UnifiedNodeType, position?: { x: number; y: number }, dataOverride?: any, snapToGrid?: boolean): string
-    (type: UnifiedNodeType, x: number, y: number, dataOverride?: any, snapToGrid?: boolean): string
+    (type: UnifiedNodeType, position?: { x: number; y: number }, dataOverride?: Partial<UnifiedNodeData>, snapToGrid?: boolean): string
+    (type: UnifiedNodeType, x: number, y: number, dataOverride?: Partial<UnifiedNodeData>, snapToGrid?: boolean): string
   }
   removeNode: (id: string) => void
   updateNodeData: (id: string, patch: Partial<UnifiedNodeData>) => void
@@ -197,150 +129,16 @@ interface UnifiedCanvasState {
   loadFromStorage: () => boolean
 }
 
-export const UNODE_PORTS: Record<UnifiedNodeType, { inputs: UPort[]; outputs: UPort[] }> = {
-  image: {
-    inputs: [{ id: 'ref', label: '引用', type: 'image' }],
-    outputs: [{ id: 'out', label: '图片', type: 'image' }],
-  },
-  video: {
-    inputs: [{ id: 'ref', label: '引用', type: 'image' }],
-    outputs: [{ id: 'out', label: '视频', type: 'video' }],
-  },
-  audio: {
-    inputs: [{ id: 'ref', label: '引用', type: 'text' }],
-    outputs: [{ id: 'out', label: '音频', type: 'audio' }],
-  },
+interface StoredCanvasState {
+  nodes: Array<Omit<UCanvasNode, 'data'> & { data: Record<string, unknown> }>
+  connections: UConnection[]
+  viewport: UViewport
+  counters: Record<string, number>
+  savedAt: number
 }
 
-export const UNODE_SIZE: Record<UnifiedNodeType, { width: number; height: number }> = {
-  image: { width: 440, height: 248 },
-  video: { width: 320, height: 181 },
-  audio: { width: 300, height: 126 },
-}
-
-export const IMAGE_MODELS = [
-  { id: 'general-pro', name: 'General image Pro', tag: 'Pro', desc: '通用专业图片生成模型', duration: 50, isNew: false },
-]
-
-export const IMAGE_RESOLUTIONS = [
-  { id: '1k', label: '1K', quality: '标准画质', desc: '快速预览' },
-  { id: '2k', label: '2K', quality: '高清画质', desc: '推荐' },
-  { id: '4k', label: '4K', quality: '超清画质', desc: '超高清' },
-]
-
-export const IMAGE_RATIOS = [
-  { id: 'adapt', label: '自适应', w: 0, h: 0 },
-  { id: '1:1', label: '1:1', w: 1, h: 1 },
-  { id: '9:16', label: '9:16', w: 9, h: 16 },
-  { id: '16:9', label: '16:9', w: 16, h: 9 },
-  { id: '3:4', label: '3:4', w: 3, h: 4 },
-  { id: '4:3', label: '4:3', w: 4, h: 3 },
-  { id: '3:2', label: '3:2', w: 3, h: 2 },
-  { id: '2:3', label: '2:3', w: 2, h: 3 },
-  { id: '4:5', label: '4:5', w: 4, h: 5 },
-  { id: '5:4', label: '5:4', w: 5, h: 4 },
-  { id: '21:9', label: '21:9', w: 21, h: 9 },
-]
-
-export const VIDEO_MODELS = [
-  { id: 'seedance', name: 'Seedance Pro', tag: '字节', desc: '文生/图生视频', duration: 30, isNew: false },
-]
-
-export const VIDEO_RESOLUTIONS = [
-  { id: '720p', label: '720p', desc: '快速预览' },
-  { id: '1080p', label: '1080p', desc: '推荐' },
-  { id: '2k', label: '2K', desc: '超高清' },
-]
-
-export const VIDEO_DURATIONS = [
-  { id: '5s', label: '5秒' },
-  { id: '10s', label: '10秒' },
-  { id: '15s', label: '15秒' },
-  { id: '30s', label: '30秒' },
-]
-
-export const AUDIO_VOICES = [
-  { id: 'nova', name: 'Nova', desc: '女声·温暖' },
-]
-
-function defaultNodeData(type: UnifiedNodeType): UnifiedNodeData {
-  switch (type) {
-    case 'image':
-      return { imageResults: [], imageStatus: 'idle', imageRatio: '16:9', imageResolution: '2k', imageCount: 1, imageSteps: 28, imageCfg: 7, imageModel: 'general-pro' }
-    case 'video':
-      return { videoStatus: 'idle', videoPrompt: '', videoModel: 'seedance', videoResolution: '1080p', videoDuration: '5s', videoRatio: '16:9' }
-    case 'audio':
-      return { audioText: '', audioVoice: 'nova', audioStatus: 'idle' }
-  }
-}
-
-const NODE_LABEL_MAP: Record<UnifiedNodeType, string> = {
-  image: '图片',
-  video: '视频',
-  audio: '音频',
-}
-
-export const UNODE_LABELS = NODE_LABEL_MAP
-
-function uid(prefix: string) {
-  const id = typeof crypto !== 'undefined' && crypto.randomUUID
-    ? crypto.randomUUID().replace(/-/g, '')
-    : Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
-  return prefix + '_' + id
-}
-
-function isBusy(s?: GenStatus) {
-  return s === 'queued' || s === 'running'
-}
-
-function randomSeed() {
-  return Math.floor(Math.random() * 1e9)
-}
-
-function canConnect(
-  from: { type: UnifiedPortType; isOutput: boolean },
-  to: { type: UnifiedPortType; isOutput: boolean },
-): boolean {
-  if (from.isOutput === to.isOutput) return false
-  const outType = from.isOutput ? from.type : to.type
-  const inType = from.isOutput ? to.type : from.type
-  // 允许同类型连接，或 audio → image/video 连接（音频可作为视频/图片的引用输入）
-  if (outType === inType) return true
-  if (outType === 'audio' && (inType === 'image' || inType === 'video')) return true
-  return false
-}
-
-// 将虚拟端口(__vin__/__vout__)或不存在的端口id，归一化为该节点该方向的第一个真实端口id
-// 同时返回该真实端口的 type，用于上层重新校验 canConnect
-function normalizePortRef(
-  nodeType: UnifiedNodeType,
-  portId: string,
-  isOutput: boolean,
-): { portId: string; type: UnifiedPortType } | null {
-  const list = isOutput ? UNODE_PORTS[nodeType].outputs : UNODE_PORTS[nodeType].inputs
-  // 先找真实匹配
-  const hit = list.find((p) => p.id === portId)
-  if (hit) return { portId: hit.id, type: hit.type }
-  // 找不到则返回第一个真实端口（虚拟端口 / 旧连线迁移 场景）
-  const first = list[0]
-  if (!first) return null
-  return { portId: first.id, type: first.type }
-}
-
-function stopPoll(nodeId: string) {
-  const id = pollRegistry.get(nodeId)
-  if (id) { clearInterval(id); pollRegistry.delete(nodeId) }
-}
-
-function stopAllPolls() {
-  pollRegistry.forEach((id) => clearInterval(id))
-  pollRegistry.clear()
-}
-
-export const GRID_SIZE = 24
-
-export function snapToGrid(value: number, gridSize = GRID_SIZE): number {
-  return Math.round(value / gridSize) * gridSize
+function isStoredNode(n: unknown): n is StoredCanvasState['nodes'][number] {
+  return typeof n === 'object' && n !== null && 'id' in n && 'type' in n && 'position' in n && 'data' in n
 }
 
 export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
@@ -352,30 +150,29 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
 
   setViewport: (v) => set((s) => ({ viewport: { ...s.viewport, ...v } })),
   panBy: (dx, dy) =>
-    set((s) => ({ viewport: { ...s.viewport, x: s.viewport.x + dx, y: s.viewport.y + dy } })),
+    set((s) => ({ viewport: panViewport(s.viewport, dx, dy) })),
   zoomTo: (zoom, cx, cy) =>
-    set((s) => {
-      const z = Math.min(2, Math.max(0.3, zoom))
-      const { x, y, zoom: oldZoom } = s.viewport
-      return { viewport: { x: cx - ((cx - x) * z) / oldZoom, y: cy - ((cy - y) * z) / oldZoom, zoom: z } }
-    }),
+    set((s) => ({ viewport: zoomViewport(s.viewport, zoom, cx, cy) })),
   resetViewport: () => set({ viewport: { x: 0, y: 0, zoom: 1 } }),
 
-  addNode: ((...args: any[]) => {
-    // 重载 1: addNode(type, position?:{x,y}, dataOverride?, snapEnabled?)
-    // 重载 2: addNode(type, x:number, y:number, dataOverride?, snapEnabled?)
-    const type: UnifiedNodeType = args[0]
+  addNode: ((
+    type: UnifiedNodeType,
+    positionOrX?: { x: number; y: number } | number,
+    yOrData?: Partial<UnifiedNodeData> | number,
+    dataOrSnap?: Partial<UnifiedNodeData> | boolean,
+    snapEnabledArg?: boolean,
+  ) => {
     let position: { x: number; y: number }
-    let dataOverride: any = undefined
+    let dataOverride: Partial<UnifiedNodeData> | undefined
     let snapEnabled = true
-    if (typeof args[1] === 'number' && typeof args[2] === 'number') {
-      position = { x: args[1], y: args[2] }
-      dataOverride = args[3]
-      snapEnabled = args[4] ?? true
+    if (typeof positionOrX === 'number' && typeof yOrData === 'number') {
+      position = { x: positionOrX, y: yOrData }
+      dataOverride = dataOrSnap as Partial<UnifiedNodeData> | undefined
+      snapEnabled = snapEnabledArg ?? true
     } else {
-      position = args[1] ?? { x: 100 + Math.random() * 200, y: 100 + Math.random() * 200 }
-      dataOverride = args[2]
-      snapEnabled = args[3] ?? true
+      position = (positionOrX as { x: number; y: number }) ?? { x: 100 + Math.random() * 200, y: 100 + Math.random() * 200 }
+      dataOverride = yOrData as Partial<UnifiedNodeData> | undefined
+      snapEnabled = (dataOrSnap as boolean) ?? true
     }
     const id = uid(type)
     const count = (nodeTypeCounters[type] ?? 0) + 1
@@ -389,10 +186,10 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     }
     set((s) => ({ nodes: [...s.nodes, node], selectedNodeId: id }))
     return id
-  }) as any,
+  }) as UnifiedCanvasState['addNode'],
 
   removeNode: (id) => {
-    stopPoll(id)
+    pollRegistry.stop(id)
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== id),
       connections: s.connections.filter((c) => c.source.nodeId !== id && c.target.nodeId !== id),
@@ -475,7 +272,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
         const src = state.nodes.find((n) => n.id === conn.source.nodeId)
         if (!src) continue
         if (src.type !== 'image' && src.type !== 'video') continue
-        const imgs = (src.data as any)?.imageResults?.filter((r: any) => r.status === 'done')
+        const imgs = src.data.imageResults?.filter((r) => r.status === 'done')
         if (imgs?.[0]?.url) {
           refImageUrl = imgs[0].url
           break
@@ -487,7 +284,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       }
     }
 
-    const localPrompt = (node.data.imagePrompt as string) || ''
+    const localPrompt = node.data.imagePrompt || ''
     if (!localPrompt.trim()) { get().updateNodeData(nodeId, { imageStatus: 'error' }); return }
 
     const ratio = (node.data.imageRatio as string) || '16:9'
@@ -561,7 +358,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
         if (!src) continue
         // 类型校验：只有 image 节点能提供图片作为图生视频依据
         if (src.type !== 'image') continue
-        const imgs = (src.data as any)?.imageResults?.filter((r: any) => r.status === 'done')
+        const imgs = src.data.imageResults?.filter((r) => r.status === 'done')
         if (imgs?.[0]?.url) {
           imageUrl = imgs[0].url
           break
@@ -574,11 +371,11 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       }
     }
 
-    const prompt = (node.data.videoPrompt as string) || 'AI 生成视频'
+    const prompt = node.data.videoPrompt || 'AI 生成视频'
     const isImg2Video = !!imageUrl
 
     get().updateNodeData(nodeId, { videoStatus: 'queued', videoTaskId: undefined, videoResult: undefined })
-    stopPoll(nodeId)
+    pollRegistry.stop(nodeId)
 
     try {
       const endpoint = isImg2Video ? '/api/video/img2video' : '/api/video/text2video'
@@ -593,10 +390,11 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       }
       get().updateNodeData(nodeId, { videoStatus: 'queued', videoTaskId: res.taskId, videoResult: result })
 
-      const intervalId = setInterval(() => { void get().pollVideoTask(nodeId) }, 3000)
-      pollRegistry.set(nodeId, intervalId)
+      pollRegistry.start(nodeId, () => { void get().pollVideoTask(nodeId) }, 3000)
       void get().pollVideoTask(nodeId)
-    } catch {
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[Canvas] 视频生成启动失败:', e)
       get().updateNodeData(nodeId, { videoStatus: 'error' })
     }
   },
@@ -615,8 +413,13 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
         status: newStatus, url: res.url, placeholder: res.placeholder,
       }
       get().updateNodeData(nodeId, { videoStatus: newStatus, videoResult: updated })
-      if (newStatus === 'done' || newStatus === 'error') stopPoll(nodeId)
-    } catch { /* silent */ }
+      if (newStatus === 'done' || newStatus === 'error') pollRegistry.stop(nodeId)
+    } catch (e) {
+      // 轮询失败不立即标记为 error，可能是临时网络问题
+      // 连续失败由 stopPoll 的超时机制处理
+      // eslint-disable-next-line no-console
+      console.warn('[Canvas] 视频任务轮询失败:', node.data.videoTaskId, e)
+    }
   },
 
   runAudioGen: async (nodeId) => {
@@ -633,7 +436,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
         if (!src) continue
         // 类型校验：只有 audio 节点能提供音频文本
         if (src.type !== 'audio') continue
-        const t = (src.data as any)?.audioText
+        const t = src.data.audioText
         if (t?.trim()) {
           refText = t
           break
@@ -654,7 +457,9 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
         placeholder: res.placeholder,
       }
       get().updateNodeData(nodeId, { audioStatus: 'done', audioResult: result })
-    } catch {
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[Canvas] 音频生成失败:', e)
       get().updateNodeData(nodeId, { audioStatus: 'error' })
     }
   },
@@ -700,7 +505,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
   },
 
   loadDefaultWorkflow: () => {
-    stopAllPolls()
+    pollRegistry.stopAll()
     nodeTypeCounters = { image: 1, video: 1, audio: 1 }
     const imageId = uid('image')
     const videoId = uid('video')
@@ -720,7 +525,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
   },
 
   clearCanvas: () => {
-    stopAllPolls()
+    pollRegistry.stopAll()
     nodeTypeCounters = {}
     set({ nodes: [], connections: [], selectedNodeId: null })
   },
@@ -744,24 +549,30 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
         savedAt: Date.now(),
       }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
-    } catch { /* 静默保存失败 */ }
+    } catch (e) {
+      // localStorage 保存失败（可能是配额超限或隐私模式），不影响核心功能
+      // eslint-disable-next-line no-console
+      console.warn('[Canvas] 本地保存失败:', e)
+    }
   },
 
   loadFromStorage: () => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (!raw) return false
-      const payload = JSON.parse(raw)
+      const payload = JSON.parse(raw) as StoredCanvasState
       if (!payload.nodes || !Array.isArray(payload.nodes)) return false
 
       // 恢复节点状态为 idle
-      const nodes = payload.nodes.map((n: any) => {
-        const statusKey = `${n.type}Status`
-        return {
-          ...n,
-          data: { ...n.data, [statusKey]: 'idle' },
-        }
-      })
+      const nodes = payload.nodes
+        .filter(isStoredNode)
+        .map((n) => {
+          const statusKey = `${n.type}Status`
+          return {
+            ...n,
+            data: { ...n.data, [statusKey]: 'idle' },
+          } as UCanvasNode
+        })
 
       nodeTypeCounters = payload.counters ?? {}
       set({
@@ -792,5 +603,5 @@ useUnifiedCanvasStore.subscribe((state, prevState) => {
 
 // 开发模式：暴露到 window 便于浏览器自动化测试；生产构建不会泄露（仅 window 对象存在时执行）
 if (typeof window !== 'undefined') {
-  ;(window as any).__ucs = useUnifiedCanvasStore
+  ;(window as Window & { __ucs?: typeof useUnifiedCanvasStore }).__ucs = useUnifiedCanvasStore
 }

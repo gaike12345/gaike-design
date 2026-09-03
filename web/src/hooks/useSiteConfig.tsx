@@ -19,7 +19,7 @@ export interface SiteItemMeta {
     rows?: number
     placeholder?: string
     options?: Array<{ label: string; value: string | number | boolean }>
-    [k: string]: any
+    [k: string]: unknown
   } | null
   updatedAt?: string | null
 }
@@ -187,7 +187,7 @@ export function useSiteThemeVars() {
 
 // ============ 超级管理员：保存单条配置 ============
 export async function putSiteConfig(group: string, key: string, value: unknown) {
-  const res = await api.put<{ ok: boolean; value: any }>(`/api/site/config/${group}/${key}`, { value })
+  const res = await api.put<{ ok: boolean; value: unknown }>(`/api/site/config/${group}/${key}`, { value })
   return res
 }
 export async function putSiteBatch(items: { group: string; key: string; value: unknown }[]) {
@@ -195,7 +195,7 @@ export async function putSiteBatch(items: { group: string; key: string; value: u
   return res
 }
 export async function getSiteAudit(limit = 100) {
-  const res = await api.get<{ items: any[] }>(`/api/site/audit?limit=${limit}`)
+  const res = await api.get<{ items: Array<Record<string, unknown>> }>(`/api/site/audit?limit=${limit}`)
   return res.items
 }
 export async function rollbackSiteAudit(id: string) {

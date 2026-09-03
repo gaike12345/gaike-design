@@ -18,7 +18,7 @@ export default function WritingPage() {
   return (
     <CreatorLayout title="小说写作" subtitle="写作板块" projectName="我的小说">
       <div className="flex flex-1 flex-col overflow-hidden">
-        <WritingPane onJumpTo={onJumpTo as any} />
+        <WritingPane onJumpTo={onJumpTo} />
       </div>
     </CreatorLayout>
   )

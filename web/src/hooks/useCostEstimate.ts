@@ -33,7 +33,7 @@ export function useCostEstimate(
   const key = useMemo(
     () => JSON.stringify([kind, params]),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [kind, ...Object.keys(params).sort().map((k) => (params as any)[k])],
+    [kind, ...Object.keys(params).sort().map((k) => params[k as keyof EstimateParams])],
   )
 
   useEffect(() => {

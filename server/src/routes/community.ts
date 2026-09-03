@@ -308,7 +308,7 @@ router.post('/upload', authRequired, upload.single('cover'), validateUploadedFil
     userId: req.user!.userId,
   })
   if (!mod.passed) {
-    cleanupUploadedFile(req.file.path)
+    void cleanupUploadedFile(req.file.path)
     return res.status(403).json({ error: mod.reason, moderation: mod.result })
   }
   res.json({ url: `/uploads/${req.file.filename}` })

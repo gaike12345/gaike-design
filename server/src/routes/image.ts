@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express'
+﻿import { Router, Request, Response } from 'express'
 import { createHmac } from 'crypto'
 import { authRequired } from '../middleware/auth'
 import { withGeneration } from '../middleware/generation'
@@ -285,7 +285,7 @@ router.post('/upload', upload.single('image'), validateUploadedFiles, async (req
     userId: req.user!.userId,
   })
   if (!mod.passed) {
-    cleanupUploadedFile(req.file.path)
+    void cleanupUploadedFile(req.file.path)
     return res.status(403).json({ error: mod.reason, moderation: mod.result })
   }
   res.json({ url: `/uploads/${req.file.filename}` })

@@ -6,6 +6,13 @@
 
 import { useQuotaModalStore } from '../store/useQuotaModalStore'
 
+interface ErrorResponseData {
+  error?: string
+  need?: number
+  remaining?: number
+  [key: string]: unknown
+}
+
 const TOKEN_KEY = 'mank_tv_token'
 
 // Token 管理
@@ -53,8 +60,8 @@ export async function apiFetch<T>(
 
   // 402 → 积分不足，弹出充值引导弹窗
   if (res.status === 402) {
-    let data: any = null
-    try { data = await res.json() } catch { /* ignore */ }
+    let data: ErrorResponseData | null = null
+    try { data = await res.json() as ErrorResponseData } catch { /* ignore */ }
     useQuotaModalStore.getState().openModal({
       need: data?.need,
       remaining: data?.remaining,
@@ -107,8 +114,8 @@ export async function uploadFile(url: string, file: File): Promise<{ url: string
   }
 
   if (res.status === 402) {
-    let data: any = null
-    try { data = await res.json() } catch { /* ignore */ }
+    let data: ErrorResponseData | null = null
+    try { data = await res.json() as ErrorResponseData } catch { /* ignore */ }
     useQuotaModalStore.getState().openModal({
       need: data?.need,
       remaining: data?.remaining,

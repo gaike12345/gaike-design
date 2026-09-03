@@ -5,6 +5,17 @@ import Navbar from '../components/layout/Navbar'
 import Footer from '../components/layout/Footer'
 import { useSiteConfig, useSiteThemeVars } from '../hooks/useSiteConfig'
 
+interface PricingPlan {
+  key: string
+  name: string
+  price: string
+  period: string
+  desc: string
+  features: string[]
+  cta: string
+  highlight: boolean
+}
+
 export default function PricingPage() {
   const { get } = useSiteConfig()
   const { siteName, primaryColor } = useSiteThemeVars()
@@ -14,7 +25,7 @@ export default function PricingPage() {
   const proTokens = get('pricing.pro_tokens', 500_000) as number
 
   const PLANS = useMemo(() => {
-    const plans: any[] = [
+    const plans: PricingPlan[] = [
       {
         key: 'free',
         name: '免费版',

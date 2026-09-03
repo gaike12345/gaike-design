@@ -84,6 +84,8 @@ export function llmRouteJson<T>(
 
       const fullPrompt = `${WRITING_SYSTEM_PROMPT}\n\n---\n\n${systemPrompt}`
       const userPrompt = userPromptBuilder ? userPromptBuilder(req.body || {}) : JSON.stringify(req.body || {})
+      // 从请求体中读取模型参数（可选）
+      const model = (req.body?.model as string) || undefined
 
       // 输入审核：用户 prompt 发送给模型之前
       if (userId) {
@@ -98,7 +100,7 @@ export function llmRouteJson<T>(
         }
       }
 
-      const result = await callLlmJson<T>(fullPrompt, userPrompt)
+      const result = await callLlmJson<T>(fullPrompt, userPrompt, model)
       // callLlmJson 在无 API Key 时会抛错（fallbackTemplate 无法解析为 JSON），不会走到这里
       // 只有真实 LLM 调用成功才会到这里
 
@@ -180,6 +182,8 @@ export function llmRouteText<T>(
 
       const fullPrompt = `${WRITING_SYSTEM_PROMPT}\n\n---\n\n${systemPrompt}`
       const userPrompt = userPromptBuilder ? userPromptBuilder(req.body || {}) : JSON.stringify(req.body || {})
+      // 从请求体中读取模型参数（可选）
+      const model = (req.body?.model as string) || undefined
 
       // 输入审核
       if (userId) {
@@ -194,7 +198,7 @@ export function llmRouteText<T>(
         }
       }
 
-      const text = await callLlm(fullPrompt, userPrompt)
+      const text = await callLlm(fullPrompt, userPrompt, model)
       // 检测是否走了 fallback 模板（无 API Key）
       const isPlaceholder = text.startsWith('（LLM 未配置 API Key')
       if (isPlaceholder) {

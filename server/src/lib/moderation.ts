@@ -15,6 +15,7 @@ import path from 'path'
 import crypto from 'crypto'
 import fetch from 'node-fetch'
 import prisma from './prisma'
+import { logger } from './logger'
 import { cfgBool, cfgStr, getAllSiteConfigs } from './siteConfig'
 import { DEFAULT_SENSITIVE_WORDS } from './seedSiteConfig'
 
@@ -383,9 +384,16 @@ export async function moderateText(
 
   // 2. 本地敏感词扫描（始终执行，按严格度限定类别）
   const local = scanLocal(text, words, categoriesToScan, caseInsensitive)
-  // 临时诊断日志：确认审核被调用 + 命中情况（验证通过后可移除）
-  console.warn('[审核诊断] stage=%s endpoint=%s userId=%s enabled=%s level=%s hitCats=%d hits=%j',
-    opts.stage, opts.endpoint, opts.userId, enabled, level, local.categories.length, local.hits.slice(0, 5))
+  // 诊断日志：debug 级别，生产环境默认不输出
+  logger.debug('内容审核诊断', {
+    stage: opts.stage,
+    endpoint: opts.endpoint,
+    userId: opts.userId,
+    enabled,
+    level,
+    hitCategories: local.categories.length,
+    hits: local.hits.slice(0, 5),
+  })
   if (local.categories.length > 0) {
     const risk = maxRisk(local.categories.map((c) => CATEGORY_RISK[c] || 'medium'))
     return {
@@ -533,7 +541,7 @@ export async function moderateUpload(
   const textExtensions = ['.txt', '.md', '.srt', '.vtt', '.lrc', '.csv']
   if (textExtensions.includes(ext)) {
     try {
-      const content = fs.readFileSync(file.path, 'utf-8')
+      const content = await fs.promises.readFile(file.path, 'utf-8')
       // 文本文件只审核前 10KB，避免大文件占用过多资源
       const preview = content.slice(0, 10240)
       const contentResult = await moderateText(preview, {
@@ -557,21 +565,20 @@ export async function moderateUpload(
       }
     } catch (e) {
       // 文件读取失败不阻断上传（可能是二进制文件误判等），仅记日志
-      console.error('[moderation] read upload content failed:', e)
+      logger.error('读取上传文件内容失败', { error: (e as Error).message })
     }
   }
 
   return { passed: true, reason: '审核通过' }
 }
 
-// 工具：删除上传文件（审核失败时清理磁盘）
-export function cleanupUploadedFile(filePath: string): void {
+// 工具：删除上传文件（审核失败时清理磁盘）— 异步非阻塞
+export async function cleanupUploadedFile(filePath: string): Promise<void> {
   try {
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath)
-    }
+    await fs.promises.unlink(filePath)
   } catch (e) {
-    console.error('[moderation] cleanup uploaded file failed:', e)
+    // 文件不存在或删除失败都不影响主流程
+    logger.warn('清理上传文件失败', { filePath, error: (e as Error).message })
   }
 }
 

@@ -114,6 +114,8 @@ model Work {
 
   @@index([userId])
   @@index([type])
+  // 社区列表高频查询：按 hidden 过滤 + createdAt 排序
+  @@index([hidden, createdAt])
 }
 
 model Comment {
@@ -211,6 +213,8 @@ model GenerationLog {
   @@index([userId])
   @@index([type])
   @@index([createdAt])
+  // 管理端统计：按类型 + 时间范围聚合
+  @@index([type, createdAt])
 }
 
 // ==================== 内容审核记录（双审核） ====================
@@ -267,6 +271,8 @@ model UserTask {
 
   @@index([userId])
   @@index([status])
+  // 用户任务列表：按用户 + 状态查询
+  @@index([userId, status])
 }
 
 // ==================== 充值订单 ====================

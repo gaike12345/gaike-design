@@ -1,4 +1,4 @@
-import { Router } from 'express'
+﻿import { Router } from 'express'
 import bcrypt from 'bcryptjs'
 import prisma from '../lib/prisma'
 import { signToken } from '../lib/jwt'
@@ -163,7 +163,7 @@ router.post('/avatar', authRequired, upload.single('avatar'), validateUploadedFi
     userId: req.user!.userId,
   })
   if (!mod.passed) {
-    cleanupUploadedFile(req.file.path)
+    void cleanupUploadedFile(req.file.path)
     return res.status(403).json({ error: mod.reason, moderation: mod.result })
   }
   const url = `/uploads/${req.file.filename}`

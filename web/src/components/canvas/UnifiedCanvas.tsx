@@ -4,7 +4,7 @@
 // 对标 LibTV 画布：单一画布承载 text->image->video->audio 全链路
 // 复用图像画布的交互逻辑，统一配色（violet 主色，兼容图像 cyan 与视频 amber）
 
-import { useRef, useEffect, useCallback, useState, type ReactNode, type MouseEvent } from 'react'
+import { useRef, useEffect, useCallback, useState, type ReactNode, type MouseEvent, type ComponentType, type SVGProps } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   useUnifiedCanvasStore, UNODE_PORTS, UNODE_SIZE, GRID_SIZE, snapToGrid,
@@ -31,6 +31,8 @@ import logo from '../../assets/logo.png'
 // 因此端口中心 = NODE_BORDER + x (x 为 UPortHandle 的 left 值)
 // 输入端口 x = -NODE_BORDER → center = node.position.x + 1 + (-1) = node.position.x
 // 输出端口 x = width - NODE_BORDER → center = node.position.x + 1 + (w - 1) = node.position.x + w
+type IconComponent = ComponentType<SVGProps<SVGSVGElement> & { size?: number | string }>
+
 const NODE_BORDER = 1
 
 // 端口 DOM 真实坐标（优先）：从 data-port-id 热区元素直接读屏幕中心，再反算画布坐标
@@ -1109,7 +1111,7 @@ function CanvasContextMenu({
 
   if (menu.kind === 'canvas') {
     // 画布右键：直接展示节点选项浮窗 + 辅助操作
-    const quickNodes: { type: UnifiedNodeType; label: string; icon: any; color: string; desc: string }[] = [
+    const quickNodes: { type: UnifiedNodeType; label: string; icon: IconComponent; color: string; desc: string }[] = [
       { type: 'image',  label: '图片生成', icon: ImageIcon,           color: '#22d3ee', desc: '输入提示词 · 生成图像' },
       { type: 'video',  label: '视频生成', icon: Film,                color: '#fbbf24', desc: '图生视频 · 视频生成' },
       { type: 'audio',  label: '音频生成', icon: Music,               color: '#f472b6', desc: '提示词生成配音/音乐' },
@@ -1188,11 +1190,15 @@ function CanvasContextMenu({
   }
 
   // 节点右键：复制/删除
-  const nodeItems = [
+  type ContextMenuItem =
+    | { k: string; sep: true; label?: never; icon?: never; badge?: never; onClick?: never; sub?: never; danger?: never; disabled?: never }
+    | { k: string; label: string; icon: IconComponent; badge?: string; onClick: () => void; sub?: string; danger?: boolean; disabled?: boolean; sep?: never }
+
+  const nodeItems: ContextMenuItem[] = [
     { k: 'dup',   label: '复制节点', icon: Plus,    badge: '⌘D', onClick: () => onDuplicateNode(menu.nodeId), sub: '复制到右下方 30px' },
     { k: 'sep',   sep: true },
     { k: 'del',   label: '删除节点', icon: Trash2,  badge: '⌫',  onClick: () => onDeleteNode(menu.nodeId), danger: true },
-  ] as const
+  ]
 
   return (
     <div
@@ -1201,7 +1207,7 @@ function CanvasContextMenu({
       style={{ left: 0, top: 0 }}
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}>
-      {nodeItems.map((it: any) => it.sep
+      {nodeItems.map((it) => it.sep
         ? <div key={it.k} className="my-0.5 mx-1.5 h-px bg-neutral-700/80"/>
         : (() => {
             const Icon = it.icon
@@ -1289,7 +1295,7 @@ function PortCreateMenu({
   type Item = {
     type: UnifiedNodeType | null
     label: string
-    icon: any
+    icon: IconComponent
     badge?: { text: string; tone: 'new' | 'beta' | 'default' }
     desc?: string
     disabled?: boolean

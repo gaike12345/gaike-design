@@ -36,9 +36,10 @@ interface LlmMessage {
  * 调用 LLM 生成文本（OpenAI 兼容格式）
  * @param systemPrompt 系统提示词
  * @param userPrompt 用户输入
+ * @param model 可选：指定模型名称，覆盖默认配置
  * @returns 模型返回的文本
  */
-export async function callLlm(systemPrompt: string, userPrompt: string): Promise<string> {
+export async function callLlm(systemPrompt: string, userPrompt: string, model?: string): Promise<string> {
   // 无 API Key 时走 fallback 模板
   if (!ACTIVE.key) {
     console.warn(`[LLM] ${ACTIVE.name} 供应商未配置 API Key，走模板兜底`)
@@ -50,6 +51,8 @@ export async function callLlm(systemPrompt: string, userPrompt: string): Promise
     { role: 'user', content: userPrompt },
   ]
 
+  const activeModel = model || ACTIVE.model
+
   const res = await fetch(`${ACTIVE.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -57,7 +60,7 @@ export async function callLlm(systemPrompt: string, userPrompt: string): Promise
       Authorization: `Bearer ${ACTIVE.key}`,
     },
     body: JSON.stringify({
-      model: ACTIVE.model,
+      model: activeModel,
       messages,
       temperature: 0.7,
       max_tokens: 4096,
@@ -114,8 +117,8 @@ function extractBalancedJson(text: string): string | null {
  * 调用 LLM 并解析为 JSON
  * 在 prompt 中要求模型返回 JSON，此处自动解析
  */
-export async function callLlmJson<T>(systemPrompt: string, userPrompt: string): Promise<T> {
-  const text = await callLlm(systemPrompt, userPrompt)
+export async function callLlmJson<T>(systemPrompt: string, userPrompt: string, model?: string): Promise<T> {
+  const text = await callLlm(systemPrompt, userPrompt, model)
   // 提取 JSON 块：优先 ```json``` 围栏，否则用平衡括号提取（H14）
   const fenced = text.match(/```json\s*([\s\S]*?)```/)
   const jsonStr = (fenced ? fenced[1] : extractBalancedJson(text) ?? text).trim()

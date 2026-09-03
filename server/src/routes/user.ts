@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction } from 'express'
+﻿import { Router, Request, Response, NextFunction } from 'express'
 import prisma from '../lib/prisma'
 import { authRequired } from '../middleware/auth'
 import { upload, validateUploadedFiles } from '../middleware/upload'
@@ -63,7 +63,7 @@ router.post('/banner', upload.single('banner'), validateUploadedFiles, async (re
       userId: req.user!.userId,
     })
     if (!mod.passed) {
-      cleanupUploadedFile(req.file.path)
+      void cleanupUploadedFile(req.file.path)
       return res.status(403).json({ error: mod.reason, moderation: mod.result })
     }
     const url = `/uploads/${req.file.filename}`
