@@ -113,12 +113,11 @@ export function sseHandler(req: Request, res: Response): void {
   }
   resetActivityTimer()
 
-  // 监听任务状态变更
+  // 监听任务状态变更（严格用户隔离）
   const unregister = taskQueue.onAnyChange((data) => {
-    // 只推送给任务所属用户
-    // 注意：data 中没有 userId 字段，需要从任务详情中获取
-    // 这里我们用通配方式推送，前端根据 taskId 过滤
-    // 如需更严格的用户隔离，可在 data 中携带 userId 并在此过滤
+    // 只推送给任务所属用户，防止泄露他人任务内容
+    if (data.userId !== userId) return
+
     sendEvent(res, 'task:change', data)
     sendEvent(res, `task:${data.taskId}`, data)
     resetActivityTimer()

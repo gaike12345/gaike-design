@@ -29,6 +29,25 @@ const currentLevel: LogLevel = (process.env.LOG_LEVEL as LogLevel) || 'info'
 const isJsonLog = process.env.NODE_ENV === 'production'
 const isDebug = LOG_LEVELS[currentLevel] >= LOG_LEVELS.debug
 
+// 延迟导入 AsyncLocalStorage，避免 logger 被非请求上下文引用时报错
+let _requestContext: any = null
+function getRequestContext(): any {
+  if (!_requestContext) {
+    try {
+      // 动态导入，兼容非 Express 环境（如脚本）
+      _requestContext = require('../middleware/request-id').requestContext
+    } catch {
+      _requestContext = null
+    }
+  }
+  return _requestContext
+}
+
+function getTraceIdSafe(): string | undefined {
+  const ctx = getRequestContext()
+  return ctx?.getStore()?.traceId
+}
+
 // ========== 脱敏规则 ==========
 const SENSITIVE_KEYS = [
   'password', 'passwd', 'pwd', 'secret', 'token', 'authorization',
@@ -142,7 +161,7 @@ class Logger {
         level,
         message,
         prefix: this.prefix || undefined,
-        traceId: (globalThis as any).__traceId || undefined,
+        traceId: getTraceIdSafe(),
         ...redactedData,
       }
       const stream = level === 'error' ? process.stderr : process.stdout
@@ -159,7 +178,7 @@ class Logger {
       const color = levelColors[level]
       const levelStr = level.toUpperCase().padEnd(5)
 
-      const traceId = (globalThis as any).__traceId
+      const traceId = getTraceIdSafe()
       const traceStr = traceId ? ` \x1b[90m(trace: ${traceId.slice(0, 8)})${reset}` : ''
 
       const dataStr = redactedData
@@ -181,16 +200,20 @@ export default logger
 // ========== 辅助函数 ==========
 
 /**
- * 设置当前请求的 traceId（用于日志透传）
+ * @deprecated 已改用 AsyncLocalStorage（requestContext），
+ * 由 request-id 中间件自动管理，无需手动调用。
  */
-export function setTraceId(id: string): void {
-  (globalThis as any).__traceId = id
+export function setTraceId(_id: string): void {
+  // no-op：保留兼容，实际由 requestContext 管理
 }
 
 export function getTraceId(): string | undefined {
-  return (globalThis as any).__traceId
+  return getTraceIdSafe()
 }
 
+/**
+ * @deprecated 已改用 AsyncLocalStorage，自动清理，无需手动调用。
+ */
 export function clearTraceId(): void {
-  delete (globalThis as any).__traceId
+  // no-op
 }

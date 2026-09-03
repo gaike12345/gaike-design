@@ -14,10 +14,17 @@
 
 import type { Request, Response, NextFunction } from 'express'
 import crypto from 'crypto'
+import { AsyncLocalStorage } from 'async_hooks'
 import logger from '../lib/logger'
 
 const REQUEST_ID_HEADER = 'x-request-id'
 const TRACE_ID_HEADER = 'x-trace-id'
+
+/**
+ * 异步上下文存储（并发安全的 traceId 传递）
+ * 替代 globalThis，避免并发请求 traceId 互相覆盖
+ */
+export const requestContext = new AsyncLocalStorage<{ traceId: string }>()
 
 /**
  * 生成请求 ID（短格式，12 字符足够）
@@ -48,43 +55,38 @@ export function requestId(req: Request, res: Response, next: NextFunction): void
   req.requestId = requestId
   req.startTime = Date.now()
 
-  // 2. 注入到全局上下文（logger 用）
-  ;(globalThis as any).__traceId = requestId
+  // 2. 注入到 AsyncLocalStorage（并发安全，logger 从这里取）
+  requestContext.run({ traceId: requestId }, () => {
+    // 3. 响应头返回请求 ID
+    res.setHeader(REQUEST_ID_HEADER, requestId)
 
-  // 3. 响应头返回请求 ID
-  res.setHeader(REQUEST_ID_HEADER, requestId)
+    // 4. 请求结束时记录访问日志
+    res.on('finish', () => {
+      const duration = Date.now() - req.startTime
+      const status = res.statusCode
 
-  // 4. 请求结束时记录访问日志
-  res.on('finish', () => {
-    const duration = Date.now() - req.startTime
-    const status = res.statusCode
+      const logData: Record<string, any> = {
+        method: req.method,
+        path: req.path,
+        status,
+        durationMs: duration,
+        ip: req.ip || (req.socket as any)?.remoteAddress,
+      }
 
-    const logData: Record<string, any> = {
-      method: req.method,
-      path: req.path,
-      status,
-      durationMs: duration,
-      ip: req.ip || (req.socket as any)?.remoteAddress,
-    }
+      // 慢请求告警（> 1s 标记 warn，> 3s 标记 error）
+      if (duration > 3000) {
+        logger.warn('慢请求', logData)
+      } else if (status >= 500) {
+        logger.error('请求失败', logData)
+      } else if (status >= 400) {
+        logger.warn('客户端错误', logData)
+      } else {
+        logger.info('请求完成', logData)
+      }
+    })
 
-    // 慢请求告警（> 1s 标记 warn，> 3s 标记 error）
-    if (duration > 3000) {
-      logger.warn('慢请求', logData)
-    } else if (status >= 500) {
-      logger.error('请求失败', logData)
-    } else if (status >= 400) {
-      logger.warn('客户端错误', logData)
-    } else {
-      logger.info('请求完成', logData)
-    }
-
-    // 清理 traceId
-    if ((globalThis as any).__traceId === requestId) {
-      delete (globalThis as any).__traceId
-    }
+    next()
   })
-
-  next()
 }
 
 export default requestId

@@ -63,17 +63,17 @@ app.use(cors({
     const matched = allowedOrigins.some((allowed) => {
       // 精确匹配
       if (origin === allowed) return true
-      // 子域名匹配（生产环境可用，如 https://api.example.com 匹配 https://example.com）
+      // 子域名匹配（生产环境可用，如 https://app.example.com 匹配 https://example.com）
+      // 安全规则：必须是 ".允许域名" 结尾，防止前缀注入（如 evilgaike.xyz 绕过 gaike.xyz）
       if (IS_PROD) {
         try {
           const allowedUrl = new URL(allowed)
           const originUrl = new URL(origin)
-          // 同域名 + 同端口 且都是 HTTPS
-          return (
-            originUrl.hostname.endsWith(allowedUrl.hostname) &&
-            originUrl.protocol === allowedUrl.protocol &&
-            originUrl.port === allowedUrl.port
-          )
+          const sameProtocol = originUrl.protocol === allowedUrl.protocol
+          const samePort = originUrl.port === allowedUrl.port
+          const exactHost = originUrl.hostname === allowedUrl.hostname
+          const isSubdomain = originUrl.hostname.endsWith('.' + allowedUrl.hostname)
+          return sameProtocol && samePort && (exactHost || isSubdomain)
         } catch {
           return false
         }

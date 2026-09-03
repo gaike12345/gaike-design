@@ -122,10 +122,12 @@ router.post('/img2video', validate({
   res.json({ taskId, status: 'queued' })
 })
 
-// GET /api/video/task/:taskId — 查询视频生成状态
+// GET /api/video/task/:taskId — 查询视频生成状态（仅本人）
 router.get('/task/:taskId', async (req, res) => {
+  const userId = req.user!.userId
   const task = await taskQueue.getStatus(req.params.taskId)
   if (!task) return res.status(404).json({ error: '任务不存在' })
+  if (task.userId !== userId) return res.status(403).json({ error: '无权查看该任务' })
   res.json({
     status: task.status,
     url: task.result?.url,
