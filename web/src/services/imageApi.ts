@@ -12,38 +12,70 @@
 //
 // v2 新增：generateViaBackend — 通过后端代理生成图像（/api/image/generate）
 
-import type { AspectRatio } from '../store/useStudioStore'
-import { getToken } from './api'
+import { api } from './api'
 
-export const API_BASE = 'https://image.pollinations.ai/prompt'
+export const API_BASE = '/pollinations-img'
 
-// 比例 → 像素尺寸映射（Pollinations 免费版大尺寸易触发限流，统一用较小尺寸）
-const RATIO_TO_SIZE: Record<AspectRatio, { w: number; h: number }> = {
-  '1:1': { w: 768, h: 768 },
-  '3:4': { w: 648, h: 864 },
-  '4:3': { w: 864, h: 648 },
-  '16:9': { w: 960, h: 540 },
-  '9:16': { w: 540, h: 960 },
+// 比例 → 基准尺寸（对应 2K 档，长边约 2048px；分辨率倍率再缩放 1K/2K/4K）
+// Pollinations 要求 width/height 为 8 的倍数，以下数值均已对齐
+const RATIO_TO_SIZE: Record<string, { w: number; h: number }> = {
+  '1:1':   { w: 2048, h: 2048 },
+  '3:4':   { w: 1536, h: 2048 },
+  '4:3':   { w: 2048, h: 1536 },
+  '16:9':  { w: 2048, h: 1152 },
+  '9:16':  { w: 1152, h: 2048 },
+  '3:2':   { w: 2048, h: 1368 },
+  '2:3':   { w: 1368, h: 2048 },
+  '4:5':   { w: 1640, h: 2048 },
+  '5:4':   { w: 2048, h: 1640 },
+  '21:9':  { w: 2048, h: 880  },
+  'adapt': { w: 2048, h: 2048 },
+}
+
+// 产品模型 → Pollinations 实际模型映射
+const MODEL_TO_POLLINATIONS: Record<string, string> = {
+  'lib-image': 'flux',
+  'general-pro': 'flux',
+  'general-v2': 'turbo',
+  'seedream-5p': 'flux',
+  'qwen-3': 'flux',
+  'style-v82': 'flux',
+  'style-v81': 'flux',
+}
+
+// 分辨率倍率（基准为 2K）
+const RESOLUTION_MULTIPLIER: Record<string, number> = {
+  '1k': 0.5,
+  '2k': 1.0,
+  '4k': 2.0,
 }
 
 export interface BuildImageUrlOpts {
   prompt: string
-  ratio: AspectRatio
+  ratio: string
   seed?: number
   negativePrompt?: string
   steps?: number
   cfg?: number
+  model?: string
+  resolution?: string
+  sampler?: string
 }
 
 export function buildImageUrl(opts: BuildImageUrlOpts): string {
-  const { w, h } = RATIO_TO_SIZE[opts.ratio]
+  const baseSize = RATIO_TO_SIZE[opts.ratio] || RATIO_TO_SIZE['1:1']
+  const mult = RESOLUTION_MULTIPLIER[opts.resolution || '2k'] || 1.0
+  // 对齐到 8 的倍数（Pollinations/Flux 通用要求），且最小 256
+  const align8 = (n: number) => Math.max(256, Math.round(n / 8) * 8)
+  const w = align8(baseSize.w * mult)
+  const h = align8(baseSize.h * mult)
+  const pollModel = MODEL_TO_POLLINATIONS[opts.model || ''] || 'turbo'
+
   const params = new URLSearchParams()
   params.set('width', String(w))
   params.set('height', String(h))
   params.set('nologo', 'true')
-  // turbo 模型生成更快、限流更宽松，适合 MVP 联调
-  // 如需更高质量可改 'flux'，但失败率会上升
-  params.set('model', 'turbo')
+  params.set('model', pollModel)
   if (opts.seed != null) params.set('seed', String(opts.seed))
   if (opts.negativePrompt) params.set('negative', opts.negativePrompt)
   if (opts.steps) params.set('nfs', String(opts.steps))
@@ -82,38 +114,27 @@ export interface BackendGenResult {
 // 后端负责隐藏 API Key、限流、记录用量
 export async function generateViaBackend(opts: {
   prompt: string
-  ratio: AspectRatio
+  ratio: string
   batch?: number
   seed?: number
+  model?: string
+  resolution?: string
 }): Promise<BackendGenResult> {
-  const token = getToken()
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (token) headers.Authorization = `Bearer ${token}`
-
-  const res = await fetch('/api/image/generate', {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(opts),
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err.error || `HTTP ${res.status}`)
+  try {
+    return await api.post<BackendGenResult>('/api/image/generate', opts)
+  } catch (e: any) {
+    throw new Error(e?.response?.data?.error || e?.message || '图像生成失败')
   }
-  return (await res.json()) as BackendGenResult
 }
 
-// 通过后端代理优化 Prompt（/api/image/enhance-prompt）
+// 通过后端代理优化 Prompt（H2: 统一到 /api/llm/enhance-prompt）
 export async function enhancePromptViaBackend(input: string, ratio?: string): Promise<string> {
-  const token = getToken()
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (token) headers.Authorization = `Bearer ${token}`
-
-  const res = await fetch('/api/image/enhance-prompt', {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ input, ratio }),
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  const data = await res.json()
-  return data?.data?.prompt || input
+  try {
+    const data = await api.post<{ data?: { prompt?: string } }>('/api/llm/enhance-prompt', { input, ratio })
+    return data?.data?.prompt || input
+  } catch {
+    return input
+  }
 }
+
+

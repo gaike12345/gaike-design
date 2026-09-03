@@ -1,0 +1,112 @@
+# ==================== AI 漫剧圈 (MankTV) 全局 .gitignore ====================
+
+# ---------- 依赖与构建产物 ----------
+node_modules/
+dist/
+build/
+.next/
+.nuxt/
+.output/
+.vite/
+.cache/
+.parcel-cache/
+
+# ---------- 日志与临时文件 ----------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.local
+.DS_Store
+Thumbs.db
+
+# ---------- ⚠️ 密钥安全：绝不提交任何带真实值的 .env ⚠️ ----------
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*
+!.env.example
+
+# 私有密钥格式文件
+*.pem
+*.key
+*.crt
+*.cert
+
+# ---------- 数据库 ----------
+server/prisma/dev.db
+server/prisma/dev.db-journal
+server/prisma/migrations/**/migration_lock.toml
+*.sqlite
+*.db
+*.dump
+server/prisma/data/
+
+# ---------- 上传目录 ----------
+server/uploads/
+uploads/
+
+# ---------- IDE / 编辑器 ----------
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.template
+.idea/
+*.swp
+*.swo
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# ---------- 系统 / OS ----------
+$RECYCLE.BIN/
+System Volume Information/
+
+# ---------- 原型 / 设计草稿（非生产代码） ----------
+prototypes/
+
+# ---------- 开发测试脚本（非生产代码） ----------
+server/scripts/
+server/recharge-test-user.js
+server/test-writing-chain.js
+
+# ---------- 大文件 / 媒体资源（应放 CDN） ----------
+web/public/videos/
+*.mp4
+*.mov
+*.avi
+*.mp3
+*.wav
+
+# ---------- 临时审计 / 个人笔记 ----------
+AUDIT_REPORT.md
+POLLINATIONS_API_NOTES.txt
+
+# ---------- 图片（白名单例外） ----------
+*.png
+*.jpg
+*.jpeg
+!web/public/*.png
+!web/public/*.jpg
+!web/public/covers/*.png
+!web/public/covers/*.jpg
+!web/src/assets/*.png
+!web/src/assets/*.jpg
+
+# ---------- 子目录冗余文件 ----------
+web/.gitignore
+
+# ---------- 其他项目无关 ----------
+素材/
+oh-story-claudecode-main/
+.trae-html-share-packages/
+architecture-review/
+NUL
+
+# ---------- Trae 工作区 ----------
+.trae/

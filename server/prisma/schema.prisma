@@ -9,26 +9,44 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// 迁移说明：
+//   - SQLite 时代使用 cuid() 作为主键，PostgreSQL 完全兼容
+//   - 所有索引、外键、级联删除均通过 Prisma 抽象层定义，无 SQLite 特有语法
+//   - 迁移工具：prisma migrate dev --name init（PostgreSQL 首次初始化）
+//   - 数据迁移脚本：prisma/migrate-sqlite-to-pg.ts（从 SQLite dev.db 导入数据）
+
 // ==================== 用户 ====================
 model User {
   id        String   @id @default(cuid())
+  uid       Int      @unique
   email     String   @unique
   password  String
   nickname  String
   avatar    String?
-  bio       String?
-  role      String   @default("user") // user | creator | moderator | admin | superadmin
+    banner    String?
+    bio       String?
+  role        String   @default("user")    // user | admin | superadmin
+  enabled     Boolean  @default(true)      // false = 账号被关闭，禁止登录
+  // 内容安全风险等级：0 正常 | 1 警告 | 2 限制（AI生成需人工复核）| 3 封禁AI生成
+  riskLevel       Int       @default(0)
+  violationCount  Int       @default(0)  // 累计违规次数
+  riskUpdatedAt   DateTime?
+  riskNote        String?  // 风险操作备注（手动调整时记录）
+  wechatOpenId    String?  @unique      // 微信公众号 openid
+  loginMethod     String?               // 登录方式：password / email_code / wechat
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  projects       Project[]
-  works          Work[]
-  comments       Comment[]
-  likes          Like[]
-  generationLogs GenerationLog[]
-  quota          UserQuota?
-  tasks          UserTask[]
-  payments       PaymentOrder[]
+  projects        Project[]
+  works           Work[]
+  comments        Comment[]
+  likes           Like[]
+  generationLogs  GenerationLog[]
+  quota           UserQuota?
+  tasks           UserTask[]
+  payments        PaymentOrder[]
+  subscriptions   Subscription[]
+  moderationLogs  ModerationLog[]
 }
 
 // ==================== 小说项目 ====================
@@ -85,6 +103,7 @@ model Work {
   content     String    // 正文内容 / 图片URL列表 / 音视频URL
   cover       String?
   tags        String?   // JSON array string
+  hidden      Boolean   @default(false)  // 管理下架：true = 用户侧不可见
   likesCount  Int       @default(0)
   userId      String
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -126,6 +145,7 @@ model Subscription {
   planId    String   // free | pro | business | enterprise
   status    String   @default("active") // active | expired | cancelled
   userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   expiresAt DateTime?
 
@@ -158,6 +178,10 @@ model AIModel {
   provider    AIProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
   tag         String?  // 通用, 高质量, 长文本, 风格
   desc        String?  // 模型描述
+  // 积分制度：每次调用消耗多少积分（tokens）。管理后台可手动调整，设置后全局立即生效
+  // 默认值按 type 设：novel/comic 500 / audio(music) 1000 audio(tts) 500 / image 1000 / video 5000
+  // 具体某模型可在 seed 或管理界面覆盖为更精确的值（如 Flux 比 SDXL 贵、2K 分辨率比 1K 贵等）
+  costTokens  Int      @default(1000)
   status      String   @default("active") // active | disabled
   sort        Int      @default(0)
   config      String?  // JSON: 模型特定参数（max_tokens, default_params 等）
@@ -186,6 +210,30 @@ model GenerationLog {
 
   @@index([userId])
   @@index([type])
+  @@index([createdAt])
+}
+
+// ==================== 内容审核记录（双审核） ====================
+// 追加不可改：仅 create + read，无 update/delete 路由（防抵赖）
+model ModerationLog {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stage       String   // input | output  审核阶段（输入审核/输出审核）
+  endpoint    String   // 触发的接口路径（如 /api/llm/continue-text）
+  content     String   // 被审核的文本片段（截断 500 字，避免存储膨胀）
+  result      String   // pass | block | warning
+  riskLevel   String   // low | medium | high
+  reason      String?  // 违规原因 / 命中的分类说明
+  categories  String?  // JSON: 命中的违规分类列表
+  provider    String   // local | aliyun | zhipu  审核服务商
+  placeholder Boolean  @default(false)  // true = demo 模式占位审核（无 API key）
+  handled     Boolean  @default(false)  // 后台是否已处理（标记已查看/已处置）
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([result])
+  @@index([riskLevel])
   @@index([createdAt])
 }
 
@@ -242,16 +290,53 @@ model PaymentOrder {
 // ==================== 板块功能配置 ====================
 model ModuleFeature {
   id          String   @id @default(cuid())
-  module      String   // novel | image | comic | audio | video
+  module      String   // novel | image | comic | audio | video | community
   featureKey  String   // prompt_input, model_selector, negative_prompt...
   displayName String   // 正向提示词, 负向提示词, 模型选择...
-  type        String   // input | textarea | slider | select | toggle | upload | color | custom
+  type        String   // text | textarea | slider | select | toggle | upload | color | custom | number
   status      String   @default("enabled") // enabled | disabled
   sort        Int      @default(0)  // 排序（控制前端布局顺序）
-  config      String?  // JSON: { min, max, step, default, options, cols, rows, label, placeholder }
+  config      String?  // JSON: { min, max, step, defaultValue, options, label, placeholder }
+  value       String?  // 当前值（JSON序列化，与 type 对应）
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@unique([module, featureKey])
   @@index([module])
+}
+
+// ==================== 全局站点配置（可视化调整入口） ====================
+model SiteConfig {
+  id          String   @id @default(cuid())
+  group       String   // brand | hero | landing-novel | landing-canvas | landing-audio | landing-community | pricing | rate-limit | safety | announcement | recommend | default-ai-model
+  key         String   // 唯一键 e.g. brand.site_name / rate-limit.llm_per_min
+  value       String   // 值：JSON string，以适配 text/number/bool/color/json 多种类型
+  controlType String   // text | textarea | number | slider | color | switch | select
+  label       String   // 控件标题「站点名称」
+  description String?  // 提示说明
+  sort        Int      @default(0)
+  icon        String?  // lucide icon name
+  config      String?  // JSON: {min/max/step/options/rows/regex/defaultValue}
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([group, key])
+  @@index([group])
+}
+
+// ==================== 站点配置变更审计（回滚保障） ====================
+model SiteConfigAuditLog {
+  id        String   @id @default(cuid())
+  group     String
+  key       String
+  oldValue  String?
+  newValue  String
+  operator  String?  // user id
+  action    String   // CREATE | UPDATE | ROLLBACK
+  createdAt DateTime @default(now())
+
+  @@index([group])
+  @@index([key])
+  @@index([createdAt])
 }

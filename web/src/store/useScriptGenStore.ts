@@ -32,7 +32,7 @@ export interface ScriptGenState {
 
   // 状态
   status: ScriptStatus
-  source: 'llm' | 'template' | null
+  source: 'llm' | 'template' | 'moderation' | null
   error: string | null
 
   // 历史 + 建议

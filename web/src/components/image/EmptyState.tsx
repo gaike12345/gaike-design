@@ -1,4 +1,4 @@
-// 图像板块共享：空状态
+﻿// 图像板块共享：空状态
 //
 // 用于历史记录为空、无生成结果等场景的统一占位
 // 支持可选的模板快速入口（onUseTemplate 提供时显示模板按钮）
@@ -21,7 +21,7 @@ export default function EmptyState({
   if (onUseTemplate) {
     return (
       <div className="flex h-full flex-col items-center justify-center py-20 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-50 text-brand-500">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-violet-50 text-violet-500">
           <ImageIcon className="h-8 w-8" />
         </div>
         <h3 className="mt-4 text-lg font-semibold text-ink-900">{title}</h3>
@@ -31,7 +31,7 @@ export default function EmptyState({
             <button
               key={i}
               onClick={() => onUseTemplate(t)}
-              className="card p-3 text-left text-[11px] leading-relaxed text-ink-600 transition-all hover:border-brand-300 hover:shadow-card"
+              className="card p-3 text-left text-[11px] leading-relaxed text-ink-600 transition-all hover:border-violet-300 hover:shadow-card"
             >
               {t.length > 32 ? t.slice(0, 32) + '…' : t}
             </button>

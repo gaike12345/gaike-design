@@ -1,0 +1,16 @@
+node_modules
+dist
+build
+.env
+.env.local
+.env.*.local
+.git
+.gitignore
+*.log
+.DS_Store
+.vscode
+.idea
+coverage
+uploads
+server/dev.db
+server/dev.db-journal

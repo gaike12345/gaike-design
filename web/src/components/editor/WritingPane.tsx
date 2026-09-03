@@ -5,22 +5,22 @@
 // AI工具栏：总纲/角色/角色关系/卷纲/章纲/续写正文/续写情节/去AI味/书名/导语/灵感/工作流
 // 旧版 WR 工具（大纲/世界观/Lorebook/Prompt助手/DeepSeek/文风模仿/AI消痕）保留为"工具集"面板
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, type ReactNode } from 'react'
 import {
   Sparkles, Wand2, Loader2, Dices, BookOpen, FileText, Users,
   Send, Layers, Brain, Type as TypeIcon,
   ChevronRight, Plus, Trash2, Copy,
   BookMarked, Network, ScrollText, Lightbulb, PenLine, Bot,
-  X, ArrowRight, RefreshCw,
+  X, ArrowRight, RefreshCw, Globe,
 } from 'lucide-react'
 import { useScriptStore } from '../../store/useScriptStore'
 import { useStudioStore as studioStoreHook } from '../../store/useStudioStore'
 import { useProjectStore } from '../../store/useProjectStore'
-import { useModelStore } from '../../store/useModelStore'
+
 import { cn } from '../../lib/utils'
 import type { ChapterNode } from '../../services/textApi'
 
-type JumpTarget = 'writing' | 'image' | 'comic' | 'audio' | 'video' | 'community'
+type JumpTarget = 'writing' | 'image' | 'audio' | 'video' | 'community'
 
 interface Props {
   onJumpTo: (target: JumpTarget) => void
@@ -41,12 +41,8 @@ const WIZARD_STEPS = [
 export default function WritingPane({ onJumpTo }: Props) {
   const s = useScriptStore()
   const activeProjectId = useProjectStore((st) => st.activeProjectId)
-  const [leftTab, setLeftTab] = useState<'info' | 'body' | 'draft'>('body')
+  const [leftTab, setLeftTab] = useState<'info' | 'body'>('body')
   const [showToolPanel, setShowToolPanel] = useState(false)
-  const { getModelsByType, fetchModels } = useModelStore()
-  const [activeModel, setActiveModel] = useState<string>('')
-
-  useEffect(() => { fetchModels('novel') }, [fetchModels])
 
   // 当前活跃章节
   const activeVolume = s.volumes.find((v) => v.id === s.activeVolumeId)
@@ -75,22 +71,8 @@ export default function WritingPane({ onJumpTo }: Props) {
           <span className="chip bg-ink-100">{s.novelLength}</span>
         </div>
         <div className="ml-auto flex items-center gap-2 text-[10px] text-ink-500">
-          {getModelsByType('novel').length > 0 && (
-            <select
-              value={activeModel}
-              onChange={(e) => setActiveModel(e.target.value)}
-              className="rounded-lg border border-ink-200 bg-white px-2 py-1 text-xs text-ink-700 focus:border-ink-400"
-            >
-              {getModelsByType('novel').map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
-          )}
           <span>本章：{s.currentChapterWordCount()}字</span>
           <span>总：{s.totalWordCount()}字</span>
-          <button onClick={() => bridgeTo('comic')} className="btn-outline !px-2 !py-0.5 text-[10px]">
-            <Send className="h-2.5 w-2.5" /> 漫画
-          </button>
         </div>
       </header>
 
@@ -99,16 +81,15 @@ export default function WritingPane({ onJumpTo }: Props) {
         {/* 左栏：章节树 */}
         <aside className="hidden w-56 shrink-0 flex-col border-r border-ink-200 bg-white md:flex">
           <div className="flex border-b border-ink-200 text-[10px]">
-            {(['info', 'body', 'draft'] as const).map((t) => (
-              <button key={t} onClick={() => setLeftTab(t)} className={cn('flex-1 py-1.5 font-medium', leftTab === t ? 'bg-brand-50 text-brand-700' : 'text-ink-500')}>
-                {{ info: '作品信息', body: '正文', draft: '草稿' }[t]}
+            {(['info', 'body'] as const).map((t) => (
+              <button key={t} onClick={() => setLeftTab(t)} className={cn('flex-1 py-1.5 font-medium', leftTab === t ? 'bg-violet-50 text-violet-700' : 'text-ink-500')}>
+                {{ info: '作品信息', body: '正文' }[t]}
               </button>
             ))}
           </div>
           <div className="flex-1 overflow-y-auto p-2">
             {leftTab === 'info' && <WorkInfoPanel s={s} />}
             {leftTab === 'body' && <ChapterTree s={s} />}
-            {leftTab === 'draft' && <div className="text-center text-[10px] text-ink-400 py-4">草稿箱</div>}
           </div>
         </aside>
 
@@ -157,7 +138,7 @@ function GuidedWizard({ s }: { s: ReturnType<typeof useScriptStore.getState> }) 
                 onClick={() => s.setWizardStep(step.id)}
                 className={cn(
                   'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all',
-                  s.wizardStep === step.id ? 'bg-brand-600 text-white' : s.wizardStep > step.id ? 'bg-brand-50 text-brand-700' : 'bg-ink-100 text-ink-500'
+                  s.wizardStep === step.id ? 'bg-violet-600 text-white' : s.wizardStep > step.id ? 'bg-violet-50 text-violet-700' : 'bg-ink-100 text-ink-500'
                 )}
               >
                 <Icon className="h-3 w-3" />
@@ -180,7 +161,7 @@ function GuidedWizard({ s }: { s: ReturnType<typeof useScriptStore.getState> }) 
             <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-ink-400">小说题材</div>
             <div className="flex flex-wrap gap-1.5">
               {GENRES.map((g) => (
-                <button key={g} onClick={() => s.setNovelGenre(g)} className={cn('rounded-lg border px-3 py-1 text-xs', s.novelGenre === g ? 'border-brand-400 bg-brand-50 text-brand-700' : 'border-ink-200 text-ink-600')}>
+                <button key={g} onClick={() => s.setNovelGenre(g)} className={cn('rounded-lg border px-3 py-1 text-xs', s.novelGenre === g ? 'border-violet-400 bg-violet-50 text-violet-700' : 'border-ink-200 text-ink-600')}>
                   {g}
                 </button>
               ))}
@@ -191,7 +172,7 @@ function GuidedWizard({ s }: { s: ReturnType<typeof useScriptStore.getState> }) 
               <div className="mb-1 text-[10px] uppercase text-ink-400">目标读者</div>
               <div className="flex gap-1">
                 {AUDIENCES.map((a) => (
-                  <button key={a} onClick={() => s.setNovelAudience(a)} className={cn('rounded px-2 py-0.5', s.novelAudience === a ? 'bg-brand-600 text-white' : 'bg-ink-100 text-ink-600')}>{a}</button>
+                  <button key={a} onClick={() => s.setNovelAudience(a)} className={cn('rounded px-2 py-0.5', s.novelAudience === a ? 'bg-violet-600 text-white' : 'bg-ink-100 text-ink-600')}>{a}</button>
                 ))}
               </div>
             </div>
@@ -199,7 +180,7 @@ function GuidedWizard({ s }: { s: ReturnType<typeof useScriptStore.getState> }) 
               <div className="mb-1 text-[10px] uppercase text-ink-400">作品视角</div>
               <div className="flex gap-1">
                 {POVS.map((p) => (
-                  <button key={p} onClick={() => s.setNovelPov(p)} className={cn('rounded px-2 py-0.5', s.novelPov === p ? 'bg-brand-600 text-white' : 'bg-ink-100 text-ink-600')}>{p}</button>
+                  <button key={p} onClick={() => s.setNovelPov(p)} className={cn('rounded px-2 py-0.5', s.novelPov === p ? 'bg-violet-600 text-white' : 'bg-ink-100 text-ink-600')}>{p}</button>
                 ))}
               </div>
             </div>
@@ -207,7 +188,7 @@ function GuidedWizard({ s }: { s: ReturnType<typeof useScriptStore.getState> }) 
               <div className="mb-1 text-[10px] uppercase text-ink-400">篇幅</div>
               <div className="flex gap-1">
                 {LENGTHS.map((l) => (
-                  <button key={l} onClick={() => s.setNovelLength(l)} className={cn('rounded px-2 py-0.5', s.novelLength === l ? 'bg-brand-600 text-white' : 'bg-ink-100 text-ink-600')}>{l}</button>
+                  <button key={l} onClick={() => s.setNovelLength(l)} className={cn('rounded px-2 py-0.5', s.novelLength === l ? 'bg-violet-600 text-white' : 'bg-ink-100 text-ink-600')}>{l}</button>
                 ))}
               </div>
             </div>
@@ -242,21 +223,21 @@ function GuidedWizard({ s }: { s: ReturnType<typeof useScriptStore.getState> }) 
       {s.wizardStep === 1 && (
         <div className="space-y-3">
           <div className="card flex items-center gap-2 p-3">
-            <FileText className="h-4 w-4 text-brand-600" />
-            <span className="text-sm font-semibold">智能蛙 · 故事方向</span>
+            <FileText className="h-4 w-4 text-violet-600" />
+            <span className="text-sm font-semibold">小Man · 故事方向</span>
             <span className="ml-auto text-[10px] text-ink-500">{s.synopsisOptions.length} 个方案</span>
           </div>
           <p className="text-xs text-ink-500">选一个你最喜欢的方向，AI 会继续生成故事总纲。</p>
           {s.synopsisStatus === 'running' && <div className="card flex items-center gap-2 p-4 text-xs text-ink-500"><Loader2 className="h-4 w-4 animate-spin" /> 生成方案中…</div>}
           {s.synopsisOptions.map((opt) => (
-            <button key={opt.id} onClick={() => { s.selectSynopsis(opt); s.runMasterOutline() }} className="card block w-full p-4 text-left transition-all hover:border-brand-400 hover:shadow-md">
+            <button key={opt.id} onClick={() => { s.selectSynopsis(opt); s.runMasterOutline() }} className="card block w-full p-4 text-left transition-all hover:border-violet-400 hover:shadow-md">
               <div className="mb-1 flex items-center gap-2">
-                <span className="flex h-6 w-6 items-center justify-center rounded bg-brand-600 text-[10px] font-bold text-white">{opt.id}</span>
+                <span className="flex h-6 w-6 items-center justify-center rounded bg-violet-600 text-[10px] font-bold text-white">{opt.id}</span>
                 <span className="text-sm font-semibold text-ink-900">{opt.title}</span>
               </div>
               <p className="text-xs leading-relaxed text-ink-600">{opt.synopsis}</p>
               <div className="mt-2 flex flex-wrap gap-1">
-                {opt.tags.map((t, i) => <span key={i} className="chip bg-brand-50 text-brand-700 text-[10px]">{t}</span>)}
+                {opt.tags.map((t, i) => <span key={i} className="chip bg-violet-50 text-violet-700 text-[10px]">{t}</span>)}
               </div>
             </button>
           ))}
@@ -284,7 +265,7 @@ function GuidedWizard({ s }: { s: ReturnType<typeof useScriptStore.getState> }) 
                 <div className="mb-2 text-[10px] uppercase tracking-wider text-ink-400">卷数规划</div>
                 {s.masterOutlineData.volumes.map((v, i) => (
                   <div key={i} className="flex items-start gap-2 py-1 text-xs">
-                    <span className="font-medium text-brand-700">{v.name}</span>
+                    <span className="font-medium text-violet-700">{v.name}</span>
                     <span className="flex-1 text-ink-600">{v.summary}</span>
                   </div>
                 ))}
@@ -303,31 +284,163 @@ function GuidedWizard({ s }: { s: ReturnType<typeof useScriptStore.getState> }) 
 // ==================== 作品信息面板 ====================
 
 function WorkInfoPanel({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
+  const [open, setOpen] = useState<string | null>('synopsis')
+  const toggle = (k: string) => setOpen(open === k ? null : k)
+  const Section = ({ id, label, icon: Icon, children }: { id: string; label: string; icon: any; children: ReactNode }) => (
+    <div className="card overflow-hidden p-0">
+      <button onClick={() => toggle(id)} className="flex w-full items-center gap-1.5 px-3 py-2 text-left">
+        <Icon className="h-3 w-3 text-violet-600" />
+        <span className="flex-1 text-[11px] font-semibold text-ink-800">{label}</span>
+        <ChevronRight className={cn('h-3 w-3 text-ink-300 transition-transform', open === id && 'rotate-90')} />
+      </button>
+      {open === id && <div className="border-t border-ink-100 p-3 text-[11px] text-ink-600">{children}</div>}
+    </div>
+  )
+  const Empty = ({ text }: { text: string }) => <div className="text-center text-[10px] text-ink-400 py-3">{text}</div>
   return (
-    <div className="space-y-3 text-xs">
-      <div className="card p-3">
-        <div className="mb-1 text-[10px] uppercase text-ink-400">题材</div>
-        <div className="flex flex-wrap gap-1">
-          {GENRES.map((g) => (
-            <button key={g} onClick={() => s.setNovelGenre(g)} className={cn('rounded px-1.5 py-0.5 text-[10px]', s.novelGenre === g ? 'bg-brand-600 text-white' : 'bg-ink-100 text-ink-600')}>{g}</button>
-          ))}
-        </div>
-      </div>
-      <div className="card p-3">
-        <div className="mb-1 text-[10px] uppercase text-ink-400">受众 / 视角 / 篇幅</div>
-        <div className="space-y-1">
-          <div className="flex gap-1">{AUDIENCES.map((a) => <button key={a} onClick={() => s.setNovelAudience(a)} className={cn('rounded px-1.5 py-0.5 text-[10px]', s.novelAudience === a ? 'bg-brand-600 text-white' : 'bg-ink-100')}>{a}</button>)}</div>
-          <div className="flex gap-1">{POVS.map((p) => <button key={p} onClick={() => s.setNovelPov(p)} className={cn('rounded px-1.5 py-0.5 text-[10px]', s.novelPov === p ? 'bg-brand-600 text-white' : 'bg-ink-100')}>{p}</button>)}</div>
-          <div className="flex gap-1">{LENGTHS.map((l) => <button key={l} onClick={() => s.setNovelLength(l)} className={cn('rounded px-1.5 py-0.5 text-[10px]', s.novelLength === l ? 'bg-brand-600 text-white' : 'bg-ink-100')}>{l}</button>)}</div>
-        </div>
-      </div>
-      {s.selectedSynopsis && (
-        <div className="card p-3">
-          <div className="mb-1 text-[10px] uppercase text-ink-400">选定梗概</div>
-          <div className="text-xs font-medium text-ink-900">{s.selectedSynopsis.title}</div>
-          <p className="mt-1 text-[11px] text-ink-600">{s.selectedSynopsis.synopsis}</p>
-        </div>
-      )}
+    <div className="space-y-2 text-xs">
+      {/* 梗概 */}
+      <Section id="synopsis" label="故事梗概" icon={FileText}>
+        {s.selectedSynopsis ? (
+          <div>
+            <div className="text-xs font-semibold text-ink-900">{s.selectedSynopsis.title}</div>
+            <p className="mt-1 leading-relaxed">{s.selectedSynopsis.synopsis}</p>
+            {s.selectedSynopsis.tags?.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-1">{s.selectedSynopsis.tags.map((t) => <span key={t} className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] text-violet-700">{t}</span>)}</div>
+            )}
+          </div>
+        ) : <Empty text="暂无梗概，请先用 AI 工具生成" />}
+      </Section>
+
+      {/* 总纲 */}
+      <Section id="master" label="总纲" icon={BookOpen}>
+        {s.masterOutlineData ? (
+          <div className="space-y-2">
+            <div><span className="text-ink-400">主题：</span>{s.masterOutlineData.theme}</div>
+            <div><span className="text-ink-400">前提：</span>{s.masterOutlineData.premise}</div>
+            <div><span className="text-ink-400">主线：</span>{s.masterOutlineData.mainline}</div>
+            <div><span className="text-ink-400">结局：</span>{s.masterOutlineData.ending}</div>
+            {s.masterOutlineData.volumes?.length > 0 && (
+              <div>
+                <div className="mb-1 text-[10px] uppercase text-ink-400">分卷</div>
+                {s.masterOutlineData.volumes.map((v, i) => (
+                  <div key={i} className="mb-1 rounded bg-ink-50 px-2 py-1">
+                    <div className="font-medium text-ink-800">{v.name}</div>
+                    <div className="text-[10px] text-ink-500">{v.summary}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : <Empty text="暂无总纲，点击「生成总纲」" />}
+      </Section>
+
+      {/* 角色 */}
+      <Section id="characters" label="角色" icon={Users}>
+        {s.script?.characters?.length ? (
+          <div className="space-y-1.5">
+            {s.script.characters.map((c, i) => (
+              <div key={i} className="rounded bg-ink-50 px-2 py-1.5">
+                <div className="font-medium text-ink-800">{c.name}</div>
+                {c.role && <div className="text-[10px] text-violet-600">{c.role}</div>}
+                {c.desc && <div className="mt-0.5 text-[10px] text-ink-500">{c.desc}</div>}
+              </div>
+            ))}
+          </div>
+        ) : <Empty text="暂无角色数据" />}
+      </Section>
+
+      {/* 角色关系 */}
+      <Section id="relations" label="角色关系" icon={Network}>
+        {s.characterRelationsData?.relations?.length ? (
+          <div className="space-y-1">
+            {s.characterRelationsData.relations.map((r, i) => (
+              <div key={i} className="rounded bg-ink-50 px-2 py-1">
+                <div className="flex items-center gap-1 text-[10px]">
+                  <span className="font-medium text-ink-800">{r.from}</span>
+                  <span className="text-violet-500">→</span>
+                  <span className="font-medium text-ink-800">{r.to}</span>
+                  <span className="ml-auto rounded bg-violet-100 px-1 text-[9px] text-violet-700">{r.type}</span>
+                </div>
+                {r.desc && <div className="mt-0.5 text-[10px] text-ink-500">{r.desc}</div>}
+              </div>
+            ))}
+          </div>
+        ) : <Empty text="暂无关系数据，点击「角色关系」" />}
+      </Section>
+
+      {/* 大纲 */}
+      <Section id="outline" label="大纲" icon={ScrollText}>
+        {s.outline ? (
+          <div className="space-y-2">
+            <div><span className="text-ink-400">主题：</span>{s.outline.theme}</div>
+            {s.outline.acts?.length > 0 && (
+              <div>
+                <div className="mb-1 text-[10px] uppercase text-ink-400">幕</div>
+                {s.outline.acts.map((a, i) => (
+                  <div key={i} className="mb-1 rounded bg-ink-50 px-2 py-1">
+                    <div className="font-medium text-ink-800">第{i + 1}幕：{a.title}</div>
+                    {a.summary && <div className="text-[10px] text-ink-500">{a.summary}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {s.outline.characters?.length > 0 && (
+              <div>
+                <div className="mb-1 text-[10px] uppercase text-ink-400">角色概要</div>
+                {s.outline.characters.map((c, i) => (
+                  <div key={i} className="text-[10px] text-ink-600"><span className="font-medium text-ink-800">{c.name}</span>（{c.role}）— {c.arc}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : <Empty text="暂无大纲，请用工具集生成" />}
+      </Section>
+
+      {/* 世界观 */}
+      <Section id="worldview" label="世界观" icon={Globe}>
+        {s.worldview ? (
+          <div className="space-y-1.5">
+            <div><span className="text-ink-400">世界：</span>{s.worldview.name} · {s.worldview.genre}</div>
+            <div><span className="text-ink-400">地理：</span>{s.worldview.geography}</div>
+            <div><span className="text-ink-400">历史：</span>{s.worldview.history}</div>
+            <div><span className="text-ink-400">文化：</span>{s.worldview.culture}</div>
+            <div><span className="text-ink-400">冲突：</span>{s.worldview.conflicts}</div>
+            {s.worldview.factions?.length > 0 && (
+              <div>
+                <div className="mb-1 text-[10px] uppercase text-ink-400">势力</div>
+                {s.worldview.factions.map((f, i) => (
+                  <div key={i} className="mb-0.5 text-[10px]"><span className="font-medium text-ink-800">{f.name}</span>（{f.stance}）— {f.desc}</div>
+                ))}
+              </div>
+            )}
+            {s.worldview.rules?.length > 0 && (
+              <div>
+                <div className="mb-1 text-[10px] uppercase text-ink-400">规则</div>
+                {s.worldview.rules.map((r, i) => <div key={i} className="text-[10px] text-ink-600">· {r}</div>)}
+              </div>
+            )}
+          </div>
+        ) : <Empty text="暂无世界观，请用工具集生成" />}
+      </Section>
+
+      {/* Lorebook */}
+      <Section id="lorebook" label="设定库" icon={Layers}>
+        {s.lorebook?.length ? (
+          <div className="space-y-1">
+            {s.lorebook.map((e, i) => (
+              <div key={i} className="rounded bg-ink-50 px-2 py-1">
+                <div className="flex items-center gap-1">
+                  <span className="font-medium text-ink-800">{e.key}</span>
+                  <span className="rounded bg-violet-100 px-1 text-[9px] text-violet-700">{e.category}</span>
+                </div>
+                <div className="mt-0.5 text-[10px] text-ink-500">{e.content}</div>
+                {e.aliases?.length > 0 && <div className="text-[9px] text-ink-400">别名：{e.aliases.join('、')}</div>}
+              </div>
+            ))}
+          </div>
+        ) : <Empty text="暂无设定词条" />}
+      </Section>
     </div>
   )
 }
@@ -352,7 +465,7 @@ function ChapterTree({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
       {s.volumes.map((vol) => (
         <div key={vol.id} className="rounded-lg border border-ink-200">
           <div className="flex items-center gap-1 bg-ink-50 px-2 py-1.5">
-            <BookMarked className="h-3 w-3 text-brand-600" />
+            <BookMarked className="h-3 w-3 text-violet-600" />
             <input
               value={vol.name}
               onChange={(e) => { const newName = e.target.value; useScriptStore.setState((st) => ({ volumes: st.volumes.map((v) => v.id === vol.id ? { ...v, name: newName } : v) })) }}
@@ -360,7 +473,7 @@ function ChapterTree({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
             />
           </div>
           <div className="flex items-center gap-1 border-t border-ink-100 px-2 py-1">
-            <button onClick={() => s.addChapter(vol.id)} className="flex flex-1 items-center justify-center gap-1 rounded bg-brand-50 px-2 py-1 text-[10px] font-medium text-brand-700 hover:bg-brand-100">
+            <button onClick={() => s.addChapter(vol.id)} className="flex flex-1 items-center justify-center gap-1 rounded bg-violet-50 px-2 py-1 text-[10px] font-medium text-violet-700 hover:bg-violet-100">
               <Plus className="h-2.5 w-2.5" /> 新增章
             </button>
             <button
@@ -379,7 +492,7 @@ function ChapterTree({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
                   onClick={() => s.setActiveChapter(vol.id, ch.id)}
                   className={cn(
                     'flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] transition-all',
-                    s.activeChapterId === ch.id ? 'bg-brand-50 text-brand-700' : 'text-ink-600 hover:bg-ink-50'
+                    s.activeChapterId === ch.id ? 'bg-violet-50 text-violet-700' : 'text-ink-600 hover:bg-ink-50'
                   )}
                 >
                   <span className="text-[9px] text-ink-400">{ci + 1}.</span>
@@ -424,7 +537,7 @@ function AIToolbar({ s, onShowToolPanel }: { s: ReturnType<typeof useScriptStore
             disabled={t.disabled || t.busy}
             className={cn(
               'flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition-all',
-              t.disabled ? 'text-ink-300' : 'text-ink-600 hover:bg-brand-50 hover:text-brand-700'
+              t.disabled ? 'text-ink-300' : 'text-ink-600 hover:bg-violet-50 hover:text-violet-700'
             )}
           >
             {t.busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Icon className="h-3 w-3" />}
@@ -462,7 +575,7 @@ function EditorArea({ s, volumeId, chapterId, chapter }: {
         className="w-full bg-transparent text-lg font-semibold text-ink-900 outline-none"
       />
       {chapter.chapterOutline && (
-        <div className="mt-2 rounded-lg border-l-2 border-brand-400 bg-brand-50/50 p-2 text-[11px] text-ink-600">
+        <div className="mt-2 rounded-lg border-l-2 border-violet-400 bg-violet-50/50 p-2 text-[11px] text-ink-600">
           <span className="font-medium">章纲：</span>{chapter.chapterOutline.summary}
           <span className="ml-2 text-ink-400">悬念：{chapter.chapterOutline.cliffhanger}</span>
         </div>
@@ -547,20 +660,20 @@ function SmartAssistant({ s, onJumpToImage }: { s: ReturnType<typeof useScriptSt
   return (
     <div className="flex h-full flex-col">
       <div className="flex border-b border-ink-200">
-        <button onClick={() => setTab('chat')} className={cn('flex-1 py-2 text-xs font-medium', tab === 'chat' ? 'bg-brand-50 text-brand-700' : 'text-ink-500')}>
+        <button onClick={() => setTab('chat')} className={cn('flex-1 py-2 text-xs font-medium', tab === 'chat' ? 'bg-violet-50 text-violet-700' : 'text-ink-500')}>
           <Bot className="mr-1 inline h-3 w-3" /> AI对话
         </button>
-        <button onClick={() => setTab('cards')} className={cn('flex-1 py-2 text-xs font-medium', tab === 'cards' ? 'bg-brand-50 text-brand-700' : 'text-ink-500')}>
+        <button onClick={() => setTab('cards')} className={cn('flex-1 py-2 text-xs font-medium', tab === 'cards' ? 'bg-violet-50 text-violet-700' : 'text-ink-500')}>
           <Sparkles className="mr-1 inline h-3 w-3" /> 灵感卡片
         </button>
       </div>
       {tab === 'chat' ? (
         <div className="flex flex-1 flex-col overflow-hidden">
           <div className="flex-1 space-y-2 overflow-y-auto p-3">
-            {s.chatMessages.length === 0 && <div className="text-center text-[10px] text-ink-400 py-8">向智能蛙提问，获取创作建议</div>}
+            {s.chatMessages.length === 0 && <div className="text-center text-[10px] text-ink-400 py-8">向小Man提问，获取创作建议</div>}
             {s.chatMessages.map((m, i) => (
               <div key={i} className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}>
-                <div className={cn('max-w-[85%] rounded-lg px-2.5 py-1.5 text-[11px]', m.role === 'user' ? 'bg-brand-600 text-white' : 'bg-ink-100 text-ink-700')}>
+                <div className={cn('max-w-[85%] rounded-lg px-2.5 py-1.5 text-[11px]', m.role === 'user' ? 'bg-violet-600 text-white' : 'bg-ink-100 text-ink-700')}>
                   {m.content}
                 </div>
               </div>
@@ -573,7 +686,7 @@ function SmartAssistant({ s, onJumpToImage }: { s: ReturnType<typeof useScriptSt
                 value={s.chatInput}
                 onChange={(e) => s.setChatInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); s.runSmartChat() } }}
-                placeholder="问智能蛙…"
+                placeholder="问小Man…"
                 className="input flex-1 !py-1 text-[11px]"
               />
               <button onClick={s.runSmartChat} disabled={!s.chatInput.trim() || s.chatStatus === 'running'} className="btn-primary !px-2 !py-1">
@@ -607,7 +720,7 @@ function SmartAssistant({ s, onJumpToImage }: { s: ReturnType<typeof useScriptSt
             <div key={i} className="card p-2">
               <div className="text-[11px] font-medium text-ink-800">{idea.title}</div>
               <p className="mt-0.5 text-[10px] text-ink-500">{idea.synopsis}</p>
-              <div className="mt-1 flex flex-wrap gap-0.5">{idea.tags.map((t, j) => <span key={j} className="chip bg-brand-50 text-brand-700 text-[9px]">{t}</span>)}</div>
+              <div className="mt-1 flex flex-wrap gap-0.5">{idea.tags.map((t, j) => <span key={j} className="chip bg-violet-50 text-violet-700 text-[9px]">{t}</span>)}</div>
             </div>
           ))}
           {/* Prompt 助手结果 */}
@@ -650,11 +763,11 @@ function ToolPanelModal({ s, onClose, onJumpToImage }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div className="flex h-[80vh] w-[90vw] max-w-4xl flex-col rounded-xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 border-b border-ink-200 px-4 py-2">
-          <Layers className="h-4 w-4 text-brand-600" />
+          <Layers className="h-4 w-4 text-violet-600" />
           <span className="text-sm font-semibold">写作工具集</span>
           <div className="ml-2 flex gap-0.5">
             {tools.map((t) => (
-              <button key={t.id} onClick={() => setTool(t.id)} className={cn('rounded px-2 py-1 text-[10px]', tool === t.id ? 'bg-brand-600 text-white' : 'bg-ink-100 text-ink-600')}>
+              <button key={t.id} onClick={() => setTool(t.id)} className={cn('rounded px-2 py-1 text-[10px]', tool === t.id ? 'bg-violet-600 text-white' : 'bg-ink-100 text-ink-600')}>
                 {t.label}<span className="ml-0.5 text-[8px] opacity-60">{t.wr}</span>
               </button>
             ))}
@@ -685,7 +798,7 @@ function MiniOutline({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
         <div className="space-y-2">
           {s.outline.acts.map((act) => (
             <div key={act.id} className="card p-2">
-              <div className="flex items-center gap-2"><span className="flex h-5 w-5 items-center justify-center rounded bg-brand-600 text-[9px] font-bold text-white">{act.id}</span><span className="text-xs font-medium">{act.name}</span></div>
+              <div className="flex items-center gap-2"><span className="flex h-5 w-5 items-center justify-center rounded bg-violet-600 text-[9px] font-bold text-white">{act.id}</span><span className="text-xs font-medium">{act.name}</span></div>
               <p className="mt-1 text-[11px] text-ink-600">{act.summary}</p>
               <ul className="mt-1 space-y-0.5">{act.beats.map((b, i) => <li key={i} className="text-[10px] text-ink-500">• {b}</li>)}</ul>
             </div>
@@ -704,7 +817,7 @@ function MiniWorldview({ s }: { s: ReturnType<typeof useScriptStore.getState> })
       </button>
       {s.worldview && (
         <div className="space-y-2 text-xs">
-          <div className="card p-2"><span className="font-medium">{s.worldview.name}</span> <span className="chip bg-brand-50 text-brand-700 text-[10px]">{s.worldview.genre}</span></div>
+          <div className="card p-2"><span className="font-medium">{s.worldview.name}</span> <span className="chip bg-violet-50 text-violet-700 text-[10px]">{s.worldview.genre}</span></div>
           {[['地理', s.worldview.geography], ['历史', s.worldview.history], ['文化', s.worldview.culture], ['矛盾', s.worldview.conflicts]].map(([l, v]) => (
             <div key={l} className="card p-2"><div className="text-[10px] uppercase text-ink-400">{l}</div><p className="text-ink-600">{v}</p></div>
           ))}
@@ -789,7 +902,7 @@ function MiniErase({ s }: { s: ReturnType<typeof useScriptStore.getState> }) {
       <textarea value={s.eraseInput} onChange={(e) => s.setEraseInput(e.target.value)} rows={3} placeholder="AI 生成文本" className="input mb-2 text-xs" />
       <div className="mb-2 flex gap-1">
         {(['light', 'medium', 'heavy'] as const).map((l) => (
-          <button key={l} onClick={() => s.setEraseIntensity(l)} className={cn('rounded border px-2 py-0.5 text-[10px]', s.eraseIntensity === l ? 'border-brand-400 bg-brand-50 text-brand-700' : 'border-ink-200')}>
+          <button key={l} onClick={() => s.setEraseIntensity(l)} className={cn('rounded border px-2 py-0.5 text-[10px]', s.eraseIntensity === l ? 'border-violet-400 bg-violet-50 text-violet-700' : 'border-ink-200')}>
             {{ light: '轻度', medium: '中度', heavy: '深度' }[l]}
           </button>
         ))}

@@ -51,7 +51,7 @@ interface ScriptState {
 
   // 状态
   status: ScriptStatus
-  source: 'llm' | 'template' | null
+  source: 'llm' | 'template' | 'moderation' | null
   error: string | null
 
   // 历史（最近一次为当前展示）
@@ -218,7 +218,7 @@ interface ScriptState {
   runOpeningLine: (style?: string) => Promise<void>
   runInspiration: (keyword: string) => Promise<void>
 
-  // 智能对话（智能蛙）
+  // 智能对话（小Man）
   chatMessages: { role: 'user' | 'assistant'; content: string }[]
   chatInput: string
   chatStatus: ScriptStatus

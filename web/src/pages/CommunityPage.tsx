@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import type { ElementType } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -12,11 +12,11 @@ import {
   Loader2,
   MessageSquare,
   Music,
-  Palette,
   Plus,
   Send,
   Share2,
   Sparkles,
+  Trash2,
   User,
   Video,
   Wand2,
@@ -25,7 +25,7 @@ import {
 import Navbar from '../components/layout/Navbar'
 import Footer from '../components/layout/Footer'
 import { api } from '../services/api'
-import { useAuthStore } from '../store/useAuthStore'
+import { useAuthStore, type AuthUser } from '../store/useAuthStore'
 
 // ===== 内联类型定义 =====
 type WorkType = 'novel' | 'image' | 'comic' | 'audio' | 'video'
@@ -43,6 +43,7 @@ interface Work {
   type: WorkType
   content: string
   author?: Author
+  userId?: string   // 前端权限判断：删除按钮只对「本人 / admin / superadmin」显示
   likes?: number
   commentCount?: number
   createdAt?: string
@@ -54,7 +55,41 @@ interface Comment {
   id: string
   content: string
   author?: Author
+  userId?: string   // 同 work.userId，前端判断显示删除按钮
   createdAt?: string
+}
+
+const ROLE_LEVEL: Record<string, number> = { user: 1, admin: 2, superadmin: 3 }
+const roleLevel = (role: string | undefined) => ROLE_LEVEL[role || 'user'] ?? 0
+
+/** 删除权限：本人 / admin / superadmin */
+function canDeleteResource(viewer: AuthUser | null, ownerId?: string | null): boolean {
+  if (!viewer || !ownerId) return false
+  if (viewer.id === ownerId) return true
+  return roleLevel(viewer.role) >= 2
+}
+
+/** 轻量 toast：不引入新依赖，直接用 document.createElement + 自动淡出移除 */
+function toast(msg: string, variant: 'info' | 'error' | 'success' = 'info') {
+  try {
+    const bg = variant === 'error' ? 'bg-red-600' : variant === 'success' ? 'bg-emerald-600' : 'bg-neutral-800'
+    const el = document.createElement('div')
+    el.className = `fixed z-[9999] left-1/2 top-6 -translate-x-1/2 rounded-full px-4 py-2 text-sm font-medium text-white shadow-lg ${bg}`
+    el.textContent = msg
+    el.style.opacity = '0'
+    el.style.transition = 'opacity .18s ease'
+    document.body.appendChild(el)
+    requestAnimationFrame(() => { el.style.opacity = '1' })
+    setTimeout(() => {
+      el.style.opacity = '0'
+      setTimeout(() => el.remove(), 200)
+    }, 1800)
+  } catch { /* 静默 */ }
+}
+
+/** 轻量 confirm：浏览器原生 window.confirm，UI 层无新依赖 */
+function confirmAction(prompt: string): boolean {
+  return typeof window !== 'undefined' && !!window.confirm(prompt)
 }
 
 // ===== 静态配置 =====
@@ -62,7 +97,7 @@ const TABS: { key: string; label: string; icon: ElementType }[] = [
   { key: 'all', label: '全部', icon: Sparkles },
   { key: 'novel', label: '小说', icon: BookOpen },
   { key: 'image', label: '图像', icon: ImageIcon },
-  { key: 'comic', label: '漫画', icon: Palette },
+  { key: 'comic', label: '漫画', icon: Sparkles },
   { key: 'audio', label: '音频', icon: Music },
   { key: 'video', label: '视频', icon: Video },
 ]
@@ -96,10 +131,10 @@ function accentFor(type: WorkType) {
 // 「做同款」：按作品类型映射到对应工作区路由
 const WORKSPACE_ROUTE: Record<WorkType, string> = {
   novel: '/workspace/writing',
-  image: '/workspace/image',
+  image: '/workspace/canvas',
   comic: '/workspace/comic',
   audio: '/workspace/audio',
-  video: '/workspace/video',
+  video: '/workspace/canvas',
 }
 
 // 按作品类型返回封面渐变 class（当没有真实 cover 时的降级）
@@ -116,7 +151,7 @@ function coverGradient(type: WorkType): string {
     case 'video':
       return 'from-amber-400 to-orange-500'
     default:
-      return 'from-slate-400 to-slate-600'
+      return 'from-neutral-400 to-neutral-600'
   }
 }
 
@@ -131,8 +166,8 @@ function formatTime(s?: string): string {
 function Avatar({ author, size = 'h-8 w-8' }: { author?: Author; size?: string }) {
   if (!author) {
     return (
-      <div className={`${size} flex items-center justify-center rounded-full bg-slate-200`}>
-        <User className="h-4 w-4 text-slate-500" />
+      <div className={`${size} flex items-center justify-center rounded-full bg-neutral-200`}>
+        <User className="h-4 w-4 text-neutral-500" />
       </div>
     )
   }
@@ -160,7 +195,7 @@ function WorkContent({ work }: { work: Work }) {
   if (work.type === 'novel') {
     const paragraphs = work.content.split('\n').filter((l) => l.trim().length > 0)
     return (
-      <div className="space-y-3 leading-8 text-slate-800">
+      <div className="space-y-3 leading-8 text-neutral-800">
         {paragraphs.length ? (
           paragraphs.map((p, i) => <p key={i}>{p}</p>)
         ) : (
@@ -176,7 +211,7 @@ function WorkContent({ work }: { work: Work }) {
     return (
       <div className="space-y-5">
         {work.cover ? (
-          <div className="overflow-hidden rounded-2xl border border-slate-100 shadow-sm">
+          <div className="overflow-hidden rounded-2xl border border-neutral-100 shadow-sm">
             <img
               src={work.cover}
               alt={work.title}
@@ -196,7 +231,7 @@ function WorkContent({ work }: { work: Work }) {
           />
         )}
         <div
-          className="rounded-xl border-l-4 bg-slate-50/80 px-4 py-3 text-sm leading-7 text-slate-700"
+          className="rounded-xl border-l-4 bg-neutral-50/80 px-4 py-3 text-sm leading-7 text-neutral-700"
           style={{ borderLeftColor: a.main }}
         >
           {work.content}
@@ -210,7 +245,7 @@ function WorkContent({ work }: { work: Work }) {
     const a = accentFor('comic')
     return (
       <div className="space-y-5">
-        <div className="overflow-hidden rounded-2xl border border-slate-100 shadow-sm">
+        <div className="overflow-hidden rounded-2xl border border-neutral-100 shadow-sm">
           <img
             src={work.cover}
             alt={work.title}
@@ -221,7 +256,30 @@ function WorkContent({ work }: { work: Work }) {
           />
         </div>
         <div
-          className="rounded-xl border-l-4 bg-slate-50/80 px-4 py-3 leading-7 text-slate-700"
+          className="rounded-xl border-l-4 bg-neutral-50/80 px-4 py-3 leading-7 text-neutral-700"
+          style={{ borderLeftColor: a.main }}
+        >
+          {work.content}
+        </div>
+      </div>
+    )
+  }
+  if (work.type === 'audio' && work.cover) {
+    const a = accentFor('audio')
+    return (
+      <div className="space-y-5">
+        <div className="overflow-hidden rounded-2xl border border-neutral-100 shadow-sm">
+          <img
+            src={work.cover}
+            alt={work.title}
+            loading="lazy"
+            onError={(e) => (e.currentTarget.style.display = 'none')}
+            className="w-full object-cover"
+            style={{ aspectRatio: '4 / 3' }}
+          />
+        </div>
+        <div
+          className="rounded-xl border-l-4 bg-neutral-50/80 px-4 py-3 leading-7 text-neutral-700"
           style={{ borderLeftColor: a.main }}
         >
           {work.content}
@@ -233,7 +291,7 @@ function WorkContent({ work }: { work: Work }) {
     const a = accentFor('video')
     return (
       <div className="space-y-5">
-        <div className="relative overflow-hidden rounded-2xl border border-slate-100 shadow-sm">
+        <div className="relative overflow-hidden rounded-2xl border border-neutral-100 shadow-sm">
           <img
             src={work.cover}
             alt={work.title}
@@ -257,7 +315,7 @@ function WorkContent({ work }: { work: Work }) {
           </div>
         </div>
         <div
-          className="rounded-xl border-l-4 bg-slate-50/80 px-4 py-3 leading-7 text-slate-700"
+          className="rounded-xl border-l-4 bg-neutral-50/80 px-4 py-3 leading-7 text-neutral-700"
           style={{ borderLeftColor: a.main }}
         >
           {work.content}
@@ -269,7 +327,7 @@ function WorkContent({ work }: { work: Work }) {
     const a = accentFor('audio')
     return (
       <div className="space-y-5">
-        <div className="flex items-center gap-4 rounded-2xl border border-slate-100 bg-slate-50/50 p-4 shadow-sm">
+        <div className="flex items-center gap-4 rounded-2xl border border-neutral-100 bg-neutral-50/50 p-4 shadow-sm">
           <img
             src={work.cover}
             alt={work.title}
@@ -285,9 +343,9 @@ function WorkContent({ work }: { work: Work }) {
               >
                 <Music className="h-4 w-4" />
               </div>
-              <div className="text-xs text-slate-400">点击即可收听</div>
+              <div className="text-xs text-neutral-400">点击即可收听</div>
             </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-200">
               <div
                 className="h-full w-2/5 rounded-full"
                 style={{
@@ -295,14 +353,14 @@ function WorkContent({ work }: { work: Work }) {
                 }}
               />
             </div>
-            <div className="mt-2 flex justify-between text-[11px] text-slate-400">
+            <div className="mt-2 flex justify-between text-[11px] text-neutral-400">
               <span>03:24</span>
               <span>08:15</span>
             </div>
           </div>
         </div>
         <div
-          className="rounded-xl border-l-4 bg-slate-50/80 px-4 py-3 leading-7 text-slate-700"
+          className="rounded-xl border-l-4 bg-neutral-50/80 px-4 py-3 leading-7 text-neutral-700"
           style={{ borderLeftColor: a.main }}
         >
           {work.content}
@@ -313,7 +371,7 @@ function WorkContent({ work }: { work: Work }) {
 
   // 兜底：纯内容块
   return (
-    <div className="rounded-lg bg-slate-50 p-4 leading-7 text-slate-700">{work.content}</div>
+    <div className="rounded-lg bg-neutral-50 p-4 leading-7 text-neutral-700">{work.content}</div>
   )
 }
 
@@ -594,7 +652,7 @@ const STATIC_WORKS_POOL: Work[] = [
     subtype: 'AI 短片',
     title: '赛博都市·夜景漫游',
     content:
-      '全片 2 分 45 秒，AI 辅助生成的赛博都市夜景漫游短片。\nMankTV 全流程工作流演示：剧本生成 → 分镜 → 图像一致性 → 视频生成 → 音效配乐一键完成，发布 3 天 120w+ 播放。',
+      '全片 2 分 45 秒，AI 辅助生成的赛博都市夜景漫游短片。\nMan TV 全流程工作流演示：剧本生成 → 分镜 → 图像一致性 → 视频生成 → 音效配乐一键完成，发布 3 天 120w+ 播放。',
     author: STATIC_AUTHORS.vision,
     cover: COVER(
       'AI%20short%20film%20cover%20cyberpunk%20city%20night%20tour%2C%20cinematic%20wide%20shot%20of%20neon%20skyline%20with%20flying%20vehicles%2C%20Blade%20Runner%20aesthetic%2C%20ultra%20detailed%20render',
@@ -658,7 +716,7 @@ const PUBLISH_ENABLED = false
 // ===== 主组件 =====
 export default function CommunityPage() {
   const navigate = useNavigate()
-  const { user } = useAuthStore()
+  const { user, openLoginModal } = useAuthStore()
   const isAuthed = !!user
 
   // ===== URL ↔ State 双向同步：type（Tab）与 id（详情） =====
@@ -847,7 +905,7 @@ export default function CommunityPage() {
           {
             id: `${selectedWorkId}-c2`,
             content:
-              '看完立刻「做同款」了，MankTV 的工作流太香——15 分钟就出了第一版草稿，完全不敢相信自己的手速。',
+              '看完立刻「做同款」了，Man TV 的工作流太香——15 分钟就出了第一版草稿，完全不敢相信自己的手速。',
             author: STATIC_AUTHORS.vision,
             createdAt: '2026-08-23T10:07:00Z',
           },
@@ -877,7 +935,7 @@ export default function CommunityPage() {
 
   const requireAuth = (): boolean => {
     if (!isAuthed) {
-      navigate('/login')
+      openLoginModal()
       return false
     }
     return true
@@ -963,13 +1021,71 @@ export default function CommunityPage() {
       setPublishTitle('')
       setPublishContent('')
       setPublishType('novel')
+      toast('发布成功', 'success')
       await loadWorks()
-    } catch (e) {
+    } catch (e: any) {
+      toast(e?.message || '发布失败', 'error')
       setError((e as Error).message)
     } finally {
       setPublishing(false)
     }
   }
+
+  // ===== 社区删除：作品 / 评论 =====
+  // - 前端显示规则：canDeleteResource(viewer, ownerId) 渲染按钮（本人/admin/superadmin 可见）
+  // - 真实鉴权在后端，前端只是条件显示（即使恶意改 DOM 调 DELETE 也会 403）
+  const [deletingWorkId, setDeletingWorkId] = useState<string | null>(null)
+  const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null)
+
+  const handleDeleteWork = useCallback(async (w: Work) => {
+    if (!canDeleteResource(user, w.userId || w.author?.id || null)) return
+    if (!confirmAction(`确认删除作品「${w.title}」？该操作不可恢复，关联的点赞、评论也会一并清除。`)) return
+    if (!requireAuth()) return
+    setDeletingWorkId(w.id)
+    try {
+      await api.del(`/api/community/works/${w.id}`)
+      toast('已删除作品', 'success')
+      // 乐观移除（详情/列表两边同步）
+      if (selectedWorkId === w.id) setSelectedWorkId(null)
+      setWorks((prev) => prev.filter((it) => it.id !== w.id))
+      setDetail((prev) => (prev && prev.work.id === w.id ? null : prev))
+    } catch (e: any) {
+      const msg = e?.status === 403 ? '无权删除该作品' : (e?.message || '删除失败，请稍后重试')
+      toast(msg, 'error')
+    } finally {
+      setDeletingWorkId(null)
+    }
+  }, [user, requireAuth, selectedWorkId])
+
+  const handleDeleteComment = useCallback(async (c: Comment) => {
+    if (!selectedWorkId) return
+    if (!canDeleteResource(user, c.userId || c.author?.id || null)) return
+    if (!confirmAction('确认删除这条评论？该操作不可恢复。')) return
+    if (!requireAuth()) return
+    setDeletingCommentId(c.id)
+    try {
+      await api.del(`/api/community/works/${selectedWorkId}/comments/${c.id}`)
+      toast('已删除评论', 'success')
+      // 乐观移除 + 详情评论计数 -1
+      setComments((prev) => prev.filter((it) => it.id !== c.id))
+      const countDecrement = (n: number) => Math.max(0, n - 1)
+      setDetail((prev) => prev
+        ? { ...prev, work: { ...prev.work, commentCount: countDecrement(prev.work.commentCount ?? 0) } }
+        : prev)
+      setWorks((prev) =>
+        prev.map((w) =>
+          w.id === selectedWorkId
+            ? { ...w, commentCount: countDecrement(w.commentCount ?? 0) }
+            : w,
+        ),
+      )
+    } catch (e: any) {
+      const msg = e?.status === 403 ? '无权删除该评论' : (e?.message || '删除失败，请稍后重试')
+      toast(msg, 'error')
+    } finally {
+      setDeletingCommentId(null)
+    }
+  }, [user, requireAuth, selectedWorkId])
 
   const isListView = !selectedWorkId
 
@@ -996,8 +1112,8 @@ export default function CommunityPage() {
             <div className="-mx-4 -mt-6 mb-5 bg-community-50 px-4 py-8">
               <div className="flex items-center justify-between">
                 <div>
-                  <h1 className="text-2xl font-bold text-slate-900">作品广场</h1>
-                  <p className="mt-1 text-sm text-slate-500">发现创作者的优秀作品</p>
+                  <h1 className="text-2xl font-bold text-neutral-900">作品广场</h1>
+                  <p className="mt-1 text-sm text-neutral-500">发现创作者的优秀作品</p>
                 </div>
                 {PUBLISH_ENABLED && (
                   <button
@@ -1011,172 +1127,223 @@ export default function CommunityPage() {
               </div>
             </div>
 
-            {/* Tab 栏 */}
-            <div className="mb-4 flex flex-wrap items-center gap-2">
-              {TABS.map((t) => {
-                const Icon = t.icon
-                const active = activeTab === t.key
-                return (
-                  <button
-                    key={t.key}
-                    onClick={() => setActiveTab(t.key)}
-                    className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition ${
-                      active
-                        ? 'bg-community-600 text-white shadow-sm'
-                        : 'bg-white text-slate-600 hover:bg-community-50 hover:text-community-600'
-                    }`}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {t.label}
-                  </button>
-                )
-              })}
+            {/* Tab 栏 + 排序 —— 居中对齐信息流 */}
+            <div className="mx-auto max-w-3xl">
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                {TABS.map((t) => {
+                  const Icon = t.icon
+                  const active = activeTab === t.key
+                  return (
+                    <button
+                      key={t.key}
+                      onClick={() => setActiveTab(t.key)}
+                      className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition ${
+                        active
+                          ? 'bg-community-600 text-white shadow-sm'
+                          : 'bg-white text-neutral-600 hover:bg-community-50 hover:text-community-600'
+                      }`}
+                    >
+                      <Icon className="h-4 w-4" />
+                      {t.label}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* 排序切换 */}
+              <div className="mb-5 flex items-center gap-2 text-sm">
+                <span className="text-neutral-400">排序：</span>
+                {SORTS.map((s) => {
+                  const Icon = s.icon
+                  const active = sort === s.key
+                  return (
+                    <button
+                      key={s.key}
+                      onClick={() => setSort(s.key)}
+                      className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 transition ${
+                        active
+                          ? 'bg-community-50 font-medium text-community-600'
+                          : 'text-neutral-500 hover:text-community-600'
+                      }`}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      {s.label}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
-            {/* 排序切换 */}
-            <div className="mb-5 flex items-center gap-2 text-sm">
-              <span className="text-slate-400">排序：</span>
-              {SORTS.map((s) => {
-                const Icon = s.icon
-                const active = sort === s.key
-                return (
-                  <button
-                    key={s.key}
-                    onClick={() => setSort(s.key)}
-                    className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 transition ${
-                      active
-                        ? 'bg-community-50 font-medium text-community-600'
-                        : 'text-slate-500 hover:text-community-600'
-                    }`}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                    {s.label}
-                  </button>
-                )
-              })}
-            </div>
-
-            {/* 卡片网格 —— 升级：真实封面 + 类型强调色 + 玻璃态数据 + 做同款入口 */}
+            {/* 朋友圈 / Tieba 风格信息流 */}
             {listLoading ? (
-              <div className="flex items-center justify-center py-20 text-slate-400">
+              <div className="flex items-center justify-center py-20 text-neutral-400">
                 <Loader2 className="h-6 w-6 animate-spin" />
               </div>
             ) : works.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white/60 py-20 text-slate-400">
+              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-neutral-200 bg-white/60 py-20 text-neutral-400">
                 <Sparkles className="h-8 w-8" />
                 <p className="mt-3 text-sm">还没有作品，快来发布第一篇吧</p>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
+              <div className="mx-auto max-w-3xl space-y-4">
                 {works.map((w) => {
                   const a = accentFor(w.type)
                   return (
-                    <div
+                    <article
                       key={w.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => setSelectedWorkId(w.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') setSelectedWorkId(w.id)
-                      }}
-                      className="group flex cursor-pointer flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-[0_20px_50px_-12px_rgba(15,23,42,0.15)]"
+                      className="group overflow-hidden rounded-2xl border border-neutral-200 bg-white p-5 transition-shadow hover:shadow-md"
                     >
-                      {/* 封面区 4:3 —— 真实封面优先，渐变降级 */}
-                      <div className="relative overflow-hidden" style={{ aspectRatio: '4 / 3' }}>
-                        {w.cover ? (
+                      {/* 头部：头像 + 昵称 + 时间 + 类型 */}
+                      <header className="flex items-center gap-3">
+                        <Avatar author={w.author} size="h-11 w-11" />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate text-sm font-semibold text-neutral-900">
+                              {w.author?.nickname || '匿名'}
+                            </span>
+                            <span
+                              className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium text-white"
+                              style={{ backgroundColor: a.main }}
+                            >
+                              {TYPE_LABEL[w.type]}
+                            </span>
+                            {w.subtype && (
+                              <span className="shrink-0 text-[11px] text-neutral-400">· {w.subtype}</span>
+                            )}
+                          </div>
+                          <div className="mt-0.5 text-xs text-neutral-400">
+                            {formatTime(w.createdAt) || '刚刚'}
+                          </div>
+                        </div>
+
+                        {/* 删除按钮：本人 / admin / superadmin 可见 */}
+                        {canDeleteResource(user, w.userId || w.author?.id || null) && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteWork(w) }}
+                            disabled={deletingWorkId === w.id}
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-red-50 hover:text-red-500 disabled:opacity-40"
+                            title={roleLevel(user?.role) >= 2 ? '管理员删除' : '删除我的作品'}
+                          >
+                            {deletingWorkId === w.id
+                              ? <Loader2 className="h-4 w-4 animate-spin" />
+                              : <Trash2 className="h-4 w-4" />}
+                          </button>
+                        )}
+                      </header>
+
+                      {/* 标题 + 正文内容（点击进入详情） */}
+                      <button
+                        onClick={() => setSelectedWorkId(w.id)}
+                        className="mt-3 block w-full text-left"
+                      >
+                        <h3 className="text-base font-bold leading-snug text-neutral-900 sm:text-lg">
+                          {w.title}
+                        </h3>
+                        {w.content && (
+                          <p className="mt-2 text-sm leading-relaxed text-neutral-600 line-clamp-2">
+                            {w.content}
+                          </p>
+                        )}
+                      </button>
+
+                      {/* 封面图区域：有 cover 就显示，无 cover 则不显示（朋友圈式，可无图） */}
+                      {w.cover && (
+                        <div
+                          className="mt-3 overflow-hidden rounded-xl border border-neutral-100"
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setSelectedWorkId(w.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') setSelectedWorkId(w.id)
+                          }}
+                        >
                           <img
                             src={w.cover}
                             alt={w.title}
                             loading="lazy"
-                            onError={(e) => {
-                              // 图加载失败：降级为渐变
-                              const target = e.currentTarget
-                              target.style.display = 'none'
-                              const parent = target.parentElement
-                              if (parent && !parent.querySelector('[data-fallback-grad]')) {
-                                const div = document.createElement('div')
-                                div.setAttribute('data-fallback-grad', '1')
-                                div.className = `absolute inset-0 bg-gradient-to-br ${coverGradient(w.type)}`
-                                parent.appendChild(div)
-                              }
-                            }}
-                            className="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.06]"
+                            onError={(e) => (e.currentTarget.style.display = 'none')}
+                            className="w-full object-cover transition-transform duration-500 hover:scale-[1.02]"
+                            style={{ maxHeight: '480px', aspectRatio: '16 / 9' }}
                           />
-                        ) : (
-                          <div
-                            className={`absolute inset-0 bg-gradient-to-br ${coverGradient(w.type)}`}
-                          />
-                        )}
-                        {/* 左：子类型强调色胶囊（跟随类型主色） */}
-                        <span
-                          className="absolute left-3 top-3 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold text-white shadow-[0_1px_3px_rgba(0,0,0,0.25)]"
-                          style={{ backgroundColor: a.main }}
-                        >
-                          {w.subtype || TYPE_LABEL[w.type]}
-                        </span>
-                        {/* 右：玻璃态点赞 + 评论数 */}
-                        <span className="absolute bottom-3 right-3 inline-flex items-center gap-2 rounded-full bg-black/45 px-2.5 py-0.5 text-[11px] font-medium text-white backdrop-blur">
-                          <span className="inline-flex items-center gap-1">
-                            <Heart className="h-3 w-3 fill-white" />
-                            {w.likes || 0}
-                          </span>
-                          <span className="h-2.5 w-px bg-white/35" />
-                          <span className="inline-flex items-center gap-1">
-                            <MessageSquare className="h-3 w-3 fill-transparent" />
-                            {w.commentCount ?? 0}
-                          </span>
-                        </span>
-                      </div>
-
-                      {/* 信息区 */}
-                      <div className="flex flex-1 flex-col p-3.5">
-                        <h3 className="text-sm font-semibold leading-snug text-slate-900 line-clamp-2">
-                          {w.title}
-                        </h3>
-                        <div className="mt-3 flex items-center justify-between pt-1">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div
-                              className="flex h-7 w-7 flex-none items-center justify-center rounded-full text-[11px] font-semibold text-white"
-                              style={{
-                                backgroundImage: `linear-gradient(135deg, ${a.main} 0%, ${a.light} 100%)`,
-                              }}
-                            >
-                              {w.author?.nickname?.[0]?.toUpperCase() ?? '?'}
-                            </div>
-                            <span className="truncate text-xs text-slate-500">
-                              {w.author?.nickname || '匿名'}
-                            </span>
-                          </div>
-                          {/* 做同款入口（stopPropagation 不触发详情跳转，带灵感 state 进入工作区） */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              navigate(WORKSPACE_ROUTE[w.type], {
-                                state: {
-                                  fromWork: {
-                                    id: w.id,
-                                    title: w.title,
-                                    type: w.type,
-                                    subtype: w.subtype,
-                                    cover: w.cover,
-                                    content: w.content,
-                                  },
-                                },
-                              })
-                            }}
-                            className="group/same inline-flex flex-none items-center gap-0.5 rounded-full border px-2 py-0.5 text-[11px] font-medium transition hover:shadow-sm"
-                            style={{
-                              borderColor: a.main,
-                              color: a.main,
-                            }}
-                            title={`用这篇${TYPE_LABEL[w.type]}的灵感去创作`}
-                          >
-                            <Wand2 className="h-3 w-3" />
-                            同款
-                          </button>
                         </div>
-                      </div>
-                    </div>
+                      )}
+
+                      {/* 底部操作栏 —— 朋友圈式分割线 + 4 个 action */}
+                      <footer className="mt-4 flex items-center border-t border-neutral-100 pt-3 text-xs text-neutral-500">
+                        {/* 点赞 */}
+                        <button
+                          onClick={() => requireAuth() && handleLike()}
+                          className="group/like inline-flex items-center gap-1.5 transition hover:text-rose-500"
+                          title="点赞"
+                        >
+                          <Heart className="h-4 w-4" />
+                          <span>{w.likes || 0}</span>
+                        </button>
+
+                        <span className="mx-3 h-3 w-px bg-neutral-200" />
+
+                        {/* 评论（点击进入详情） */}
+                        <button
+                          onClick={() => setSelectedWorkId(w.id)}
+                          className="group/comment inline-flex items-center gap-1.5 transition hover:text-community-600"
+                          title="查看评论"
+                        >
+                          <MessageSquare className="h-4 w-4" />
+                          <span>{w.commentCount ?? 0} 评论</span>
+                        </button>
+
+                        <span className="mx-3 h-3 w-px bg-neutral-200" />
+
+                        {/* 分享 */}
+                        <button
+                          onClick={() => {
+                            const url = `${window.location.pathname}?id=${w.id}`
+                            navigator.clipboard?.writeText(url).then(
+                              () => {
+                                setCopied(true)
+                                setTimeout(() => setCopied(false), 1500)
+                              },
+                              () => {},
+                            )
+                          }}
+                          className="inline-flex items-center gap-1.5 transition hover:text-community-600"
+                          title="分享帖子"
+                        >
+                          <Share2 className="h-4 w-4" />
+                          <span>{copied ? '已复制' : '分享'}</span>
+                        </button>
+
+                        <span className="mx-3 h-3 w-px bg-neutral-200" />
+
+                        {/* 做同款 */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            navigate(WORKSPACE_ROUTE[w.type], {
+                              state: {
+                                fromWork: {
+                                  id: w.id,
+                                  title: w.title,
+                                  type: w.type,
+                                  subtype: w.subtype,
+                                  cover: w.cover,
+                                  content: w.content,
+                                },
+                              },
+                            })
+                          }}
+                          className="ml-auto inline-flex items-center gap-1 rounded-full px-2.5 py-1 font-medium transition"
+                          style={{
+                            backgroundColor: `${a.main}10`,
+                            color: a.main,
+                          }}
+                          title={`用这篇${TYPE_LABEL[w.type]}的灵感去创作`}
+                        >
+                          <Wand2 className="h-3.5 w-3.5" />
+                          <span>做同款</span>
+                        </button>
+                      </footer>
+                    </article>
                   )
                 })}
               </div>
@@ -1187,20 +1354,20 @@ export default function CommunityPage() {
           <>
             <button
               onClick={() => setSelectedWorkId(null)}
-              className="mb-5 inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-slate-600 shadow-sm transition hover:bg-community-50 hover:text-community-600"
+              className="mb-5 inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-neutral-600 shadow-sm transition hover:bg-community-50 hover:text-community-600"
             >
               <ArrowLeft className="h-4 w-4" />
               返回广场
             </button>
 
             {detailLoading ? (
-              <div className="flex items-center justify-center py-20 text-slate-400">
+              <div className="flex items-center justify-center py-20 text-neutral-400">
                 <Loader2 className="h-6 w-6 animate-spin" />
               </div>
             ) : detail ? (
-              <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <article className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
                 {/* 标题 + 作者 */}
-                <header className="border-b border-slate-100 pb-4">
+                <header className="border-b border-neutral-100 pb-4">
                   <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="mb-2 flex flex-wrap items-center gap-1.5">
@@ -1211,12 +1378,12 @@ export default function CommunityPage() {
                             {TYPE_LABEL[detail.work.type]}
                           </span>
                           {detail.work.subtype && (
-                            <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-500">
+                            <span className="inline-flex items-center rounded-full border border-neutral-200 bg-white px-2 py-0.5 text-[11px] font-medium text-neutral-500">
                               {detail.work.subtype}
                             </span>
                           )}
                         </div>
-                        <h1 className="text-2xl font-bold text-slate-900">{detail.work.title}</h1>
+                        <h1 className="text-2xl font-bold text-neutral-900">{detail.work.title}</h1>
                       </div>
                     {/* 做同款：把当前作品作为灵感 state 带入对应工作区（工作区可直接消费预置 Prompt/剧情/封面）；+ 分享按钮 */}
                     <div className="flex shrink-0 items-center gap-2">
@@ -1254,7 +1421,7 @@ export default function CommunityPage() {
                         className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
                           copied
                             ? 'border-emerald-300 bg-emerald-50 text-emerald-600'
-                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900'
+                            : 'border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300 hover:text-neutral-900'
                         }`}
                         title={copied ? '链接已复制到剪贴板' : '复制分享链接'}
                       >
@@ -1270,11 +1437,11 @@ export default function CommunityPage() {
                   <div className="mt-3 flex items-center gap-2">
                     <Avatar author={detail.work.author} size="h-9 w-9" />
                     <div className="leading-tight">
-                      <div className="text-sm font-medium text-slate-800">
+                      <div className="text-sm font-medium text-neutral-800">
                         {detail.work.author?.nickname || '匿名创作者'}
                       </div>
                       {detail.work.createdAt && (
-                        <div className="text-xs text-slate-400">
+                        <div className="text-xs text-neutral-400">
                           {formatTime(detail.work.createdAt)}
                         </div>
                       )}
@@ -1288,14 +1455,14 @@ export default function CommunityPage() {
                 </div>
 
                 {/* 点赞 */}
-                <div className="flex items-center gap-3 border-t border-slate-100 py-4">
+                <div className="flex items-center gap-3 border-t border-neutral-100 py-4">
                   <button
                     onClick={handleLike}
                     disabled={likeLoading}
                     className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition disabled:opacity-50 ${
                       detail.liked
                         ? 'bg-rose-50 text-rose-600'
-                        : 'bg-slate-50 text-slate-600 hover:bg-rose-50 hover:text-rose-600'
+                        : 'bg-neutral-50 text-neutral-600 hover:bg-rose-50 hover:text-rose-600'
                     }`}
                   >
                     {likeLoading ? (
@@ -1304,26 +1471,26 @@ export default function CommunityPage() {
                       <Heart className={`h-4 w-4 ${detail.liked ? 'fill-current' : ''}`} />
                     )}
                     {detail.liked ? '已点赞' : '点赞'}
-                    <span className="ml-1 text-xs text-slate-400">
+                    <span className="ml-1 text-xs text-neutral-400">
                       {detail.work.likes || 0}
                     </span>
                   </button>
-                  <div className="inline-flex items-center gap-1.5 text-sm text-slate-500">
+                  <div className="inline-flex items-center gap-1.5 text-sm text-neutral-500">
                     <MessageSquare className="h-4 w-4" />
                     {comments.length}
                   </div>
                 </div>
               </article>
             ) : (
-              <div className="flex items-center justify-center rounded-xl border border-dashed border-slate-200 py-20 text-sm text-slate-400">
+              <div className="flex items-center justify-center rounded-xl border border-dashed border-neutral-200 py-20 text-sm text-neutral-400">
                 作品不存在或已被删除
               </div>
             )}
 
             {/* 评论区 */}
             {detail && (
-              <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                <h2 className="mb-4 flex items-center gap-2 text-base font-semibold text-slate-900">
+              <section className="mt-5 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+                <h2 className="mb-4 flex items-center gap-2 text-base font-semibold text-neutral-900">
                   <MessageSquare className="h-4 w-4 text-community-500" />
                   评论 {comments.length}
                 </h2>
@@ -1341,10 +1508,10 @@ export default function CommunityPage() {
                       }}
                       placeholder={isAuthed ? '写下你的评论…' : '登录后即可评论'}
                       rows={2}
-                      className={`flex-1 w-full resize-none rounded-lg border bg-white px-3 py-2 text-sm text-slate-800 outline-none transition ${
+                      className={`flex-1 w-full resize-none rounded-lg border bg-white px-3 py-2 text-sm text-neutral-800 outline-none transition ${
                         commentEmptyHint
                           ? 'border-rose-300 ring-2 ring-rose-100 focus:border-rose-400 focus:ring-rose-100'
-                          : 'border-slate-200 focus:border-community-400 focus:ring-2 focus:ring-community-100'
+                          : 'border-neutral-200 focus:border-community-400 focus:ring-2 focus:ring-community-100'
                       }`}
                     />
                     {commentEmptyHint && (
@@ -1370,11 +1537,11 @@ export default function CommunityPage() {
 
                 {/* 评论列表 */}
                 {commentsLoading ? (
-                  <div className="flex items-center justify-center py-8 text-slate-400">
+                  <div className="flex items-center justify-center py-8 text-neutral-400">
                     <Loader2 className="h-5 w-5 animate-spin" />
                   </div>
                 ) : comments.length === 0 ? (
-                  <div className="py-6 text-center text-sm text-slate-400">
+                  <div className="py-6 text-center text-sm text-neutral-400">
                     还没有评论，来抢沙发吧
                   </div>
                 ) : (
@@ -1384,16 +1551,30 @@ export default function CommunityPage() {
                         <Avatar author={c.author} size="h-8 w-8" />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-slate-800">
+                            <span className="text-sm font-medium text-neutral-800">
                               {c.author?.nickname || '匿名'}
                             </span>
                             {c.createdAt && (
-                              <span className="text-xs text-slate-400">
+                              <span className="text-xs text-neutral-400">
                                 {formatTime(c.createdAt)}
                               </span>
                             )}
+
+                            {/* 删除评论：本人 / admin / superadmin 可见 */}
+                            {canDeleteResource(user, c.userId || c.author?.id || null) && (
+                              <button
+                                onClick={() => handleDeleteComment(c)}
+                                disabled={deletingCommentId === c.id}
+                                className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md text-neutral-400 transition hover:bg-red-50 hover:text-red-500 disabled:opacity-40"
+                                title={roleLevel(user?.role) >= 2 ? '管理员删除评论' : '删除我的评论'}
+                              >
+                                {deletingCommentId === c.id
+                                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  : <Trash2 className="h-3.5 w-3.5" />}
+                              </button>
+                            )}
                           </div>
-                          <p className="mt-1 text-sm leading-6 text-slate-700">{c.content}</p>
+                          <p className="mt-1 text-sm leading-6 text-neutral-700">{c.content}</p>
                         </div>
                       </li>
                     ))}
@@ -1409,15 +1590,15 @@ export default function CommunityPage() {
       {PUBLISH_ENABLED && publishOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
-            className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+            className="absolute inset-0 bg-neutral-900/50 backdrop-blur-sm"
             onClick={() => setPublishOpen(false)}
           />
           <div className="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-900">发布作品</h2>
+              <h2 className="text-lg font-semibold text-neutral-900">发布作品</h2>
               <button
                 onClick={() => setPublishOpen(false)}
-                className="text-slate-400 transition hover:text-slate-600"
+                className="text-neutral-400 transition hover:text-neutral-600"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -1425,21 +1606,21 @@ export default function CommunityPage() {
 
             <div className="mt-4 space-y-4">
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700">标题</label>
+                <label className="mb-1.5 block text-sm font-medium text-neutral-700">标题</label>
                 <input
                   value={publishTitle}
                   onChange={(e) => setPublishTitle(e.target.value)}
                   placeholder="给你的作品起个名字"
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-community-400 focus:ring-2 focus:ring-community-100"
+                  className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-800 outline-none transition focus:border-community-400 focus:ring-2 focus:ring-community-100"
                 />
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700">类型</label>
+                <label className="mb-1.5 block text-sm font-medium text-neutral-700">类型</label>
                 <select
                   value={publishType}
                   onChange={(e) => setPublishType(e.target.value as WorkType)}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-community-400 focus:ring-2 focus:ring-community-100"
+                  className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-800 outline-none transition focus:border-community-400 focus:ring-2 focus:ring-community-100"
                 >
                   <option value="novel">小说</option>
                   <option value="image">图像</option>
@@ -1450,7 +1631,7 @@ export default function CommunityPage() {
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700">内容</label>
+                <label className="mb-1.5 block text-sm font-medium text-neutral-700">内容</label>
                 <textarea
                   value={publishContent}
                   onChange={(e) => setPublishContent(e.target.value)}
@@ -1460,14 +1641,14 @@ export default function CommunityPage() {
                       ? '每行一个图片描述，将作为图片占位展示'
                       : '输入作品内容'
                   }
-                  className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-800 outline-none transition focus:border-community-400 focus:ring-2 focus:ring-community-100"
+                  className="w-full resize-none rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm leading-6 text-neutral-800 outline-none transition focus:border-community-400 focus:ring-2 focus:ring-community-100"
                 />
               </div>
 
               <div className="flex justify-end gap-2 pt-1">
                 <button
                   onClick={() => setPublishOpen(false)}
-                  className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
+                  className="rounded-lg px-4 py-2 text-sm font-medium text-neutral-600 transition hover:bg-neutral-100"
                 >
                   取消
                 </button>

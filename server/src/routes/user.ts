@@ -1,6 +1,8 @@
-﻿import { Router, Request, Response, NextFunction } from 'express'
+import { Router, Request, Response, NextFunction } from 'express'
 import prisma from '../lib/prisma'
 import { authRequired } from '../middleware/auth'
+import { upload } from '../middleware/upload'
+import { moderateUpload, cleanupUploadedFile } from '../lib/moderation'
 
 const router = Router()
 
@@ -14,7 +16,7 @@ router.get('/profile', async (req: Request, res: Response, next: NextFunction) =
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
-        id: true, email: true, nickname: true, avatar: true, bio: true,
+        id: true, email: true, nickname: true, avatar: true, banner: true, bio: true,
         role: true, createdAt: true, updatedAt: true,
       },
     })
@@ -29,22 +31,48 @@ router.get('/profile', async (req: Request, res: Response, next: NextFunction) =
 router.put('/profile', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user!.userId
-    const { nickname, bio, avatar } = req.body
+    const { nickname, bio, avatar, banner } = req.body
 
-    const data: { nickname?: string; bio?: string; avatar?: string } = {}
+    const data: { nickname?: string; bio?: string; avatar?: string; banner?: string } = {}
     if (nickname !== undefined) data.nickname = nickname
     if (bio !== undefined) data.bio = bio
     if (avatar !== undefined) data.avatar = avatar
+    if (banner !== undefined) data.banner = banner
 
     const user = await prisma.user.update({
       where: { id: userId },
       data,
       select: {
-        id: true, email: true, nickname: true, avatar: true, bio: true,
+        id: true, email: true, nickname: true, avatar: true, banner: true, bio: true,
         role: true, updatedAt: true,
       },
     })
     res.json(user)
+  } catch (e) {
+    next(e)
+  }
+})
+
+// POST /api/user/banner — 上传个人中心 Banner 背景
+router.post('/banner', upload.single('banner'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: '未接收到文件' })
+    // 内容审核：文件名
+    const mod = await moderateUpload(req.file, {
+      endpoint: '/api/user/banner',
+      userId: req.user!.userId,
+    })
+    if (!mod.passed) {
+      cleanupUploadedFile(req.file.path)
+      return res.status(403).json({ error: mod.reason, moderation: mod.result })
+    }
+    const url = `/uploads/${req.file.filename}`
+    const user = await prisma.user.update({
+      where: { id: req.user!.userId },
+      data: { banner: url },
+      select: { id: true, banner: true },
+    })
+    res.json({ url, user })
   } catch (e) {
     next(e)
   }
@@ -146,6 +174,21 @@ router.get('/tasks', async (req: Request, res: Response, next: NextFunction) => 
       pageSize,
       totalPages: Math.ceil(total / pageSize),
     })
+  } catch (e) {
+    next(e)
+  }
+})
+
+// GET /api/user/works — 当前用户发布的全部作品
+router.get('/works', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.user!.userId
+    const works = await prisma.work.findMany({
+      where: { userId, hidden: false },
+      orderBy: { createdAt: 'desc' },
+      include: { user: { select: { id: true, nickname: true, avatar: true } } },
+    })
+    res.json(works)
   } catch (e) {
     next(e)
   }

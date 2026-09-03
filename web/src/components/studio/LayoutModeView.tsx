@@ -1,4 +1,4 @@
-// 排版编辑器视图
+﻿// 排版编辑器视图
 //
 // Phase 1 实现：
 // - Konva Stage 画布（缩放、平移）
@@ -429,7 +429,7 @@ function Toolbar({
 }) {
   return (
     <div className="flex items-center gap-2 border-b border-ink-200 bg-white px-4 py-2">
-      <LayoutIcon className="h-4 w-4 text-brand-600" />
+      <LayoutIcon className="h-4 w-4 text-violet-600" />
       <span className="text-xs font-medium text-ink-900">排版模式</span>
 
       <div className="mx-3 h-5 w-px bg-ink-200" />
@@ -444,7 +444,7 @@ function Toolbar({
             className={cn(
               'rounded-md border px-2.5 py-1 text-[11px] font-medium transition-all',
               activeLayout === k
-                ? 'border-brand-300 bg-brand-50 text-brand-700'
+                ? 'border-violet-300 bg-violet-50 text-violet-700'
                 : 'border-ink-200 text-ink-600 hover:border-ink-300'
             )}
           >
@@ -518,7 +518,7 @@ function LayerPanel() {
                   onClick={() => layout.selectLayer(l.id)}
                   className={cn(
                     'flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors',
-                    isSelected ? 'bg-brand-50 text-brand-700' : 'text-ink-700 hover:bg-ink-50'
+                    isSelected ? 'bg-violet-50 text-violet-700' : 'text-ink-700 hover:bg-ink-50'
                   )}
                 >
                   <span className="text-ink-500">{layerIcon(l.type)}</span>
@@ -705,7 +705,7 @@ function PropertyPanel() {
             max={100}
             value={layer.opacity * 100}
             onChange={(e) => update({ opacity: Number(e.target.value) / 100 })}
-            className="w-full accent-brand-600"
+            className="w-full accent-violet-600"
           />
         </label>
       </div>
@@ -946,10 +946,10 @@ function PageStrip() {
               className={cn(
                 'group relative flex h-14 w-11 shrink-0 cursor-pointer flex-col items-center justify-center rounded border transition-all',
                 isActive
-                  ? 'border-brand-400 bg-brand-50 text-brand-700 ring-2 ring-brand-200'
+                  ? 'border-violet-400 bg-violet-50 text-violet-700 ring-2 ring-violet-200'
                   : 'border-ink-200 bg-white text-ink-600 hover:border-ink-300',
                 dragId === p.id && 'opacity-40',
-                isDragOver && 'border-brand-400 border-dashed bg-brand-50'
+                isDragOver && 'border-violet-400 border-dashed bg-violet-50'
               )}
               title={`第 ${p.seq} 页 · ${LAYOUT_PRESETS[p.layout].label} · ${p.width}×${p.height}`}
             >
@@ -967,7 +967,7 @@ function PageStrip() {
                       e.stopPropagation()
                       layout.duplicatePage(p.id)
                     }}
-                    className="flex h-4 w-4 items-center justify-center rounded bg-white text-ink-500 shadow ring-1 ring-ink-200 hover:text-brand-600"
+                    className="flex h-4 w-4 items-center justify-center rounded bg-white text-ink-500 shadow ring-1 ring-ink-200 hover:text-violet-600"
                     title="复制页"
                   >
                     <Copy className="h-2.5 w-2.5" />
@@ -992,7 +992,7 @@ function PageStrip() {
 
         <button
           onClick={() => layout.addPage(layout.activePage()?.layout ?? 'strip3')}
-          className="flex h-14 w-11 items-center justify-center rounded border border-dashed border-ink-300 text-ink-400 hover:border-brand-300 hover:text-brand-500"
+          className="flex h-14 w-11 items-center justify-center rounded border border-dashed border-ink-300 text-ink-400 hover:border-violet-300 hover:text-violet-500"
           title="新建页"
         >
           <Plus className="h-3.5 w-3.5" />

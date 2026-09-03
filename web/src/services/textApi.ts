@@ -32,9 +32,13 @@ export interface DialogueLine {
 interface LlmResponse<T> {
   ok: boolean
   data?: T
-  source?: 'llm' | 'template'
+  source?: 'llm' | 'template' | 'moderation'
   fallbackReason?: string
   error?: string
+  // 内容审核拦截标记（输入/输出违规时后端返回 403 + source=moderation）
+  blocked?: boolean
+  stage?: 'input' | 'output'
+  riskLevel?: 'low' | 'medium' | 'high'
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<LlmResponse<T>> {
@@ -50,6 +54,17 @@ async function postJson<T>(url: string, body: unknown): Promise<LlmResponse<T>> 
     })
     if (!res.ok) {
       const errBody = await res.json().catch(() => ({}))
+      // 内容审核拦截（403 + source=moderation）：返回带 blocked 标记的响应，便于前端显示违规提示
+      if (errBody.blocked || errBody.source === 'moderation') {
+        return {
+          ok: false,
+          source: 'moderation',
+          error: errBody.error || '内容审核拦截',
+          blocked: true,
+          stage: errBody.stage,
+          riskLevel: errBody.riskLevel,
+        } as unknown as LlmResponse<T>
+      }
       throw new Error(errBody.error || `HTTP ${res.status}`)
     }
     return (await res.json()) as LlmResponse<T>
@@ -310,7 +325,7 @@ export function inspiration(opts: { keyword?: string; genre?: string }) {
   return postJson<InspirationData>('/api/llm/inspiration', opts)
 }
 
-// 智能对话（智能蛙）
+// 智能对话（小Man）
 export function smartChat(opts: { message: string; context?: string; novelInfo?: string }) {
   return postJson<{ content: string }>('/api/llm/smart-chat', opts)
 }

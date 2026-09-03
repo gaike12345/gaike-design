@@ -1,0 +1,167 @@
+# =====================================================
+# Mank TV · Docker Compose 部署编排
+#
+# 使用方式：
+#   # 最小化启动（SQLite + 内存队列，快速体验）
+#   docker compose up -d
+#
+#   # 生产级启动（PostgreSQL + Redis + Nginx 反向代理）
+#   docker compose --profile production up -d
+#
+#   # 仅启动数据库（外部部署后端时）
+#   docker compose --profile db up -d
+# =====================================================
+
+services:
+  # ============== 后端 API 服务 ==============
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: manktv-backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost}
+      - DATABASE_URL=${DATABASE_URL:-file:./data/dev.db}
+      - JWT_SECRET=${JWT_SECRET:-please-change-this-to-a-long-random-string}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
+      - UPLOAD_DIR=/app/uploads
+      - POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY:-}
+      - POLLINATIONS_BASE_URL=${POLLINATIONS_BASE_URL:-https://gen.pollinations.ai}
+      - POLLINATIONS_LLM_MODEL=${POLLINATIONS_LLM_MODEL:-openai}
+      - POLLINATIONS_IMAGE_MODEL=${POLLINATIONS_IMAGE_MODEL:-flux}
+      - MODERATION_ENABLED=${MODERATION_ENABLED:-true}
+      - MODERATION_LEVEL=${MODERATION_LEVEL:-standard}
+      - MODERATION_PROVIDER=${MODERATION_PROVIDER:-aliyun}
+      - MODERATION_API_KEY=${MODERATION_API_KEY:-}
+      - MODERATION_API_SECRET=${MODERATION_API_SECRET:-}
+      - MODERATION_REGION=${MODERATION_REGION:-cn-shanghai}
+      - ZHIPU_API_KEY=${ZHIPU_API_KEY:-}
+      - ZHIPU_LLM_MODEL=${ZHIPU_LLM_MODEL:-glm-4-flash}
+      - LLM_PROVIDER=${LLM_PROVIDER:-zhipu}
+      - REDIS_URL=${REDIS_URL:-}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - IMAGE_SIGNING_SECRET=${IMAGE_SIGNING_SECRET:-img-sign-key-change-in-prod}
+    volumes:
+      - backend-data:/app/data
+      - backend-uploads:/app/uploads
+    ports:
+      - "3000:3000"
+    networks:
+      - manktv-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ============== 前端 Web 服务 ==============
+  frontend:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: manktv-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+    networks:
+      - manktv-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # ============== PostgreSQL 数据库（生产推荐） ==============
+  postgres:
+    image: postgres:16-alpine
+    container_name: manktv-postgres
+    restart: unless-stopped
+    profiles: ["production", "db"]
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-manktv}
+      - POSTGRES_USER=${POSTGRES_USER:-manktv}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-change-me-in-production}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - manktv-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-manktv} -d ${POSTGRES_DB:-manktv}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ============== Redis 缓存/队列（生产推荐） ==============
+  redis:
+    image: redis:7-alpine
+    container_name: manktv-redis
+    restart: unless-stopped
+    profiles: ["production"]
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - manktv-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ============== Nginx 反向代理（生产推荐） ==============
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: manktv-nginx
+    restart: unless-stopped
+    profiles: ["production"]
+    depends_on:
+      - frontend
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./deploy/nginx/ssl:/etc/nginx/ssl:ro
+      - nginx-logs:/var/log/nginx
+    networks:
+      - manktv-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+# ============== 数据卷 ==============
+volumes:
+  backend-data:
+    driver: local
+  backend-uploads:
+    driver: local
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  nginx-logs:
+    driver: local
+
+# ============== 网络 ==============
+networks:
+  manktv-network:
+    driver: bridge

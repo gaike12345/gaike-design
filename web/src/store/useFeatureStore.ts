@@ -1,4 +1,5 @@
 ﻿import { create } from 'zustand'
+import { api } from '../services/api'
 
 export interface ModuleFeature {
   id: string
@@ -31,9 +32,8 @@ export const useFeatureStore = create<FeatureState>((set, get) => ({
   fetchFeatures: async (module: string) => {
     set({ loading: true, error: null })
     try {
-      const res = await fetch(`/api/features?module=${module}`)
-      if (!res.ok) throw new Error(`Failed to fetch features for ${module}`)
-      const data = await res.json()
+      // 改用统一 api.get()：自动携带 Authorization、处理 401 跳登录、统一错误格式
+      const data = await api.get<{ features: ModuleFeature[] }>(`/api/features?module=${encodeURIComponent(module)}`)
       set((state) => ({
         featuresByModule: {
           ...state.featuresByModule,

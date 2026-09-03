@@ -5,20 +5,19 @@
 
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Image as ImageIcon, Layout as LayoutIcon, BookOpen, MoreHorizontal } from 'lucide-react'
+import { Plus, Image as ImageIcon, BookOpen, MoreHorizontal } from 'lucide-react'
 import Navbar from '../components/layout/Navbar'
 import { useProjectStore, type ProjectType } from '../store/useProjectStore'
 import { cn } from '../lib/utils'
 
 const TEMPLATES: { type: ProjectType; label: string; icon: typeof ImageIcon; desc: string }[] = [
-  { type: 'comic', label: '漫画项目', icon: LayoutIcon, desc: '脚本→图像→排版→导出 PDF/EPUB' },
   { type: 'image', label: '图像项目', icon: ImageIcon, desc: '纯图像生成与精修' },
   { type: 'script', label: '写作项目', icon: BookOpen, desc: '脚本/分镜/角色卡/Lorebook' },
 ]
 
 const TYPE_ICON: Record<ProjectType, typeof ImageIcon> = {
   image: ImageIcon,
-  comic: LayoutIcon,
+  comic: ImageIcon,
   script: BookOpen,
   audio: ImageIcon,
   video: ImageIcon,
@@ -63,9 +62,9 @@ export default function Workspace() {
                 <button
                   key={t.type}
                   onClick={() => onCreate(t.type, `${t.label}-${new Date().toLocaleDateString()}`)}
-                  className="card flex items-start gap-3 p-4 text-left transition-all hover:border-brand-300 hover:shadow-card"
+                  className="card flex items-start gap-3 p-4 text-left transition-all hover:border-violet-300 hover:shadow-card"
                 >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
                     <Icon className="h-5 w-5" />
                   </div>
                   <div className="flex-1">
@@ -99,13 +98,13 @@ export default function Workspace() {
                   <button
                     key={p.id}
                     onClick={() => navigate(`/editor/${p.id}`)}
-                    className="card group flex flex-col gap-3 p-3 text-left transition-all hover:border-brand-300 hover:shadow-card"
+                    className="card group flex flex-col gap-3 p-3 text-left transition-all hover:border-violet-300 hover:shadow-card"
                   >
                     <div className={cn(
                       'flex aspect-[4/3] items-center justify-center rounded-lg bg-ink-100',
-                      'group-hover:bg-brand-50'
+                      'group-hover:bg-violet-50'
                     )}>
-                      <Icon className="h-8 w-8 text-ink-400 group-hover:text-brand-500" />
+                      <Icon className="h-8 w-8 text-ink-400 group-hover:text-violet-500" />
                     </div>
                     <div className="flex items-start justify-between gap-1">
                       <div className="min-w-0 flex-1">

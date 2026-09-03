@@ -8,10 +8,9 @@ export default function WritingPage() {
   const onJumpTo = (target: string) => {
     // IDE 内部跳转直接走对应工作区路由（/workspace/*）
     const map: Record<string, string> = {
-      image: '/workspace/image',
-      comic: '/workspace/comic',
+      image: '/workspace/canvas',
       audio: '/workspace/audio',
-      video: '/workspace/video',
+      video: '/workspace/canvas',
       community: '/workspace/community',
     }
     if (map[target]) navigate(map[target])

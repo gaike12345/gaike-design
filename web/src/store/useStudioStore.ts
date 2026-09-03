@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { buildImageUrl, buildRetryUrl } from '../services/imageApi'
+import { buildRetryUrl, generateViaBackend } from '../services/imageApi'
 
 export type AspectRatio = '1:1' | '3:4' | '4:3' | '16:9' | '9:16'
 export type GenStatus = 'idle' | 'queued' | 'running' | 'done' | 'error'
@@ -89,53 +89,77 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   setSeed: (v) => set({ seed: v }),
   setBatch: (v) => set({ batch: v }),
 
-  generate: () => {
+  generate: async () => {
     const s = get()
     if (!s.prompt.trim() || isBusy(s.status)) return
 
     const taskId = `t_${Date.now()}`
     const baseSeed = s.seed ?? randomSeed()
 
-    // 真实调用图像 API：每张图独立构造请求 URL
-    // 浏览器通过 <img src> 发起 GET，单图加载状态由 onload/onerror 回调追踪
-    const results: GenImage[] = Array.from({ length: s.batch }).map((_, i) => {
-      const seed = baseSeed + i
-      return {
-        id: `${taskId}_${i}`,
-        url: buildImageUrl({
-          prompt: s.prompt,
-          ratio: s.ratio,
-          seed,
-          negativePrompt: s.negativePrompt,
-          steps: s.steps,
-          cfg: s.cfg,
-        }),
+    // 先置为 running，给用户即时反馈
+    set({ status: 'running' })
+
+    try {
+      // 通过后端代理生成 — 经过审核+积分扣减
+      const res = await generateViaBackend({
         prompt: s.prompt,
-        seed,
         ratio: s.ratio,
-        status: 'loading',
+        batch: s.batch,
+        seed: baseSeed,
+        model: 'general-pro',
+        resolution: '2k',
+      })
+
+      const results: GenImage[] = res.images.map((img, i) => ({
+        id: `${taskId}_${i}`,
+        url: img.url,
+        prompt: s.prompt,
+        seed: img.seed,
+        ratio: s.ratio as AspectRatio,
+        status: 'loading' as const,
+        createdAt: Date.now(),
+      }))
+
+      const task: GenTask = {
+        id: taskId,
+        prompt: s.prompt,
+        negativePrompt: s.negativePrompt,
+        ratio: s.ratio,
+        steps: s.steps,
+        cfg: s.cfg,
+        seed: baseSeed,
+        batch: s.batch,
+        status: 'running',
+        results,
         createdAt: Date.now(),
       }
-    })
 
-    const task: GenTask = {
-      id: taskId,
-      prompt: s.prompt,
-      negativePrompt: s.negativePrompt,
-      ratio: s.ratio,
-      steps: s.steps,
-      cfg: s.cfg,
-      seed: baseSeed,
-      batch: s.batch,
-      status: 'running',
-      results,
-      createdAt: Date.now(),
+      set((state) => ({
+        status: 'running',
+        history: [task, ...state.history].slice(0, 50),
+      }))
+    } catch (e: any) {
+      // 审核不通过或生成失败
+      set({ status: 'error' })
+      // 用一个失败的 task 占位，展示错误信息
+      const task: GenTask = {
+        id: taskId,
+        prompt: s.prompt,
+        negativePrompt: s.negativePrompt,
+        ratio: s.ratio,
+        steps: s.steps,
+        cfg: s.cfg,
+        seed: baseSeed,
+        batch: s.batch,
+        status: 'error',
+        results: [],
+        createdAt: Date.now(),
+        errorMessage: e?.message || '生成失败',
+      } as any
+      set((state) => ({
+        history: [task, ...state.history].slice(0, 50),
+      }))
     }
-
-    set((state) => ({
-      status: 'running',
-      history: [task, ...state.history].slice(0, 50),
-    }))
   },
 
   updateImageStatus: (taskId, imgId, status) => {

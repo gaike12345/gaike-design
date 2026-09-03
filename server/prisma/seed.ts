@@ -16,6 +16,7 @@
 import 'dotenv/config'
 import prisma from '../src/lib/prisma'
 import bcrypt from 'bcryptjs'
+import { generateNextUid } from '../src/lib/uidGenerator'
 
 // ========== 共用工具 ==========
 const COVER = (encoded: string) =>
@@ -184,8 +185,12 @@ function rand<T>(arr: T[], seed: number): T {
 async function main() {
   console.log('\n🌱 [Seed] 开始初始化数据库...')
 
-  // 0) 幂等清理（先删关联表，再删用户 — 级联会自动清作品/评论/点赞）
+  // ===== 不变量：超级管理员只能有一个（固定邮箱） —— Write-once security baseline. =====
+  const UNIQUE_SUPERADMIN_EMAIL = 'admin@manktv.com'
+
+  // 0) 幂等清理（先删关联表，再删 seed 账号；其它生产账号保留）
   console.log('  🧹 清理旧 seed 数据（幂等）...')
+  const seedEmails = AUTHORS.map(a => a.email).concat(['demo@manktv.com', UNIQUE_SUPERADMIN_EMAIL, 'moderator@manktv.com'])
   await prisma.$transaction([
     prisma.like.deleteMany({}),
     prisma.comment.deleteMany({}),
@@ -194,23 +199,48 @@ async function main() {
     prisma.chapter.deleteMany({}),
     prisma.volume.deleteMany({}),
     prisma.project.deleteMany({}),
-    prisma.user.deleteMany({ where: { email: { in: AUTHORS.map(a => a.email).concat(['demo@manktv.com', 'admin@manktv.com']) } } }),
+    prisma.userQuota.deleteMany({ where: { user: { email: { in: seedEmails } } } }),
+    prisma.user.deleteMany({ where: { email: { in: seedEmails } } }),
+    // 全局纠偏：任何其它 superadmin（非唯一邮箱）一律在 seed 阶段降回 admin → 零破坏不变量
+    prisma.user.updateMany({ where: { role: 'superadmin', NOT: { email: UNIQUE_SUPERADMIN_EMAIL } }, data: { role: 'admin' } }),
   ])
 
-  // 1) 创建 2 个演示登录账号 + 20 位作者
-  console.log('  👤 创建 2 个演示账号 + 20 位作者...')
+  // 1) 创建 3 个基准登录账号 + 20 位作者
+  //    🔴 超级管理员（唯一） admin@manktv.com / password123 / 昵称：MankTV 运营
+  //    🟠 管理员           moderator@manktv.com / password123 / 昵称：审核员
+  //    🟢 普通用户         demo@manktv.com / password123 / 昵称：演示用户
+  console.log('  👤 创建基准账号 + 20 位作者...')
 
   const demoUser = await prisma.user.create({
-    data: { email: 'demo@manktv.com', password: PASSWORD_HASH, nickname: '演示用户', role: 'user', bio: '前端登录演示账号。密码：password123' },
+    data: { uid: await generateNextUid(), email: 'demo@manktv.com', password: PASSWORD_HASH, nickname: '演示用户', role: 'user', bio: '前端登录演示账号。密码：password123' },
+  })
+  const modUser = await prisma.user.create({
+    data: { uid: await generateNextUid(), email: 'moderator@manktv.com', password: PASSWORD_HASH, nickname: '审核员', role: 'admin', bio: '社区内容审核账号。密码：password123' },
   })
   const adminUser = await prisma.user.create({
-    data: { email: 'admin@manktv.com', password: PASSWORD_HASH, nickname: 'MankTV 运营', role: 'superadmin', bio: '超级管理员。密码：password123' },
+    data: { uid: await generateNextUid(), email: UNIQUE_SUPERADMIN_EMAIL, password: PASSWORD_HASH, nickname: 'MankTV 运营', role: 'superadmin', bio: '系统唯一超级管理员（系统锁死，降级/提权到其它邮箱均会被服务端回滚）。密码：password123' },
   })
+
+  // 启动期幂等纠偏：若 DB 已有其它 superadmin（迁移遗留），一律降为 admin → 保证全局只有 1 个。
+  const stragglers = await prisma.user.findMany({ where: { role: 'superadmin', NOT: { email: UNIQUE_SUPERADMIN_EMAIL } }, select: { id: true, email: true } })
+  if (stragglers.length) {
+    console.log(`  ⚠️  启动纠偏：发现 ${stragglers.length} 个非法 superadmin，强制降级为 admin →`, stragglers)
+    await prisma.user.updateMany({ where: { id: { in: stragglers.map(s => s.id) } }, data: { role: 'admin' } })
+  }
+  const superCount = await prisma.user.count({ where: { role: 'superadmin' } })
+  if (superCount !== 1) {
+    throw new Error(`[Seed] 超级管理员不变量破坏：期望 1 个，实际 ${superCount}（已中止）`)
+  }
+  const superRow = await prisma.user.findFirst({ where: { role: 'superadmin' }, select: { email: true } })
+  if (superRow?.email !== UNIQUE_SUPERADMIN_EMAIL) {
+    throw new Error(`[Seed] 超级管理员邮箱不变量破坏：期望 ${UNIQUE_SUPERADMIN_EMAIL}，实际 ${superRow?.email}`)
+  }
+  console.log(`  ✅ 唯一性校验通过：superadmin 计数 = ${superCount}，邮箱 = ${superRow!.email}`)
 
   const authorByKey = new Map<string, { id: string }>()
   for (const a of AUTHORS) {
     const u = await prisma.user.create({
-      data: { email: a.email, password: PASSWORD_HASH, nickname: a.nickname, role: 'creator', bio: a.bio },
+      data: { uid: await generateNextUid(), email: a.email, password: PASSWORD_HASH, nickname: a.nickname, role: 'creator', bio: a.bio },
     })
     authorByKey.set(a.key, { id: u.id })
   }
@@ -273,6 +303,23 @@ async function main() {
     }
   }
   await prisma.$transaction(likeTx)
+
+  // 同步点赞计数：确保 Work.likesCount = Like 表实际记录数（遵守架构不变量 FF-016）
+  console.log('  🔄 同步点赞计数...')
+  const likeCounts = await prisma.like.groupBy({
+    by: ['workId'],
+    _count: { workId: true },
+  })
+  const likeCountMap = new Map(likeCounts.map(lc => [lc.workId, lc._count.workId]))
+  const allWorks = await prisma.work.findMany({ select: { id: true } })
+  const syncTx = allWorks.map(w =>
+    prisma.work.update({
+      where: { id: w.id },
+      data: { likesCount: likeCountMap.get(w.id) || 0 },
+    })
+  )
+  await Promise.all(syncTx)
+  console.log(`  ✅ 已同步 ${allWorks.length} 个作品的点赞计数`)
 
 
   // 5) AI 供应商 + 模型种子数据
@@ -389,8 +436,9 @@ async function main() {
 
 
   console.log(`\n✅ Seed 完成！`)
-  console.log(`   ├─ 演示账号（普通）：demo@manktv.com  / 密码：password123`)
-  console.log(`   ├─ 演示账号（管理员）：admin@manktv.com / 密码：password123`)
+  console.log(`   🔴 超级管理员（唯一）：${UNIQUE_SUPERADMIN_EMAIL}  / 密码：password123`)
+  console.log(`   🟠 管理员（审核）      ：moderator@manktv.com  / 密码：password123`)
+  console.log(`   🟢 普通用户            ：demo@manktv.com       / 密码：password123`)
   console.log(`   ├─ 作者用户：${AUTHORS.length} 位`)
   console.log(`   ├─ 社区作品：${WORKS.length} 件`)
   console.log(`   ├─ Demo 评论：${totalComments} 条`)

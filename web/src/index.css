@@ -9,10 +9,10 @@
     text-rendering: optimizeLegibility;
   }
   body {
-    @apply bg-white text-ink-900 font-sans antialiased;
+    @apply bg-white text-neutral-800 font-sans antialiased;
   }
   :focus-visible {
-    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-white;
+    @apply outline-none ring-2 ring-violet-500/50 ring-offset-0;
   }
 }
 
@@ -21,19 +21,19 @@
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .btn-primary {
-    @apply btn bg-brand-600 text-white hover:bg-brand-700 shadow-soft;
+    @apply btn bg-gradient-to-r from-violet-500 to-violet-400 text-white hover:brightness-110 shadow-lg shadow-violet-500/20;
   }
   .btn-ghost {
-    @apply btn text-ink-700 hover:bg-ink-100;
+    @apply btn text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900;
   }
   .btn-outline {
-    @apply btn border border-ink-200 bg-white text-ink-700 hover:border-brand-300 hover:text-brand-700;
+    @apply btn border border-neutral-200 bg-white text-neutral-700 hover:border-violet-400 hover:text-violet-600;
   }
   .card {
-    @apply rounded-xl bg-white border border-ink-200 shadow-soft;
+    @apply rounded-xl bg-white border border-neutral-200 shadow-sm;
   }
   .input {
-    @apply w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900 placeholder:text-ink-400 focus:border-brand-400 focus:ring-2 focus:ring-brand-100;
+    @apply w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-800 placeholder:text-neutral-400 focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/30;
   }
   .chip {
     @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium;
@@ -43,18 +43,90 @@
   }
 }
 
-/* 自定义滚动条 */
+/* 自定义滚动条 - 浅色主题 */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
+}
+
+/* 小说写作 Hero 背景装饰：汉字浮动动画 */
+@keyframes novelFloat {
+  0%, 100% { transform: rotate(var(--rot, 0deg)) translateY(0); }
+  50% { transform: rotate(var(--rot, 0deg)) translateY(-12px); }
+}
+
+/* 创作画布 Hero 节点浮动动画 */
+@keyframes canvasFloat {
+  0%, 100% { transform: translate(-50%, -50%) translateY(0); }
+  50% { transform: translate(-50%, -50%) translateY(-8px); }
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #D1D5DB;
-  border-radius: 4px;
+  background: #d4d4d8;
+  border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #9CA3AF;
+  background: #a1a1aa;
+}
+
+/* ============================================================
+   Lib TV 深色主题 - 全局样式（覆盖浅色默认）
+   ============================================================ */
+.canvas-dark {
+  color-scheme: dark;
+  background-color: #050505;
+  color: #e5e5e5;
+}
+.canvas-dark body,
+body.canvas-dark {
+  background-color: #050505;
+  color: #e5e5e5;
+}
+.canvas-dark .btn-ghost {
+  @apply text-neutral-300 hover:bg-[#1a1a1a] hover:text-white;
+}
+.canvas-dark .btn-outline {
+  @apply border-[#2a2a2a] bg-[#121212] text-neutral-200 hover:border-violet-500 hover:text-violet-300;
+}
+.canvas-dark .card {
+  @apply bg-[#0d0d0d] border-[#1f1f1f];
+}
+.canvas-dark .input,
+.canvas-dark input.input,
+.canvas-dark textarea.input,
+.canvas-dark select.input {
+  @apply border-[#2a2a2a] bg-[#0a0a0a] text-neutral-100 placeholder:text-neutral-500 focus:border-violet-500/60 focus:ring-violet-500/30;
+}
+.canvas-dark .chip {
+  @apply bg-[#1a1a1a] text-neutral-300 border border-[#2a2a2a];
+}
+.canvas-dark .btn-primary {
+  @apply shadow-lg shadow-violet-500/20;
+}
+.canvas-dark ::-webkit-scrollbar-thumb {
+  background: #3f3f3f;
+}
+.canvas-dark ::-webkit-scrollbar-thumb:hover {
+  background: #52525b;
+}
+.canvas-dark input[type="range"] {
+  @apply accent-violet-500;
+}
+.canvas-dark input[type="number"]::-webkit-inner-spin-button,
+.canvas-dark input[type="number"]::-webkit-outer-spin-button {
+  filter: invert(0.8);
+}
+
+/* 引用图标悬浮预览动画 */
+@keyframes refPreviewFade {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
