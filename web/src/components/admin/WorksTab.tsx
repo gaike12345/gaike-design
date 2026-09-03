@@ -124,12 +124,12 @@ export function WorksTab({ role, onError }: { role?: Role; onError: (e: string) 
                 </span></td>
                 <td className="px-4 py-3 whitespace-nowrap">
                   <div className="flex items-center gap-2">
-                    <UserAvatar user={{ nickname: (w as any).user?.nickname ?? '—', avatar: (w as any).user?.avatar ?? null }} size="h-6 w-6" />
-                    <span className="text-neutral-600">{(w as any).user?.nickname ?? '—'}</span>
+                    <UserAvatar user={{ nickname: w.user?.nickname ?? '—', avatar: w.user?.avatar ?? null }} size="h-6 w-6" />
+                    <span className="text-neutral-600">{w.user?.nickname ?? '—'}</span>
                   </div>
                 </td>
-                <td className="px-4 py-3 whitespace-nowrap text-center text-neutral-700">{(w as any).likesCount ?? w._count?.likes ?? 0}</td>
-                <td className="px-4 py-3 whitespace-nowrap text-center text-neutral-700">{(w as any)._count?.comments ?? 0}</td>
+                <td className="px-4 py-3 whitespace-nowrap text-center text-neutral-700">{w.likesCount ?? w._count?.likes ?? 0}</td>
+                <td className="px-4 py-3 whitespace-nowrap text-center text-neutral-700">{w._count?.comments ?? 0}</td>
                 <td className="px-4 py-3 whitespace-nowrap">
                   <span className={`chip text-[10px] ${w.hidden ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>
                     {w.hidden ? <><EyeOff className="mr-0.5 inline h-3 w-3" /> 已下架</> : <><Eye className="mr-0.5 inline h-3 w-3" /> 展示中</>}

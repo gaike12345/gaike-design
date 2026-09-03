@@ -56,15 +56,15 @@ export function CommentsTab({ onError }: { onError: (e: string) => void }) {
           <EmptyBar text={loading ? '加载中...' : '暂无评论'} />
         ) : comments.map(c => (
           <div key={c.id} className="flex gap-3 rounded-xl border border-neutral-200/70 bg-white p-4 shadow-sm hover:shadow">
-            <UserAvatar user={{ nickname: (c as any).user?.nickname ?? '匿名', avatar: (c as any).user?.avatar ?? null }} size="h-9 w-9" />
+            <UserAvatar user={{ nickname: c.user?.nickname ?? '匿名', avatar: c.user?.avatar ?? null }} size="h-9 w-9" />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="font-medium text-neutral-800">{(c as any).user?.nickname ?? '匿名'}</span>
-                <span className="text-neutral-400">{(c as any).user?.email}</span>
+                <span className="font-medium text-neutral-800">{c.user?.nickname ?? '匿名'}</span>
+                <span className="text-neutral-400">{c.user?.email}</span>
                 <span className="chip !border-pink-200 bg-pink-50 !text-pink-700">评论</span>
                 <span className="text-neutral-400">{formatDateTime(c.createdAt)}</span>
                 <span className="ml-auto text-xs text-neutral-500">
-                  关联作品 → <span className="font-medium text-neutral-800">{(c as any).work?.title ?? '—'}</span>
+                  关联作品 → <span className="font-medium text-neutral-800">{c.work?.title ?? '—'}</span>
                 </span>
               </div>
               <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-neutral-700">{c.content}</p>

@@ -18,6 +18,10 @@ export interface AdminWork {
   views?: number
   likes?: number
   createdAt?: string
+  // 关联字段（后台 include 返回）
+  user?: { nickname?: string; avatar?: string | null } | null
+  likesCount?: number
+  _count?: { comments?: number; likes?: number }
   [key: string]: unknown
 }
 
@@ -28,6 +32,9 @@ export interface AdminComment {
   workTitle?: string
   author?: string
   createdAt?: string
+  // 关联字段
+  user?: { nickname?: string; avatar?: string | null; email?: string } | null
+  work?: { title?: string } | null
   [key: string]: unknown
 }
 
@@ -39,6 +46,10 @@ export interface AdminOrder {
   userId?: string
   userEmail?: string
   createdAt?: string
+  // 关联字段
+  user?: { nickname?: string; avatar?: string | null; email?: string } | null
+  tokens?: number
+  paymentMethod?: string
   [key: string]: unknown
 }
 

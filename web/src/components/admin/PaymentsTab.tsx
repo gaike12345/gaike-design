@@ -70,18 +70,18 @@ export function PaymentsTab({ onError }: { onError: (e: string) => void }) {
                   <td className="px-4 py-3 font-mono text-xs text-neutral-600 whitespace-nowrap">{o.id.slice(-16)}</td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <div className="flex items-center gap-2">
-                      <UserAvatar user={{ nickname: (o as any).user?.nickname ?? '—', avatar: (o as any).user?.avatar ?? null }} size="h-6 w-6" />
+                      <UserAvatar user={{ nickname: o.user?.nickname ?? '—', avatar: o.user?.avatar ?? null }} size="h-6 w-6" />
                       <div className="min-w-0">
-                        <div className="truncate text-neutral-800">{(o as any).user?.nickname ?? '—'}</div>
-                        <div className="truncate text-xs text-neutral-400">{(o as any).user?.email}</div>
+                        <div className="truncate text-neutral-800">{o.user?.nickname ?? '—'}</div>
+                        <div className="truncate text-xs text-neutral-400">{o.user?.email}</div>
                       </div>
                     </div>
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-neutral-700">{o.planId ?? '-'}</td>
                   <td className="px-4 py-3 whitespace-nowrap text-right font-semibold text-neutral-800">¥{(o.amount ? (o.amount / 100).toFixed(2) : '0.00')}</td>
-                  <td className="px-4 py-3 whitespace-nowrap text-right font-medium text-emerald-600">+{formatCompact((o as any).tokens ?? 0)}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-right font-medium text-emerald-600">+{formatCompact(o.tokens ?? 0)}</td>
                   <td className="px-4 py-3 whitespace-nowrap"><span className={`chip ${s.cls}`}>{s.label}</span></td>
-                  <td className="px-4 py-3 whitespace-nowrap text-neutral-600">{(o as any).paymentMethod ?? '-'}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-neutral-600">{o.paymentMethod ?? '-'}</td>
                   <td className="px-4 py-3 whitespace-nowrap text-neutral-500">{formatDateTime(o.createdAt)}</td>
                 </tr>
               )
