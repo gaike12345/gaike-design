@@ -1,27 +1,35 @@
 // 积分不足弹窗 — 全局，由 useQuotaModalStore 控制
 //
 // 当用户积分不足点击生成按钮，或 API 返回 402 时弹出，
-// 引导用户前往充值中心，而不是简单的 alert() 或按钮置灰。
-//
-// 用法：在 App.tsx 中挂载 <QuotaModal />，任意位置调用 store.openModal()
+// 引导用户联系管理员充值（锁定模式：不开放自助充值）。
 
-import { useNavigate } from 'react-router-dom'
-import { X, Zap, CreditCard, ArrowRight } from 'lucide-react'
+import { X, Zap, Mail, Copy, Check, Phone, MessageCircle } from 'lucide-react'
+import { useState } from 'react'
 import { useQuotaModalStore } from '../store/useQuotaModalStore'
 import { useQuotaStore } from '../store/useQuotaStore'
 import { formatTokensCompact } from '../services/cost'
 
+const CONTACT = {
+  email: '13372729368@163.com',
+  wechat: 'WBJXXMy_H',
+  phone: '18224092332',
+}
+
 export default function QuotaModal() {
   const { open, need, remaining: modalRemaining, message, closeModal } = useQuotaModalStore()
   const quotaRemaining = useQuotaStore((s) => s.quota.remainingTokens)
-  const navigate = useNavigate()
+  const [copied, setCopied] = useState<string | null>(null)
 
-  // 优先用弹窗传入的 remaining，没有就用 store 里的实时值
   const remaining = modalRemaining ?? quotaRemaining
 
-  const handleGoRecharge = () => {
-    closeModal()
-    navigate('/settings#recharge')
+  const handleCopy = async (text: string, key: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(key)
+      setTimeout(() => setCopied(null), 2000)
+    } catch {
+      // 复制失败时不做处理
+    }
   }
 
   if (!open) return null
@@ -51,12 +59,12 @@ export default function QuotaModal() {
           <h2 className="mb-2 text-center text-xl font-bold text-gray-900">
             积分不足
           </h2>
-          <p className="mb-6 text-center text-sm text-gray-500">
-            {message || '当前积分不足以完成本次生成，请先充值后再使用'}
+          <p className="mb-5 text-center text-sm text-gray-500">
+            {message || '当前积分不足以完成本次生成，请联系管理员充值'}
           </p>
 
           {/* 积分对比卡片 */}
-          <div className="mb-6 grid grid-cols-2 gap-3">
+          <div className="mb-5 grid grid-cols-2 gap-3">
             <div className="rounded-xl bg-gray-50 p-4 text-center">
               <div className="mb-1 text-xs text-gray-500">本次消耗</div>
               <div className="text-lg font-bold text-orange-600">
@@ -71,14 +79,50 @@ export default function QuotaModal() {
             </div>
           </div>
 
-          {/* 充值建议 */}
-          <div className="mb-6 flex items-start gap-3 rounded-xl bg-amber-50 p-3">
-            <CreditCard className="mt-0.5 flex-shrink-0 text-amber-600" size={18} />
-            <div className="text-xs text-amber-800">
-              <div className="font-medium">充值推荐</div>
-              <div className="mt-0.5 opacity-80">
-                新人首充特惠，最低 9 元即可获得 10 万积分，畅享所有 AI 功能
-              </div>
+          {/* 联系方式卡片 */}
+          <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <div className="mb-3 flex items-center gap-2 text-amber-700">
+              <Mail className="h-4 w-4" />
+              <span className="text-sm font-semibold">请联系管理员充值</span>
+            </div>
+
+            {/* 邮箱 */}
+            <div className="mb-2 flex items-center gap-2 rounded-lg bg-white px-3 py-2">
+              <Mail className="h-4 w-4 text-gray-400" />
+              <span className="flex-1 text-sm text-gray-800">{CONTACT.email}</span>
+              <button
+                onClick={() => handleCopy(CONTACT.email, 'email')}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-amber-700 transition hover:bg-amber-100"
+              >
+                {copied === 'email' ? <Check size={14} /> : <Copy size={14} />}
+                {copied === 'email' ? '已复制' : '复制'}
+              </button>
+            </div>
+
+            {/* 微信 */}
+            <div className="mb-2 flex items-center gap-2 rounded-lg bg-white px-3 py-2">
+              <MessageCircle className="h-4 w-4 text-gray-400" />
+              <span className="flex-1 text-sm text-gray-800">微信号：{CONTACT.wechat}</span>
+              <button
+                onClick={() => handleCopy(CONTACT.wechat, 'wechat')}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-amber-700 transition hover:bg-amber-100"
+              >
+                {copied === 'wechat' ? <Check size={14} /> : <Copy size={14} />}
+                {copied === 'wechat' ? '已复制' : '复制'}
+              </button>
+            </div>
+
+            {/* 电话 */}
+            <div className="flex items-center gap-2 rounded-lg bg-white px-3 py-2">
+              <Phone className="h-4 w-4 text-gray-400" />
+              <span className="flex-1 text-sm text-gray-800">{CONTACT.phone}</span>
+              <button
+                onClick={() => handleCopy(CONTACT.phone, 'phone')}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-amber-700 transition hover:bg-amber-100"
+              >
+                {copied === 'phone' ? <Check size={14} /> : <Copy size={14} />}
+                {copied === 'phone' ? '已复制' : '复制'}
+              </button>
             </div>
           </div>
 
@@ -88,15 +132,15 @@ export default function QuotaModal() {
               onClick={closeModal}
               className="flex-1 rounded-xl border border-gray-200 py-3 text-sm font-medium text-gray-600 transition hover:bg-gray-50"
             >
-              稍后再说
+              知道了
             </button>
-            <button
-              onClick={handleGoRecharge}
+            <a
+              href={`mailto:${CONTACT.email}?subject=积分充值申请`}
               className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-orange-500 to-red-500 py-3 text-sm font-semibold text-white shadow-lg shadow-orange-500/25 transition hover:brightness-110"
             >
-              去充值
-              <ArrowRight size={16} />
-            </button>
+              <Mail size={16} />
+              发送邮件
+            </a>
           </div>
         </div>
       </div>

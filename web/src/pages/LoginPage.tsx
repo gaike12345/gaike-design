@@ -1,18 +1,18 @@
 // LoginModal — 全局登录/注册弹窗（左右分栏布局）
-// 支持四种登录方式：密码登录 / 邮箱验证码 / 微信扫码 / 注册
+// 登录方式：UID + 密码 / 微信扫码
 // 左侧：品牌视觉图 + Logo
 // 右侧：Tab 切换 + 对应表单 + 底部协议勾选
 // 触发方式：未登录时点击任意位置 / AuthGuard 拦截 / 导航栏「登录」按钮
 // 登录/注册成功后由 store 自动关闭（loginModalOpen=false）
 
 import { useState, useEffect, useRef } from 'react'
-import { X, Mail, QrCode, Lock } from 'lucide-react'
+import { X, QrCode, Lock } from 'lucide-react'
 import { useAuthStore } from '../store/useAuthStore'
 import logo from '../assets/logo.png'
 import { useSiteConfig, useSiteThemeVars } from '../hooks/useSiteConfig'
 import LegalModal, { type LegalType } from '../components/LegalModal'
 
-type TabType = 'password' | 'email_code' | 'wechat'
+type TabType = 'password' | 'wechat'
 
 export default function LoginModal() {
   const {
@@ -24,8 +24,6 @@ export default function LoginModal() {
     loginModalOpen,
     loginModalMode,
     closeLoginModal,
-    sendEmailCode,
-    loginWithEmailCode,
     getWechatQrcode,
     pollWechatStatus,
   } = useAuthStore()
@@ -42,14 +40,9 @@ export default function LoginModal() {
   const [isRegister, setIsRegister] = useState(false)
 
   // 共用字段
-  const [email, setEmail] = useState('')
+  const [uid, setUid] = useState('')
   const [password, setPassword] = useState('')
   const [nickname, setNickname] = useState('')
-  const [code, setCode] = useState('')
-
-  // 邮箱验证码倒计时
-  const [countdown, setCountdown] = useState(0)
-  const countdownRef = useRef<number | null>(null)
 
   // 微信扫码
   const [qrCodeUrl, setQrCodeUrl] = useState('')
@@ -58,8 +51,7 @@ export default function LoginModal() {
   const pollTimerRef = useRef<number | null>(null)
 
   // 协议勾选
-  const [agreeTerms, setAgreeTerms] = useState(false)
-  const [agreePrivacy, setAgreePrivacy] = useState(false)
+  const [agreeAll, setAgreeAll] = useState(false)
   const [legalOpen, setLegalOpen] = useState<LegalType | null>(null)
   const [agreeError, setAgreeError] = useState('')
 
@@ -74,15 +66,10 @@ export default function LoginModal() {
         setIsRegister(false)
       }
       setAgreeError('')
-      setCode('')
       clearError()
     } else {
       setLegalOpen(null)
       // 清理定时器
-      if (countdownRef.current) {
-        clearInterval(countdownRef.current)
-        countdownRef.current = null
-      }
       if (pollTimerRef.current) {
         clearInterval(pollTimerRef.current)
         pollTimerRef.current = null
@@ -119,42 +106,6 @@ export default function LoginModal() {
       document.body.style.overflow = originalOverflow
     }
   }, [loginModalOpen])
-
-  // 倒计时
-  useEffect(() => {
-    if (countdown <= 0) {
-      if (countdownRef.current) {
-        clearInterval(countdownRef.current)
-        countdownRef.current = null
-      }
-      return
-    }
-    countdownRef.current = window.setInterval(() => {
-      setCountdown((c) => c - 1)
-    }, 1000)
-    return () => {
-      if (countdownRef.current) {
-        clearInterval(countdownRef.current)
-        countdownRef.current = null
-      }
-    }
-  }, [countdown])
-
-  // 发送邮箱验证码
-  const handleSendCode = async () => {
-    if (!email) {
-      setAgreeError('请先输入邮箱地址')
-      return
-    }
-    if (countdown > 0) return
-    setAgreeError('')
-    const result = await sendEmailCode(email)
-    if (!result.ok) {
-      setAgreeError(result.error || '发送失败')
-      return
-    }
-    setCountdown(60)
-  }
 
   // 加载微信二维码
   const loadQrcode = async () => {
@@ -200,7 +151,7 @@ export default function LoginModal() {
 
   // 检查协议勾选
   const checkAgreement = (): boolean => {
-    if (!agreeTerms || !agreePrivacy) {
+    if (!agreeAll) {
       setAgreeError('请先阅读并勾选《用户协议》与《隐私政策》')
       return false
     }
@@ -213,15 +164,7 @@ export default function LoginModal() {
     e.preventDefault()
     clearError()
     if (!checkAgreement()) return
-    await login(email, password)
-  }
-
-  // 邮箱验证码登录提交
-  const handleEmailCodeLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
-    clearError()
-    if (!checkAgreement()) return
-    await loginWithEmailCode(email, code)
+    await login(uid.trim(), password)
   }
 
   // 注册提交
@@ -229,7 +172,7 @@ export default function LoginModal() {
     e.preventDefault()
     clearError()
     if (!checkAgreement()) return
-    await register(email, password, nickname || email.split('@')[0])
+    await register(password, nickname || '')
   }
 
   // 主色派生物
@@ -243,21 +186,18 @@ export default function LoginModal() {
 
   const tabs: { key: TabType; label: string; icon: React.ReactNode }[] = [
     { key: 'password', label: '密码登录', icon: <Lock size={14} /> },
-    { key: 'email_code', label: '邮箱验证码', icon: <Mail size={14} /> },
     { key: 'wechat', label: '微信扫码', icon: <QrCode size={14} /> },
   ]
 
   const getTabTitle = () => {
-    if (tab === 'password') return isRegister ? '创建你的账号' : title
-    if (tab === 'email_code') return '邮箱验证码登录'
     if (tab === 'wechat') return '微信扫码登录'
+    if (tab === 'password') return isRegister ? '创建你的账号' : title
     return ''
   }
 
   const getTabSubtitle = () => {
-    if (tab === 'password') return isRegister ? `加入 ${siteName}，开启你的 AI 创作之旅` : subtitle
-    if (tab === 'email_code') return '输入邮箱获取验证码，快速登录'
     if (tab === 'wechat') return '使用微信扫描二维码登录'
+    if (tab === 'password') return isRegister ? `加入 ${siteName}，开启你的 AI 创作之旅` : subtitle
     return ''
   }
 
@@ -366,7 +306,7 @@ export default function LoginModal() {
                 >
                   {t.icon}
                   <span className="hidden md:inline">{t.label}</span>
-                  <span className="md:hidden">{t.label.replace('登录', '').replace('验证码', '')}</span>
+                  <span className="md:hidden">{t.label.replace('登录', '').replace('扫码', '')}</span>
                 </button>
               ))}
             </div>
@@ -383,19 +323,37 @@ export default function LoginModal() {
               {/* 密码登录 / 注册 */}
               {tab === 'password' && (
                 <form onSubmit={isRegister ? handleRegister : handlePasswordLogin} className="space-y-3">
-                  <div>
-                    <label htmlFor="login-account" className="mb-1 block text-xs font-medium text-neutral-600">账号 / UID / 邮箱</label>
-                    <input
-                      id="login-account"
-                      type="text"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                      placeholder="请输入 UID 或邮箱地址"
-                      className="w-full rounded-lg border border-neutral-200 bg-neutral-50/50 px-3 py-2 text-sm outline-none transition hover:border-neutral-300 focus:border-transparent focus:bg-white focus:ring-2"
-                      style={inputFocus}
-                    />
-                  </div>
+                  {!isRegister && (
+                    <div>
+                      <label htmlFor="login-uid" className="mb-1 block text-xs font-medium text-neutral-600">UID</label>
+                      <input
+                        id="login-uid"
+                        type="text"
+                        inputMode="numeric"
+                        value={uid}
+                        onChange={(e) => setUid(e.target.value.replace(/\D/g, ''))}
+                        required
+                        placeholder="请输入 UID"
+                        className="w-full rounded-lg border border-neutral-200 bg-neutral-50/50 px-3 py-2 text-sm outline-none transition hover:border-neutral-300 focus:border-transparent focus:bg-white focus:ring-2"
+                        style={inputFocus}
+                      />
+                    </div>
+                  )}
+                  {isRegister && (
+                    <div>
+                      <label htmlFor="register-nickname" className="mb-1 block text-xs font-medium text-neutral-600">昵称</label>
+                      <input
+                        id="register-nickname"
+                        type="text"
+                        value={nickname}
+                        onChange={(e) => setNickname(e.target.value)}
+                        placeholder="给自己起个名字吧"
+                        className="w-full rounded-lg border border-neutral-200 bg-neutral-50/50 px-3 py-2 text-sm outline-none transition hover:border-neutral-30 focus:border-transparent focus:bg-white focus:ring-2"
+                        style={inputFocus}
+                      />
+                      <p className="mt-1 text-[10px] text-neutral-400">注册成功后系统将自动分配 UID</p>
+                    </div>
+                  )}
                   <div>
                     <label htmlFor="login-password" className="mb-1 block text-xs font-medium text-neutral-600">密码</label>
                     <input
@@ -410,20 +368,6 @@ export default function LoginModal() {
                       style={inputFocus}
                     />
                   </div>
-                  {isRegister && (
-                    <div>
-                      <label htmlFor="login-nickname" className="mb-1 block text-xs font-medium text-neutral-600">昵称（可选）</label>
-                      <input
-                        id="login-nickname"
-                        type="text"
-                        value={nickname}
-                        onChange={(e) => setNickname(e.target.value)}
-                        placeholder="留空则用邮箱前缀"
-                        className="w-full rounded-lg border border-neutral-200 bg-neutral-50/50 px-3 py-2 text-sm outline-none transition hover:border-neutral-300 focus:border-transparent focus:bg-white focus:ring-2"
-                        style={inputFocus}
-                      />
-                    </div>
-                  )}
                   <button
                     type="submit"
                     disabled={loading}
@@ -442,61 +386,6 @@ export default function LoginModal() {
                     >
                       {isRegister ? '去登录' : '立即注册'}
                     </button>
-                  </p>
-                </form>
-              )}
-
-              {/* 邮箱验证码登录 */}
-              {tab === 'email_code' && (
-                <form onSubmit={handleEmailCodeLogin} className="space-y-3">
-                  <div>
-                    <label htmlFor="code-email" className="mb-1 block text-xs font-medium text-neutral-600">邮箱</label>
-                    <input
-                      id="code-email"
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                      placeholder="请输入邮箱地址"
-                      className="w-full rounded-lg border border-neutral-200 bg-neutral-50/50 px-3 py-2 text-sm outline-none transition hover:border-neutral-300 focus:border-transparent focus:bg-white focus:ring-2"
-                      style={inputFocus}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="email-code" className="mb-1 block text-xs font-medium text-neutral-600">验证码</label>
-                    <div className="flex gap-2">
-                      <input
-                        id="email-code"
-                        type="text"
-                        value={code}
-                        onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                        required
-                        maxLength={6}
-                        placeholder="6 位验证码"
-                        className="flex-1 rounded-lg border border-neutral-200 bg-neutral-50/50 px-3 py-2 text-sm tracking-widest outline-none transition hover:border-neutral-300 focus:border-transparent focus:bg-white focus:ring-2"
-                        style={inputFocus}
-                      />
-                      <button
-                        type="button"
-                        onClick={handleSendCode}
-                        disabled={countdown > 0}
-                        className="shrink-0 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
-                        style={countdown === 0 ? { borderColor: `${primaryColor}30`, color: primaryColor } : {}}
-                      >
-                        {countdown > 0 ? `${countdown}s 后重发` : '获取验证码'}
-                      </button>
-                    </div>
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="mt-1 w-full rounded-lg py-2.5 text-sm font-medium text-white shadow-md transition hover:brightness-105 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
-                    style={btnGrad}
-                  >
-                    {loading ? '请稍候...' : '登录 / 注册'}
-                  </button>
-                  <p className="text-center text-xs text-neutral-400">
-                    新用户将自动创建账号并赠送 {freeTokens.toLocaleString()} 积分
                   </p>
                 </form>
               )}
@@ -565,48 +454,35 @@ export default function LoginModal() {
 
           {/* ===== 底部协议勾选区 ===== */}
           <div className="border-t border-neutral-100 bg-neutral-50/60 px-8 py-3 sm:px-10">
-            <div className="space-y-1.5">
-              <label className="flex cursor-pointer items-start gap-2 text-xs text-neutral-500">
-                <input
-                  type="checkbox"
-                  checked={agreeTerms}
-                  onChange={(e) => { setAgreeTerms(e.target.checked); setAgreeError('') }}
-                  className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer rounded border-neutral-300"
-                  style={{ accentColor: primaryColor }}
-                />
-                <span className="leading-5">
-                  我已阅读并同意
-                  <button
-                    type="button"
-                    onClick={() => setLegalOpen('terms')}
-                    className="ml-0.5 font-medium underline-offset-2 hover:underline"
-                    style={{ color: primaryColor }}
-                  >
-                    《用户协议》
-                  </button>
-                </span>
-              </label>
-              <label className="flex cursor-pointer items-start gap-2 text-xs text-neutral-500">
-                <input
-                  type="checkbox"
-                  checked={agreePrivacy}
-                  onChange={(e) => { setAgreePrivacy(e.target.checked); setAgreeError('') }}
-                  className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer rounded border-neutral-300"
-                  style={{ accentColor: primaryColor }}
-                />
-                <span className="leading-5">
-                  我已阅读并同意
-                  <button
-                    type="button"
-                    onClick={() => setLegalOpen('privacy')}
-                    className="ml-0.5 font-medium underline-offset-2 hover:underline"
-                    style={{ color: primaryColor }}
-                  >
-                    《隐私政策》
-                  </button>
-                </span>
-              </label>
-            </div>
+            <label className="flex cursor-pointer items-start gap-2 text-xs text-neutral-500">
+              <input
+                type="checkbox"
+                checked={agreeAll}
+                onChange={(e) => { setAgreeAll(e.target.checked); setAgreeError('') }}
+                className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer rounded border-neutral-300"
+                style={{ accentColor: primaryColor }}
+              />
+              <span className="leading-5">
+                我已阅读并同意
+                <button
+                  type="button"
+                  onClick={() => setLegalOpen('terms')}
+                  className="ml-0.5 font-medium underline-offset-2 hover:underline"
+                  style={{ color: primaryColor }}
+                >
+                  《用户协议》
+                </button>
+                与
+                <button
+                  type="button"
+                  onClick={() => setLegalOpen('privacy')}
+                  className="ml-0.5 font-medium underline-offset-2 hover:underline"
+                  style={{ color: primaryColor }}
+                >
+                  《隐私政策》
+                </button>
+              </span>
+            </label>
           </div>
         </div>
       </div>

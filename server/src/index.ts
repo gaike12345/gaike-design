@@ -33,6 +33,7 @@ import canvasRoutes from './routes/canvas'
 import siteRoutes from './routes/site'
 import comicRoutes from './routes/comic'
 import { preloadModelCosts } from './lib/modelCost'
+import { refundStalePendingTasks } from './lib/tokenService'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '3000', 10)
@@ -347,6 +348,16 @@ const server = app.listen(PORT, () => {
 
   // 启动任务队列 Worker（后台消费异步任务）
   startWorker()
+
+  // 定时任务：每 5 分钟扫描一次超时未完成的任务，自动退还积分
+  // 修复进程崩溃、回调丢失等异常情况
+  const STALE_TASK_MAX_AGE_MINUTES = 30 // 超过 30 分钟的 pending 任务视为超时
+  const STALE_TASK_CHECK_INTERVAL_MS = 5 * 60 * 1000 // 每 5 分钟检查一次
+  setInterval(() => {
+    refundStalePendingTasks({ maxAgeMinutes: STALE_TASK_MAX_AGE_MINUTES }).catch((e) => {
+      logger.error('超时任务扫描失败', { error: e instanceof Error ? e.message : String(e) })
+    })
+  }, STALE_TASK_CHECK_INTERVAL_MS)
 
   logger.info('服务已启动', {
     port: PORT,

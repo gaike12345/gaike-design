@@ -10,7 +10,6 @@
 
 import { memo, useCallback } from 'react'
 import type { MouseEvent } from 'react'
-import { shallow } from 'zustand/shallow'
 import {
   useUnifiedCanvasStore,
   UNODE_PORTS,
@@ -35,17 +34,6 @@ interface CanvasNodeProps {
   onPortUp: (e: MouseEvent) => void
 }
 
-// 按 id 选择单个节点 —— 只有该节点变化时才触发重渲染
-function selectNodeById(nodeId: string) {
-  return (s: { nodes: UCanvasNode[]; selectedNodeId: string | null }) => {
-    const node = s.nodes.find((n) => n.id === nodeId)
-    return {
-      node,
-      isSelected: s.selectedNodeId === nodeId,
-    }
-  }
-}
-
 /**
  * 单个画布节点组件
  * - 自己从 store 订阅该节点的数据（粒度更细）
@@ -58,7 +46,9 @@ export const CanvasNode = memo(function CanvasNode({
   onPortStart,
   onPortUp,
 }: CanvasNodeProps) {
-  const { node, isSelected } = useUnifiedCanvasStore(selectNodeById(nodeId), shallow)
+  // 使用单个选择器避免返回新对象导致无限更新
+  const node = useUnifiedCanvasStore((s) => s.nodes.find((n: UCanvasNode) => n.id === nodeId) ?? null)
+  const isSelected = useUnifiedCanvasStore((s) => s.selectedNodeId === nodeId)
 
   // 节点不存在（已删除等情况）不渲染
   if (!node) return null

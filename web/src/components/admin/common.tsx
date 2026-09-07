@@ -3,6 +3,9 @@
 import { X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { Role, WorkType } from './types'
+import { Pagination } from '../ui/Pagination'
+
+export { Pagination }
 
 // ========= 角色层级工具 =========
 export const ROLE_LEVEL: Record<Role, number> = { user: 1, admin: 2, superadmin: 3 }
@@ -214,35 +217,6 @@ export function MiniBarChart({ data }: { data: Array<{ label: string; value: num
           </div>
         )
       })}
-    </div>
-  )
-}
-
-// 分页组件
-export function Pagination({ page, total, pageSize, onChange }: { page: number; total: number; pageSize: number; onChange: (p: number) => void }) {
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  if (totalPages <= 1) return null
-  return (
-    <div className="flex items-center justify-between gap-3 pt-2">
-      <div className="text-xs text-neutral-500">
-        共 <span className="font-medium text-neutral-700">{total}</span> 条，第 {page} / {totalPages} 页
-      </div>
-      <div className="flex items-center gap-1">
-        <button
-          onClick={() => onChange(Math.max(1, page - 1))}
-          disabled={page <= 1}
-          className="rounded-md border border-neutral-200 px-2.5 py-1 text-xs text-neutral-600 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          上一页
-        </button>
-        <button
-          onClick={() => onChange(Math.min(totalPages, page + 1))}
-          disabled={page >= totalPages}
-          className="rounded-md border border-neutral-200 px-2.5 py-1 text-xs text-neutral-600 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          下一页
-        </button>
-      </div>
     </div>
   )
 }

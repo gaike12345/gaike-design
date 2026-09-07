@@ -329,33 +329,226 @@ async function main() {
 
   const providers = await Promise.all([
     prisma.aIProvider.create({ data: { name: 'pollinations', displayName: 'Pollinations', type: 'image', baseUrl: 'https://image.pollinations.ai/prompt/', apiKeyEnv: 'POLLINATIONS_API_KEY', status: 'active' } }),
+    prisma.aIProvider.create({ data: { name: 'pollinations-video', displayName: 'Pollinations Video', type: 'video', baseUrl: 'https://gen.pollinations.ai/video/', apiKeyEnv: 'POLLINATIONS_API_KEY', status: 'active' } }),
+    prisma.aIProvider.create({ data: { name: 'kling-video', displayName: '可灵视频（阿里云百炼）', type: 'video', baseUrl: 'https://dashscope.aliyuncs.com/api/v1', apiKeyEnv: 'DASHSCOPE_API_KEY', status: 'active' } }),
     prisma.aIProvider.create({ data: { name: 'zhipu', displayName: '智谱 GLM', type: 'llm', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', apiKeyEnv: 'ZHIPU_API_KEY', status: 'active' } }),
     prisma.aIProvider.create({ data: { name: 'dashscope', displayName: '通义千问', type: 'multimodal', baseUrl: 'https://dashscope.aliyuncs.com/api/v1', apiKeyEnv: 'DASHSCOPE_API_KEY', status: 'active' } }),
-    prisma.aIProvider.create({ data: { name: 'seedance', displayName: 'Seedance', type: 'video', baseUrl: 'https://api.seedance.ai/v1', apiKeyEnv: 'SEEDANCE_API_KEY', status: 'active' } }),
-    prisma.aIProvider.create({ data: { name: 'kling', displayName: '可灵 Kling', type: 'video', baseUrl: 'https://api.klingai.com/v1', apiKeyEnv: 'KLING_API_KEY', status: 'active' } }),
   ])
-  const [pPollinations, pZhipu, pDashscope, pSeedance, pKling] = providers
+  const [pPollinations, pPollinationsVideo, pKlingVideo, pZhipu, pDashscope] = providers
+
+  // Image 模型配置（与 server/src/lib/imageModels.ts 兜底一致）
+  // SDXL 基础模型：仅 1:1 比例，Pollinations 免费层实际输出约 768×768
+  const SDXL_CONFIG = JSON.stringify({
+    ratios: [
+      { id: '1:1', label: '1:1', w: 768, h: 768 },
+    ],
+    resolutions: [
+      { id: 'standard', label: '标准', quality: '清晰画质', desc: '推荐', multiplier: 1.0 },
+    ],
+    defaultRatio: '1:1',
+    defaultResolution: 'standard',
+    maxBatch: 4,
+    features: { negativePrompt: true, seed: true, enhance: false },
+  })
+
+  // ===== Video 模型配置（6 个精选，Pollinations 视频 API）=====
+  // 每个模型独立配置：时长、分辨率、比例、能力、基础价（5秒/720p 基准）
+
+  // 入门体验：最便宜，480p，5秒固定
+  const VIDEO_WANFAST_CONFIG = JSON.stringify({
+    durations: [{ id: '5s', label: '5秒', value: 5 }],
+    defaultDuration: '5s',
+    resolutions: [{ id: '480p', label: '480p', multiplier: 1.0 }],
+    defaultResolution: '480p',
+    ratios: ['16:9', '9:16'],
+    defaultRatio: '16:9',
+    supportsImg2Video: true,
+    supportsAudio: false,
+    baseCostPerSecond: 15,
+  })
+
+  // 性价比：便宜 + 720p
+  const VIDEO_PVIDEO_CONFIG = JSON.stringify({
+    durations: [
+      { id: '5s', label: '5秒', value: 5 },
+      { id: '10s', label: '10秒', value: 10 },
+    ],
+    defaultDuration: '5s',
+    resolutions: [
+      { id: '720p', label: '720p', multiplier: 1.0 },
+      { id: '1080p', label: '1080p', multiplier: 1.0 },
+    ],
+    defaultResolution: '720p',
+    ratios: ['16:9', '9:16'],
+    defaultRatio: '16:9',
+    supportsImg2Video: true,
+    supportsAudio: false,
+    baseCostPerSecond: 30,
+  })
+
+  // 标准推荐：稳定通用，720p
+  const VIDEO_SEEDANCE_PRO_CONFIG = JSON.stringify({
+    durations: [
+      { id: '5s', label: '5秒', value: 5 },
+      { id: '10s', label: '10秒', value: 10 },
+    ],
+    defaultDuration: '5s',
+    resolutions: [
+      { id: '480p', label: '480p', multiplier: 1.0 },
+      { id: '720p', label: '720p', multiplier: 1.0 },
+      { id: '1080p', label: '1080p', multiplier: 1.0 },
+    ],
+    defaultResolution: '720p',
+    ratios: ['16:9', '9:16'],
+    defaultRatio: '16:9',
+    supportsImg2Video: true,
+    supportsAudio: false,
+    baseCostPerSecond: 36,
+  })
+
+  // 带音频：自带立体声
+  const VIDEO_MINIMAX_CONFIG = JSON.stringify({
+    durations: [{ id: '5s', label: '5秒', value: 5 }],
+    defaultDuration: '5s',
+    resolutions: [
+      { id: '480p', label: '480p', multiplier: 1.0 },
+      { id: '768p', label: '768p', multiplier: 1.0 },
+      { id: '2k', label: '2K', multiplier: 1.0 },
+    ],
+    defaultResolution: '480p',
+    ratios: ['16:9', '9:16'],
+    defaultRatio: '16:9',
+    supportsImg2Video: false,
+    supportsAudio: true,
+    baseCostPerSecond: 72,
+  })
+
+  // Veo：Google 出品，电影级画质
+  const VIDEO_VEO_CONFIG = JSON.stringify({
+    durations: [
+      { id: '4s', label: '4秒', value: 4 },
+      { id: '6s', label: '6秒', value: 6 },
+      { id: '8s', label: '8秒', value: 8 },
+    ],
+    defaultDuration: '4s',
+    resolutions: [
+      { id: '720p', label: '720p', multiplier: 1.0 },
+      { id: '1080p', label: '1080p', multiplier: 1.0 },
+    ],
+    defaultResolution: '720p',
+    ratios: ['16:9', '9:16'],
+    defaultRatio: '16:9',
+    supportsImg2Video: true,
+    supportsAudio: true,
+    baseCostPerSecond: 115,
+  })
+
+  // 高质量全能：wan-pro，支持参考图/视频/音频
+  const VIDEO_WANPRO_CONFIG = JSON.stringify({
+    durations: [
+      { id: '5s', label: '5秒', value: 5 },
+      { id: '10s', label: '10秒', value: 10 },
+      { id: '15s', label: '15秒', value: 15 },
+    ],
+    defaultDuration: '5s',
+    resolutions: [
+      { id: '720p', label: '720p', multiplier: 1.0 },
+      { id: '1080p', label: '1080p', multiplier: 1.0 },
+    ],
+    defaultResolution: '720p',
+    ratios: ['16:9', '9:16'],
+    defaultRatio: '16:9',
+    supportsImg2Video: true,
+    supportsAudio: true,
+    baseCostPerSecond: 144,
+  })
+
+  // ====== 可灵 Kling（阿里云百炼）======
+  // 性价比 Turbo：快，固定音画同出
+  const VIDEO_KLING_TURBO_CONFIG = JSON.stringify({
+    durations: [
+      { id: '5s', label: '5秒', value: 5 },
+      { id: '10s', label: '10秒', value: 10 },
+    ],
+    defaultDuration: '5s',
+    resolutions: [
+      { id: '720p', label: '720p', multiplier: 1.0 },
+      { id: '1080p', label: '1080p', multiplier: 1.5 },
+    ],
+    defaultResolution: '720p',
+    ratios: ['16:9', '9:16', '1:1'],
+    defaultRatio: '16:9',
+    supportsImg2Video: true,
+    supportsAudio: true,
+    baseCostPerSecond: 16,
+  })
+
+  // 标准版：支持 4K，首尾帧
+  const VIDEO_KLING_V3_CONFIG = JSON.stringify({
+    durations: [
+      { id: '5s', label: '5秒', value: 5 },
+      { id: '10s', label: '10秒', value: 10 },
+      { id: '15s', label: '15秒', value: 15 },
+    ],
+    defaultDuration: '5s',
+    resolutions: [
+      { id: '720p', label: '720p', multiplier: 1.0 },
+      { id: '1080p', label: '1080p', multiplier: 1.5 },
+      { id: '4k', label: '4K', multiplier: 3.0 },
+    ],
+    defaultResolution: '720p',
+    ratios: ['16:9', '9:16', '1:1'],
+    defaultRatio: '16:9',
+    supportsImg2Video: true,
+    supportsAudio: true,
+    baseCostPerSecond: 24,
+  })
+
+  // 全能版：参考图/参考视频/视频编辑
+  const VIDEO_KLING_OMNI_CONFIG = JSON.stringify({
+    durations: [
+      { id: '5s', label: '5秒', value: 5 },
+      { id: '10s', label: '10秒', value: 10 },
+      { id: '15s', label: '15秒', value: 15 },
+    ],
+    defaultDuration: '5s',
+    resolutions: [
+      { id: '720p', label: '720p', multiplier: 1.0 },
+      { id: '1080p', label: '1080p', multiplier: 1.5 },
+      { id: '4k', label: '4K', multiplier: 3.0 },
+    ],
+    defaultResolution: '720p',
+    ratios: ['16:9', '9:16', '1:1'],
+    defaultRatio: '16:9',
+    supportsImg2Video: true,
+    supportsAudio: true,
+    baseCostPerSecond: 40,
+  })
 
   const MODELS_SEED = [
-    // image
-    { name: 'sdxl', displayName: 'SDXL 基础', type: 'image', providerId: pPollinations.id, tag: '通用', desc: '稳定通用大模型', sort: 1 },
-    { name: 'flux', displayName: 'Flux Dev', type: 'image', providerId: pPollinations.id, tag: '高质量', desc: '细节表现优异', sort: 2 },
-    { name: 'smart-v2', displayName: '智能图片 V2', type: 'image', providerId: pPollinations.id, tag: '长文本', desc: '长排版文字准确', sort: 3 },
-    { name: 'seedream', displayName: 'Seedream 5.0', type: 'image', providerId: pDashscope.id, tag: '多语言', desc: '交互式编辑', sort: 4 },
-    { name: 'guoman', displayName: '国漫专用', type: 'image', providerId: pDashscope.id, tag: '风格', desc: '中文漫画优化', sort: 5 },
+    // image — 仅保留 SDXL 基础
+    { name: 'sdxl', displayName: 'SDXL 基础', type: 'image', providerId: pPollinations.id, tag: '通用', desc: '稳定通用大模型', costTokens: 20, sort: 1, config: SDXL_CONFIG },
     // novel
-    { name: 'glm-4', displayName: 'GLM-4', type: 'novel', providerId: pZhipu.id, tag: '通用', desc: '智谱通用大模型', sort: 1 },
-    { name: 'qwen-max', displayName: '通义千问 Max', type: 'novel', providerId: pDashscope.id, tag: '长文本', desc: '阿里通义大模型', sort: 2 },
-    { name: 'gpt-4o', displayName: 'GPT-4o', type: 'novel', providerId: pZhipu.id, tag: '高质量', desc: 'OpenAI旗舰模型', sort: 3 },
+    { name: 'glm-4', displayName: 'GLM-4', type: 'novel', providerId: pZhipu.id, tag: '通用', desc: '智谱通用大模型', costTokens: 20, sort: 1 },
+    { name: 'qwen-max', displayName: '通义千问 Max', type: 'novel', providerId: pDashscope.id, tag: '长文本', desc: '阿里通义大模型', costTokens: 30, sort: 2 },
+    { name: 'gpt-4o', displayName: 'GPT-4o', type: 'novel', providerId: pZhipu.id, tag: '高质量', desc: 'OpenAI旗舰模型', costTokens: 50, sort: 3 },
     // comic
-    { name: 'comic-pro', displayName: '漫画 Pro', type: 'comic', providerId: pDashscope.id, tag: '专业', desc: '漫画分镜专用', sort: 1 },
-    { name: 'guoman-comic', displayName: '国漫专用', type: 'comic', providerId: pDashscope.id, tag: '风格', desc: '中文漫画优化', sort: 2 },
+    { name: 'comic-pro', displayName: '漫画 Pro', type: 'comic', providerId: pDashscope.id, tag: '专业', desc: '漫画分镜专用', costTokens: 150, sort: 1 },
+    { name: 'guoman-comic', displayName: '国漫专用', type: 'comic', providerId: pDashscope.id, tag: '风格', desc: '中文漫画优化', costTokens: 240, sort: 2 },
     // audio
-    { name: 'tts-pro', displayName: 'TTS Pro', type: 'audio', providerId: pDashscope.id, tag: '语音合成', desc: '高质量文本转语音', sort: 1 },
-    { name: 'voice-clone', displayName: '声音克隆', type: 'audio', providerId: pDashscope.id, tag: '克隆', desc: '个性化声音复刻', sort: 2 },
-    // video
-    { name: 'seedance-v1', displayName: 'Seedance V1', type: 'video', providerId: pSeedance.id, tag: 'AI视频', desc: '字节AI视频生成', sort: 1 },
-    { name: 'kling-v1', displayName: '可灵 V1', type: 'video', providerId: pKling.id, tag: '高质量', desc: '快手AI视频生成', sort: 2 },
+    { name: 'tts-pro', displayName: 'TTS Pro', type: 'audio', providerId: pDashscope.id, tag: '语音合成', desc: '高质量文本转语音', costTokens: 25, sort: 1 },
+    { name: 'voice-clone', displayName: '声音克隆', type: 'audio', providerId: pDashscope.id, tag: '克隆', desc: '个性化声音复刻', costTokens: 100, sort: 2 },
+    // video — Pollinations 视频模型（6 个精选，4 档分层）
+    { name: 'wan-fast', displayName: 'Wan 快速版', type: 'video', providerId: pPollinationsVideo.id, tag: '体验', desc: '入门体验，480p 5秒，快速预览', costTokens: 75, sort: 1, config: VIDEO_WANFAST_CONFIG },
+    { name: 'p-video', displayName: 'Pruna Video', type: 'video', providerId: pPollinationsVideo.id, tag: '性价比', desc: '便宜好用，720p/1080p', costTokens: 150, sort: 2, config: VIDEO_PVIDEO_CONFIG },
+    { name: 'seedance-pro', displayName: 'Seedance Pro', type: 'video', providerId: pPollinationsVideo.id, tag: '推荐', desc: '稳定通用，480p/720p/1080p', costTokens: 180, sort: 3, config: VIDEO_SEEDANCE_PRO_CONFIG },
+    { name: 'minimax-h3', displayName: 'MiniMax H3', type: 'video', providerId: pPollinationsVideo.id, tag: '带音频', desc: '自带立体声，480p/768p/2K', costTokens: 360, sort: 4, config: VIDEO_MINIMAX_CONFIG },
+    { name: 'veo', displayName: 'Veo 3.1 Fast', type: 'video', providerId: pPollinationsVideo.id, tag: '高质量', desc: 'Google出品，720p/1080p，支持音频', costTokens: 460, sort: 5, config: VIDEO_VEO_CONFIG },
+    { name: 'wan-pro', displayName: 'Wan Pro', type: 'video', providerId: pPollinationsVideo.id, tag: '专业', desc: '高质量全能，支持参考图/视频/音频', costTokens: 720, sort: 6, config: VIDEO_WANPRO_CONFIG },
+    // video — 可灵 Kling（国产，阿里云百炼）
+    { name: 'kling-v3-turbo', displayName: '可灵 Turbo', type: 'video', providerId: pKlingVideo.id, tag: '国产·快', desc: '性价比首选，720p/1080p，自带音频', costTokens: 80, sort: 11, config: VIDEO_KLING_TURBO_CONFIG },
+    { name: 'kling-v3', displayName: '可灵 V3', type: 'video', providerId: pKlingVideo.id, tag: '国产·推荐', desc: '标准画质，720p/1080p/4K，首尾帧', costTokens: 120, sort: 12, config: VIDEO_KLING_V3_CONFIG },
+    { name: 'kling-v3-omni', displayName: '可灵 Omni', type: 'video', providerId: pKlingVideo.id, tag: '国产·专业', desc: '全能版，参考图/参考视频/视频编辑', costTokens: 200, sort: 13, config: VIDEO_KLING_OMNI_CONFIG },
   ]
   for (const m of MODELS_SEED) {
     await prisma.aIModel.upsert({ where: { name: m.name }, update: m, create: m })
@@ -371,15 +564,46 @@ async function main() {
       update: {},
       create: {
         userId: u.id,
-        totalTokens: (u.role === 'admin' || u.role === 'superadmin') ? 999999999 : 100000,
+        totalTokens: (u.role === 'admin' || u.role === 'superadmin') ? 999999999 : 1000,
         usedTokens: 0,
-        remainingTokens: (u.role === 'admin' || u.role === 'superadmin') ? 999999999 : 100000,
+        remainingTokens: (u.role === 'admin' || u.role === 'superadmin') ? 999999999 : 1000,
         planId: (u.role === 'admin' || u.role === 'superadmin') ? 'enterprise' : 'free',
       }
     })
   }
 
-  // 7) 板块功能配置初始化
+  // 7) 计费配置初始化（1元 = 100积分）
+  console.log('  💰 写入计费配置种子数据...')
+  const BILLING_CONFIGS = [
+    { key: 'billing.currency', value: JSON.stringify('CNY') },
+    { key: 'billing.period', value: JSON.stringify('month') },
+    {
+      key: 'billing.plans',
+      value: JSON.stringify([
+        { id: 'free', name: '免费版', price: 0, tokens: 1000, features: ['基础生成', '社区浏览', '每日签到赠积分'] },
+        { id: 'pro', name: '专业版', price: 29, tokens: 3000, features: ['优先队列', '高清导出', '无水印', '专属模板'] },
+        { id: 'business', name: '商业版', price: 99, tokens: 12000, features: ['专业版全部功能', '商用授权', 'API 接入', '专属客服'] },
+        { id: 'enterprise', name: '企业版', price: 299, tokens: 40000, features: ['商业版全部功能', '私有部署', '定制模型', 'SLA 保障'] },
+      ]),
+    },
+    {
+      key: 'billing.recharge_packages',
+      value: JSON.stringify([
+        { id: 'pkg_10', tokens: 900, price: 9, bonus: 100 },
+        { id: 'pkg_50', tokens: 3900, price: 39, bonus: 600 },
+        { id: 'pkg_100', tokens: 6900, price: 69, bonus: 1600 },
+        { id: 'pkg_500', tokens: 29900, price: 299, bonus: 10100 },
+      ]),
+    },
+  ]
+  for (const cfg of BILLING_CONFIGS) {
+    await prisma.siteConfig.update({
+      where: { group_key: { group: 'billing', key: cfg.key } },
+      data: { value: cfg.value },
+    })
+  }
+
+  // 8) 板块功能配置初始化
   console.log('  🧩 写入板块功能配置种子数据...')
   const FEATURES = [
     // ===== 写作 Novel =====

@@ -373,9 +373,9 @@ export default function HomePage() {
   const hoverStyle = { borderColor: ring, boxShadow: `0 14px 32px -12px ${light}` }
 
   return (
-    <div className="relative flex min-h-screen flex-col overflow-hidden bg-white text-neutral-900">
+    <div className="relative flex min-h-screen flex-col bg-white text-neutral-900">
       {/* 背景装饰：浅色光晕 */}
-      <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden>
+      <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden>
         <div className="absolute left-1/4 top-[-8%] h-[540px] w-[640px] rounded-full opacity-90 blur-3xl"
              style={{ backgroundImage: `linear-gradient(135deg, ${HERO_BG_FROM} 0%, transparent 70%)` }} />
         <div className="absolute right-[-10%] top-[20%] h-[520px] w-[520px] rounded-full opacity-80 blur-3xl"

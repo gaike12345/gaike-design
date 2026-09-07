@@ -20,7 +20,7 @@ router.post('/image', upload.single('file'), validateUploadedFiles, async (req, 
   })
   if (!mod.passed) {
     void cleanupUploadedFile(req.file.path)
-    return res.status(403).json({ error: mod.reason, moderation: mod.result })
+    return res.status(403).json({ error: mod.safeReason })
   }
   res.json({ url: `/uploads/${req.file.filename}` })
 })
@@ -35,7 +35,7 @@ router.post('/file', upload.single('file'), validateUploadedFiles, async (req, r
   })
   if (!mod.passed) {
     void cleanupUploadedFile(req.file.path)
-    return res.status(403).json({ error: mod.reason, moderation: mod.result })
+    return res.status(403).json({ error: mod.safeReason })
   }
   res.json({
     url: `/uploads/${req.file.filename}`,

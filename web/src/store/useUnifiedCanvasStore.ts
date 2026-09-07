@@ -8,7 +8,8 @@
 
 import { create } from 'zustand'
 import { api } from '../services/api'
-import { buildImageUrl, buildRetryUrl, generateViaBackend } from '../services/imageApi'
+import { buildImageUrl, buildRetryUrl, generateViaBackend, img2imgViaBackend } from '../services/imageApi'
+import { getImageModel, validateRatio, validateResolution } from '../config/imageModels'
 import { useQuotaStore } from './useQuotaStore'
 import {
   // 类型
@@ -32,8 +33,6 @@ import {
   UNODE_LABELS,
   GRID_SIZE,
   IMAGE_MODELS,
-  IMAGE_RESOLUTIONS,
-  IMAGE_RATIOS,
   VIDEO_MODELS,
   VIDEO_RESOLUTIONS,
   VIDEO_DURATIONS,
@@ -73,8 +72,6 @@ export {
   UNODE_LABELS,
   GRID_SIZE,
   IMAGE_MODELS,
-  IMAGE_RESOLUTIONS,
-  IMAGE_RATIOS,
   VIDEO_MODELS,
   VIDEO_RESOLUTIONS,
   VIDEO_DURATIONS,
@@ -84,6 +81,69 @@ export {
 }
 
 const pollRegistry = new PollRegistry()
+
+// ==================== 图片生成并发队列 ====================
+// Pollinations API 对并发请求有限制，同时生成太多会失败
+// 队列系统限制最多同时生成 2 个节点的图片，其余排队等待
+// 任务完成条件：该节点的所有图片都加载完成（成功或失败）
+const MAX_CONCURRENT_IMAGE_GEN = 2
+
+interface ImageGenQueueItem {
+  nodeId: string
+  resolve: () => void
+}
+
+class ImageGenQueue {
+  private queue: ImageGenQueueItem[] = []
+  private active = new Set<string>() // 正在生成中的 nodeId
+
+  /**
+   * 请求生成权限。返回 Promise，在获得执行权时 resolve
+   * 调用方负责在图片全部加载完成后调用 complete()
+   */
+  acquire(nodeId: string): Promise<void> {
+    return new Promise((resolve) => {
+      if (this.active.size < MAX_CONCURRENT_IMAGE_GEN) {
+        this.active.add(nodeId)
+        resolve()
+      } else {
+        this.queue.push({ nodeId, resolve })
+      }
+    })
+  }
+
+  /** 标记某个节点的生成任务完成（所有图片已加载），启动下一个排队的任务 */
+  complete(nodeId: string): void {
+    this.active.delete(nodeId)
+    this.processNext()
+  }
+
+  private processNext(): void {
+    while (this.active.size < MAX_CONCURRENT_IMAGE_GEN && this.queue.length > 0) {
+      const next = this.queue.shift()!
+      this.active.add(next.nodeId)
+      next.resolve()
+    }
+  }
+
+  /** 取消某个节点的排队 */
+  cancel(nodeId: string): void {
+    this.queue = this.queue.filter((item) => item.nodeId !== nodeId)
+    this.active.delete(nodeId)
+    this.processNext()
+  }
+
+  isQueued(nodeId: string): boolean {
+    return this.queue.some((item) => item.nodeId === nodeId)
+  }
+
+  clear(): void {
+    this.queue = []
+    this.active.clear()
+  }
+}
+
+const imageGenQueue = new ImageGenQueue()
 
 let nodeTypeCounters: Record<string, number> = {}
 
@@ -104,7 +164,7 @@ interface UnifiedCanvasState {
     (type: UnifiedNodeType, x: number, y: number, dataOverride?: Partial<UnifiedNodeData>, snapToGrid?: boolean): string
   }
   removeNode: (id: string) => void
-  updateNodeData: (id: string, patch: Partial<UnifiedNodeData>) => void
+  updateNodeData: (id: string, patch: Partial<UnifiedNodeData> | ((prev: Partial<UnifiedNodeData>) => Partial<UnifiedNodeData>)) => void
   moveNode: (id: string, x: number, y: number) => void
   selectNode: (id: string | null) => void
 
@@ -116,10 +176,12 @@ interface UnifiedCanvasState {
   endDrag: (to: { nodeId: string; portId: string; type: UnifiedPortType; isOutput: boolean } | null) => void
 
   runImageGen: (nodeId: string) => Promise<void>
+  completeImageGen: (nodeId: string) => void
   retryImage: (nodeId: string, imgId: string) => void
   clearImageResults: (nodeId: string) => void
   runVideoGen: (nodeId: string) => Promise<void>
   pollVideoTask: (nodeId: string) => Promise<void>
+  cancelVideoGen: (nodeId: string) => Promise<void>
   runAudioGen: (nodeId: string) => Promise<void>
   runScriptGen: (nodeId: string) => Promise<void>
 
@@ -190,6 +252,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
 
   removeNode: (id) => {
     pollRegistry.stop(id)
+    imageGenQueue.cancel(id) // 取消该节点的排队/生成
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== id),
       connections: s.connections.filter((c) => c.source.nodeId !== id && c.target.nodeId !== id),
@@ -199,7 +262,11 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
 
   updateNodeData: (id, patch) =>
     set((s) => ({
-      nodes: s.nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n)),
+      nodes: s.nodes.map((n) => {
+        if (n.id !== id) return n
+        const resolvedPatch = typeof patch === 'function' ? patch(n.data) : patch
+        return { ...n, data: { ...n.data, ...resolvedPatch } }
+      }),
     })),
 
   moveNode: (id, x, y) =>
@@ -263,6 +330,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     const state = get()
     const node = state.nodes.find((n) => n.id === nodeId)
     if (!node || node.type !== 'image' || isBusy(node.data.imageStatus)) return
+    if (node.data.imageStatus === 'queued') return // 已在队列中
 
     // 从 ref 端口读取图生图源节点（可选，遍历所有 ref 连接，取首个有效结果）
     const refConns = state.connections.filter((c) => c.target.nodeId === nodeId && c.target.portId === 'ref')
@@ -273,13 +341,18 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
         if (!src) continue
         if (src.type !== 'image' && src.type !== 'video') continue
         const imgs = src.data.imageResults?.filter((r) => r.status === 'done')
-        if (imgs?.[0]?.url) {
-          refImageUrl = imgs[0].url
+        // 必须用 originalUrl（Pollinations 原始公网地址），图生图时 Pollinations 服务器需要能公网访问
+        // 代理 URL（/api/image/proxy）是本地的，Pollinations 访问不到，不能用于图生图
+        if (imgs?.[0]?.originalUrl) {
+          refImageUrl = imgs[0].originalUrl
           break
         }
       }
       if (!refImageUrl) {
-        get().updateNodeData(nodeId, { imageStatus: 'error' })
+        get().updateNodeData(nodeId, {
+          imageStatus: 'error',
+          imageErrorMsg: '参考图缺少原始地址，请重新生成源节点的图片后再试',
+        })
         return
       }
     }
@@ -287,30 +360,53 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     const localPrompt = node.data.imagePrompt || ''
     if (!localPrompt.trim()) { get().updateNodeData(nodeId, { imageStatus: 'error' }); return }
 
-    const ratio = (node.data.imageRatio as string) || '16:9'
-    const batch = node.data.imageCount ?? 1
+    const model = node.data.imageModel || 'sdxl'
+    const ratio = validateRatio(model, (node.data.imageRatio as string) || '1:1')
+    const resolution = validateResolution(model, node.data.imageResolution || 'standard')
+    const modelCfg = getImageModel(model)
+    const batch = Math.max(1, Math.min(node.data.imageCount ?? 1, modelCfg.maxBatch))
     const baseSeed = node.data.imageSeed ?? randomSeed()
-    const model = node.data.imageModel ?? 'flux'
-    const resolution = node.data.imageResolution ?? '2k'
-
-    // 立即设置 running 状态（UI 反馈），保留已有结果（多批次累积）
     const existingResults = node.data.imageResults ?? []
+
+    // 标记为排队中
+    get().updateNodeData(nodeId, { imageStatus: 'queued', imageErrorMsg: undefined })
+
+    // 等待队列分配执行权（并发控制：最多 2 个节点同时生成）
+    await imageGenQueue.acquire(nodeId)
+
+    // 再次检查节点是否存在（可能在排队期间被删除）
+    const currentNode = get().nodes.find((n) => n.id === nodeId)
+    if (!currentNode || currentNode.type !== 'image') {
+      imageGenQueue.complete(nodeId)
+      return
+    }
+
     get().updateNodeData(nodeId, { imageStatus: 'running' })
 
     try {
       // 通过后端 API 生成 → 触发 withGeneration 中间件扣减积分
-      const res = await generateViaBackend({
-        prompt: localPrompt,
-        ratio,
-        batch,
-        seed: baseSeed,
-        model,
-        resolution,
-      })
+      const isImg2Img = !!refImageUrl
+      const res = isImg2Img
+        ? await img2imgViaBackend({
+            prompt: localPrompt,
+            image: refImageUrl,
+            ratio,
+            model,
+            resolution,
+          })
+        : await generateViaBackend({
+            prompt: localPrompt,
+            ratio,
+            batch,
+            seed: baseSeed,
+            model,
+            resolution,
+          })
 
       const newResults: GenImage[] = res.images.map((img) => ({
         id: uid('img'),
         url: img.url,
+        originalUrl: img.originalUrl,
         prompt: localPrompt,
         seed: img.seed,
         ratio: ratio as AspectRatio,
@@ -324,8 +420,18 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       // 刷新右上角积分显示（后端已扣减）
       void useQuotaStore.getState().refreshQuota({ force: true })
     } catch (e) {
-      get().updateNodeData(nodeId, { imageStatus: 'error' })
+      const errMsg = e instanceof Error ? e.message : '生成失败'
+      get().updateNodeData(nodeId, { imageStatus: 'error', imageErrorMsg: errMsg })
+      // 失败时后端已自动返还积分，刷新前端积分显示
+      void useQuotaStore.getState().refreshQuota({ force: true })
+      // API 调用失败，立即释放队列槽位
+      imageGenQueue.complete(nodeId)
     }
+  },
+
+  /** 图片全部加载完成后调用，释放队列槽位，让下一个排队的节点开始生成 */
+  completeImageGen: (nodeId) => {
+    imageGenQueue.complete(nodeId)
   },
 
   retryImage: (nodeId, imgId) => {
@@ -340,7 +446,10 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
   clearImageResults: (nodeId) => {
     const node = get().nodes.find((n) => n.id === nodeId)
     if (!node || node.type !== 'image') return
-    if (isBusy(node.data.imageStatus)) return // 生成中不允许清空
+    if (node.data.imageStatus === 'running') return // 生成中不允许清空
+    if (node.data.imageStatus === 'queued') {
+      imageGenQueue.cancel(nodeId) // 取消排队
+    }
     get().updateNodeData(nodeId, { imageResults: [], imageStatus: 'idle' })
   },
 
@@ -373,14 +482,23 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
 
     const prompt = node.data.videoPrompt || 'AI 生成视频'
     const isImg2Video = !!imageUrl
+    const model = node.data.videoModel || 'seedance-pro'
+    const resolution = node.data.videoResolution
+    const ratio = node.data.videoRatio
+    const audio = node.data.videoAudio ?? false
 
-    get().updateNodeData(nodeId, { videoStatus: 'queued', videoTaskId: undefined, videoResult: undefined })
+    // duration id (5s / 10s) → 秒数
+    const durId = node.data.videoDuration || '5s'
+    const duration = Number(String(durId).replace(/[^0-9]/g, '')) || 5
+
+    get().updateNodeData(nodeId, { videoStatus: 'queued', videoTaskId: undefined, videoResult: undefined, videoErrorMsg: undefined })
     pollRegistry.stop(nodeId)
 
     try {
       const endpoint = isImg2Video ? '/api/video/img2video' : '/api/video/text2video'
-      const duration = node.data.videoDuration ?? 5
-      const body = isImg2Video ? { imageUrl, prompt } : { prompt, duration }
+      const body = isImg2Video
+        ? { imageUrl, prompt, model, duration, resolution, ratio, audio }
+        : { prompt, model, duration, resolution, ratio, audio }
       const res = await api.post<{ taskId: string; status: string; placeholder?: boolean }>(endpoint, body)
 
       const result: VideoResult = {
@@ -393,9 +511,10 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       pollRegistry.start(nodeId, () => { void get().pollVideoTask(nodeId) }, 3000)
       void get().pollVideoTask(nodeId)
     } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('[Canvas] 视频生成启动失败:', e)
-      get().updateNodeData(nodeId, { videoStatus: 'error' })
+      const errMsg = e instanceof Error ? e.message : '视频生成启动失败'
+      get().updateNodeData(nodeId, { videoStatus: 'error', videoErrorMsg: errMsg })
+      // 失败时后端已自动返还积分，刷新前端积分显示
+      void useQuotaStore.getState().refreshQuota({ force: true })
     }
   },
 
@@ -412,13 +531,43 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
         ...(node.data.videoResult ?? { taskId: node.data.videoTaskId, status: newStatus, prompt: res.prompt, type: 'text2video', createdAt: Date.now() }),
         status: newStatus, url: res.url, placeholder: res.placeholder,
       }
-      get().updateNodeData(nodeId, { videoStatus: newStatus, videoResult: updated })
+      const patch: Partial<UnifiedNodeData> = { videoStatus: newStatus, videoResult: updated }
+      if (newStatus === 'error') {
+        patch.videoErrorMsg = (res as { error?: string }).error || '视频生成失败'
+        // 失败时后端已自动返还积分，刷新前端积分显示
+        void useQuotaStore.getState().refreshQuota({ force: true })
+      }
+      get().updateNodeData(nodeId, patch)
       if (newStatus === 'done' || newStatus === 'error') pollRegistry.stop(nodeId)
     } catch (e) {
       // 轮询失败不立即标记为 error，可能是临时网络问题
       // 连续失败由 stopPoll 的超时机制处理
       // eslint-disable-next-line no-console
       console.warn('[Canvas] 视频任务轮询失败:', node.data.videoTaskId, e)
+    }
+  },
+
+  cancelVideoGen: async (nodeId) => {
+    const state = get()
+    const node = state.nodes.find((n) => n.id === nodeId)
+    if (!node || node.type !== 'video' || !node.data.videoTaskId) return
+    if (!isBusy(node.data.videoStatus)) return
+
+    try {
+      await api.post('/api/video/task/' + node.data.videoTaskId + '/cancel')
+      // 停止轮询
+      pollRegistry.stop(nodeId)
+      // 更新状态为已取消
+      get().updateNodeData(nodeId, {
+        videoStatus: 'error',
+        videoErrorMsg: '已取消',
+      })
+      // 刷新积分
+      void useQuotaStore.getState().refreshQuota({ force: true })
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : '取消失败'
+      // eslint-disable-next-line no-console
+      console.warn('[Canvas] 取消视频生成失败:', errMsg)
     }
   },
 
@@ -447,7 +596,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     const text = refText || node.data.audioText || ''
     if (!text.trim()) { get().updateNodeData(nodeId, { audioStatus: 'error' }); return }
 
-    get().updateNodeData(nodeId, { audioStatus: 'queued' })
+    get().updateNodeData(nodeId, { audioStatus: 'queued', audioErrorMsg: undefined })
     try {
       const res = await api.post<{ url?: string; placeholder?: boolean; voice?: string }>('/api/audio/tts', {
         text, voice: node.data.audioVoice ?? 'nova',
@@ -458,9 +607,10 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       }
       get().updateNodeData(nodeId, { audioStatus: 'done', audioResult: result })
     } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('[Canvas] 音频生成失败:', e)
-      get().updateNodeData(nodeId, { audioStatus: 'error' })
+      const errMsg = e instanceof Error ? e.message : '音频生成失败'
+      get().updateNodeData(nodeId, { audioStatus: 'error', audioErrorMsg: errMsg })
+      // 失败时后端已自动返还积分，刷新前端积分显示
+      void useQuotaStore.getState().refreshQuota({ force: true })
     }
   },
 
@@ -526,6 +676,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
 
   clearCanvas: () => {
     pollRegistry.stopAll()
+    imageGenQueue.clear() // 清空图片生成队列
     nodeTypeCounters = {}
     set({ nodes: [], connections: [], selectedNodeId: null })
   },

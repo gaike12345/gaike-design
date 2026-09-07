@@ -64,7 +64,7 @@ router.post('/banner', upload.single('banner'), validateUploadedFiles, async (re
     })
     if (!mod.passed) {
       void cleanupUploadedFile(req.file.path)
-      return res.status(403).json({ error: mod.reason, moderation: mod.result })
+      return res.status(403).json({ error: mod.safeReason })
     }
     const url = `/uploads/${req.file.filename}`
     const user = await prisma.user.update({

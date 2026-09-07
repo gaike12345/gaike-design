@@ -1,4 +1,4 @@
-// 历史记录 Tab 组件（含生成历史 / 任务列表 / 订单记录 三个子表格）
+﻿// 历史记录 Tab 组件（含生成历史 / 任务列表 / 订单记录 三个子表格）
 // 从 SettingsPage.tsx 抽取。
 
 import { useCallback, useEffect, useState } from 'react'
@@ -155,7 +155,7 @@ function GenerationsTable() {
         </div>
       )}
 
-      <Pagination page={page} total={data?.total || 0} pageSize={pageSize} onPage={setPage} />
+      <Pagination page={page} total={data?.total || 0} pageSize={pageSize} onPageChange={setPage} />
     </div>
   )
 }
@@ -250,7 +250,7 @@ function TasksTable() {
         </div>
       )}
 
-      <Pagination page={page} total={data?.total || 0} pageSize={pageSize} onPage={setPage} />
+      <Pagination page={page} total={data?.total || 0} pageSize={pageSize} onPageChange={setPage} />
     </div>
   )
 }
@@ -320,7 +320,7 @@ function OrdersTable() {
         </div>
       )}
 
-      <Pagination page={page} total={data?.total || 0} pageSize={pageSize} onPage={setPage} />
+      <Pagination page={page} total={data?.total || 0} pageSize={pageSize} onPageChange={setPage} />
     </div>
   )
 }

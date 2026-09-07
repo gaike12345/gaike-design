@@ -1,4 +1,4 @@
-// 统一创作画布路由 - 整合图像 + 视频 + 音频 + 脚本生成
+﻿// 统一创作画布路由 - 整合图像 + 视频 + 音频 + 脚本生成
 //
 // /api/canvas/script  — LLM 脚本分镜生成（匹配前端 useUnifiedCanvasStore 契约）
 // /api/canvas/status  — 画布服务状态（可用节点类型 + 模型列表）
@@ -7,7 +7,7 @@
 
 import { Router } from 'express'
 import { callLlm, callLlmJson } from '../lib/llmProvider'
-import { moderateText, recordViolation, checkUserRiskGate } from '../lib/moderation'
+import { moderateText, recordViolation, checkInputModeration } from '../lib/moderation'
 import { authRequired } from '../middleware/auth'
 import { withGeneration } from '../middleware/generation'
 import { novelLimiter } from '../middleware/rate-limit'
@@ -45,34 +45,15 @@ router.post('/script', withGeneration('novel', 500), async (req, res) => {
   }
   const userId = (req as any).user?.userId
 
-  // 风险门控
-  if (userId) {
-    const gate = await checkUserRiskGate(userId)
-    if (!gate.allowed) {
-      return res.status(403).json({
-        ok: false, blocked: true, stage: 'input',
-        error: gate.message || '账号已被限制 AI 生成',
-        riskLevel: 'high', riskUserLevel: gate.riskLevel,
-      })
-    }
-  }
-
-  // 输入审核
-  const inputMod = await moderateText(prompt, {
-    stage: 'input',
+  // 风险门控 + 输入审核（统一封装，detailed 响应格式）
+  const inputCheck = await checkInputModeration({
+    userId,
+    text: prompt,
     endpoint: '/api/canvas/script',
-    userId: userId || 'anonymous',
+    responseStyle: 'detailed',
   })
-  if (!inputMod.passed) {
-    if (userId) {
-      await recordViolation({ userId, stage: 'input', endpoint: '/api/canvas/script', content: prompt, result: inputMod })
-    }
-    return res.status(403).json({
-      ok: false, blocked: true, stage: 'input',
-      error: inputMod.reason,
-      riskLevel: inputMod.riskLevel,
-      moderation: inputMod,
-    })
+  if (!inputCheck.passed) {
+    return res.status(inputCheck.statusCode).json(inputCheck.body)
   }
 
   const sys = `你是 Mank TV 的 AI 分镜导演，擅长将文本创意拆解为可执行的镜头脚本。请根据用户输入，生成 ${shotCount} 个分镜。返回 JSON 格式：
@@ -114,9 +95,8 @@ router.post('/script', withGeneration('novel', 500), async (req, res) => {
       }
       return res.status(403).json({
         ok: false, blocked: true, stage: 'output',
-        error: outputMod.reason,
+        error: outputMod.safeReason,
         riskLevel: outputMod.riskLevel,
-        moderation: outputMod,
       })
     }
 

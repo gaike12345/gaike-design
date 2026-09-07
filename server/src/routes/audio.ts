@@ -4,7 +4,7 @@ import { withGeneration } from '../middleware/generation'
 import { upload, validateUploadedFiles } from '../middleware/upload'
 import { audioLimiter } from '../middleware/rate-limit'
 import { getModelCost } from '../lib/modelCost'
-import { moderateUpload, cleanupUploadedFile, moderateText, recordViolation, checkUserRiskGate } from '../lib/moderation'
+import { moderateUpload, cleanupUploadedFile, checkInputModeration } from '../lib/moderation'
 
 const TTS_FALLBACK_DEFAULT = 500
 const MUSIC_FALLBACK_DEFAULT = 1200
@@ -76,21 +76,14 @@ router.post('/tts', withGeneration('audio', costForTTS), async (req, res) => {
   if (!text) return res.status(400).json({ error: 'text 不能为空' })
   const userId = req.user!.userId
 
-  // 风险门控
-  const riskGate = await checkUserRiskGate(userId)
-  if (!riskGate.allowed) {
-    return res.status(403).json({ error: riskGate.message })
-  }
-
-  // 输入审核
-  const mod = await moderateText(text, {
-    stage: 'input',
-    endpoint: '/api/audio/tts',
+  // 风险门控 + 输入审核（统一封装）
+  const inputCheck = await checkInputModeration({
     userId,
+    text,
+    endpoint: '/api/audio/tts',
   })
-  if (!mod.passed) {
-    await recordViolation({ userId, stage: 'input', endpoint: '/api/audio/tts', content: text, result: mod })
-    return res.status(403).json({ error: mod.reason, moderation: mod })
+  if (!inputCheck.passed) {
+    return res.status(inputCheck.statusCode).json(inputCheck.body)
   }
 
   const v = VOICES.includes(voice) ? voice : 'nova'
@@ -113,24 +106,15 @@ router.post('/music', withGeneration('audio', costForMusic), async (req, res) =>
   const { mood, duration = 30, style } = req.body
   const userId = req.user!.userId
 
-  // 风险门控
-  const riskGate = await checkUserRiskGate(userId)
-  if (!riskGate.allowed) {
-    return res.status(403).json({ error: riskGate.message })
-  }
-
-  // 输入审核（mood + style 拼接审核）
+  // 风险门控 + 输入审核（拼接 mood + style，空白文本自动跳过）
   const textToCheck = [mood, style].filter(Boolean).join(' ')
-  if (textToCheck.trim()) {
-    const mod = await moderateText(textToCheck, {
-      stage: 'input',
-      endpoint: '/api/audio/music',
-      userId,
-    })
-    if (!mod.passed) {
-      await recordViolation({ userId, stage: 'input', endpoint: '/api/audio/music', content: textToCheck, result: mod })
-      return res.status(403).json({ error: mod.reason, moderation: mod })
-    }
+  const inputCheck = await checkInputModeration({
+    userId,
+    text: textToCheck,
+    endpoint: '/api/audio/music',
+  })
+  if (!inputCheck.passed) {
+    return res.status(inputCheck.statusCode).json(inputCheck.body)
   }
 
   res.json({
@@ -153,7 +137,7 @@ router.post('/upload', upload.single('audio'), validateUploadedFiles, async (req
   })
   if (!mod.passed) {
     void cleanupUploadedFile(req.file.path)
-    return res.status(403).json({ error: mod.reason, moderation: mod.result })
+    return res.status(403).json({ error: mod.safeReason })
   }
   res.json({ url: `/uploads/${req.file.filename}`, size: req.file.size, mime: req.file.mimetype })
 })

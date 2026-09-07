@@ -23,8 +23,10 @@
  */
 
 import { taskQueue, TaskInfo, TaskType, TaskResult } from './taskQueue'
-import { recordUsedTokens, atomicRefundQuota, logGeneration } from './generation'
+import { logGeneration } from './generation'
+import { settleTokens, refundTokens } from './tokenService'
 import logger from './logger'
+import { getVideoProviderForModel, DEFAULT_VIDEO_MODEL } from './videoModels'
 
 const log = logger.child('worker')
 
@@ -82,6 +84,9 @@ export function startWorker(): void {
       log.error(`消费协程 ${i} 异常退出`, { error: e.message })
     })
   }
+
+  // 注册真实的视频生成处理器（Pollinations）
+  registerVideoHandlers()
 
   // 注册默认占位处理器（未注册的任务类型走模拟完成）
   registerDefaultHandlers()
@@ -188,10 +193,15 @@ async function processTask(task: TaskInfo): Promise<void> {
       progress: 100,
     })
 
-    // 积分结算：成功 → 标记为已用（remainingTokens 已在预扣时扣过）
+    // 积分结算：成功 → 结算预扣为已用
     const tokensCost = (task.payload as any)?._tokensCost || 0
     if (tokensCost > 0) {
-      await recordUsedTokens(task.userId, tokensCost)
+      await settleTokens({
+        userId: task.userId,
+        relatedId: task.id,
+        relatedType: 'task',
+        actualAmount: tokensCost,
+      })
     }
 
     // 更新生成日志状态
@@ -228,7 +238,12 @@ async function processTask(task: TaskInfo): Promise<void> {
       // 积分结算：最终失败 → 退还预扣积分
       const tokensCost = (task.payload as any)?._tokensCost || 0
       if (tokensCost > 0) {
-        await atomicRefundQuota(task.userId, tokensCost)
+        await refundTokens({
+          userId: task.userId,
+          relatedId: task.id,
+          relatedType: 'task',
+          reason: `生成失败：${e.message || '未知错误'}`,
+        })
       }
 
       // 更新生成日志状态
@@ -245,6 +260,106 @@ async function processTask(task: TaskInfo): Promise<void> {
       log.error(`任务最终失败: ${task.id}`, { error: e.message, type: task.type, tokensCost })
     }
   }
+}
+
+// ========== 真实视频生成处理器（Pollinations）==========
+
+function registerVideoHandlers(): void {
+  // 文生视频
+  registerTaskHandler('text2video', async (payload, ctx) => {
+    const { prompt, duration, model, resolution, ratio, audio, seed } = payload
+    const modelName = model || DEFAULT_VIDEO_MODEL
+
+    log.info(`[视频生成] 文生视频 model=${modelName} duration=${duration}s`, { taskId: ctx.taskId })
+
+    // 获取 provider
+    const provider = await getVideoProviderForModel(modelName)
+    if (!provider || !provider.isAvailable()) {
+      throw new Error(`视频模型 ${modelName} 不可用，请稍后重试`)
+    }
+
+    // 进度：准备中
+    await ctx.reportProgress(10)
+
+    try {
+      const result = await provider.textToVideo({
+        prompt,
+        model: modelName,
+        duration: Number(duration) || 5,
+        resolution,
+        aspectRatio: ratio,
+        audio: !!audio,
+        seed: seed ? Number(seed) : undefined,
+      })
+
+      await ctx.reportProgress(100)
+
+      log.info(`[视频生成] 完成 model=${modelName} duration=${duration}s`, { taskId: ctx.taskId })
+
+      return {
+        url: result.url,
+        placeholder: !!result.placeholder,
+        prompt,
+        duration: result.duration,
+        resolution: result.resolution,
+        audio: result.audio,
+        provider: result.provider,
+      }
+    } catch (e: any) {
+      log.error(`[视频生成] 失败: ${e.message}`, { taskId: ctx.taskId, model: modelName })
+      throw e
+    }
+  })
+
+  // 图生视频
+  registerTaskHandler('img2video', async (payload, ctx) => {
+    const { imageUrl, prompt, duration, model, resolution, ratio, audio, seed } = payload
+    const modelName = model || DEFAULT_VIDEO_MODEL
+
+    log.info(`[视频生成] 图生视频 model=${modelName} duration=${duration}s`, { taskId: ctx.taskId })
+
+    const provider = await getVideoProviderForModel(modelName)
+    if (!provider || !provider.isAvailable()) {
+      throw new Error(`视频模型 ${modelName} 不可用，请稍后重试`)
+    }
+
+    if (!provider.imageToVideo) {
+      throw new Error(`模型 ${modelName} 不支持图生视频`)
+    }
+
+    await ctx.reportProgress(10)
+
+    try {
+      const result = await provider.imageToVideo({
+        prompt: prompt || '',
+        model: modelName,
+        duration: Number(duration) || 5,
+        resolution,
+        aspectRatio: ratio,
+        audio: !!audio,
+        seed: seed ? Number(seed) : undefined,
+        image: imageUrl,
+      })
+
+      await ctx.reportProgress(100)
+
+      log.info(`[视频生成] 图生视频完成 model=${modelName}`, { taskId: ctx.taskId })
+
+      return {
+        url: result.url,
+        placeholder: !!result.placeholder,
+        imageUrl,
+        prompt,
+        duration: result.duration,
+        resolution: result.resolution,
+        audio: result.audio,
+        provider: result.provider,
+      }
+    } catch (e: any) {
+      log.error(`[视频生成] 图生视频失败: ${e.message}`, { taskId: ctx.taskId, model: modelName })
+      throw e
+    }
+  })
 }
 
 // ========== 默认占位处理器 ==========

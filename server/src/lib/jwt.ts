@@ -12,6 +12,7 @@ const EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d'
 
 export interface JwtPayload {
   userId: string
+  uid?: number
   email: string
   role: string
 }

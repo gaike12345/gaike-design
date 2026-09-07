@@ -55,6 +55,7 @@ export interface AdminOrder {
 
 export interface AdminUser {
   id: string
+  uid: number
   email: string
   nickname: string
   avatar: string | null

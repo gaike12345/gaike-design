@@ -34,13 +34,13 @@ const RATIO_TO_SIZE: Record<string, { w: number; h: number }> = {
 
 // 产品模型 → Pollinations 实际模型映射
 const MODEL_TO_POLLINATIONS: Record<string, string> = {
-  'lib-image': 'flux',
-  'general-pro': 'flux',
-  'general-v2': 'turbo',
-  'seedream-5p': 'flux',
-  'qwen-3': 'flux',
-  'style-v82': 'flux',
-  'style-v81': 'flux',
+  'lib-image': 'sdxl',
+  'general-pro': 'sdxl',
+  'general-v2': 'sdxl',
+  'seedream-5p': 'sdxl',
+  'qwen-3': 'sdxl',
+  'style-v82': 'sdxl',
+  'style-v81': 'sdxl',
 }
 
 // 分辨率倍率（基准为 2K）
@@ -69,7 +69,7 @@ export function buildImageUrl(opts: BuildImageUrlOpts): string {
   const align8 = (n: number) => Math.max(256, Math.round(n / 8) * 8)
   const w = align8(baseSize.w * mult)
   const h = align8(baseSize.h * mult)
-  const pollModel = MODEL_TO_POLLINATIONS[opts.model || ''] || 'turbo'
+  const pollModel = MODEL_TO_POLLINATIONS[opts.model || ''] || 'sdxl'
 
   const params = new URLSearchParams()
   params.set('width', String(w))
@@ -107,7 +107,7 @@ export async function pingApiEndpoint(timeoutMs = 4000): Promise<boolean> {
 // ==================== 后端代理模式 ====================
 
 export interface BackendGenResult {
-  images: { url: string; seed: number }[]
+  images: { url: string; originalUrl?: string; seed: number; width?: number; height?: number }[]
 }
 
 // 通过后端代理生成图像（/api/image/generate）
@@ -125,6 +125,22 @@ export async function generateViaBackend(opts: {
   } catch (e: unknown) {
     const err = e as { response?: { data?: { error?: string } }; message?: string }
     throw new Error(err?.response?.data?.error || err?.message || '图像生成失败')
+  }
+}
+
+// 通过后端代理图生图（/api/image/img2img）
+export async function img2imgViaBackend(opts: {
+  prompt: string
+  image: string
+  ratio: string
+  model?: string
+  resolution?: string
+}): Promise<BackendGenResult> {
+  try {
+    return await api.post<BackendGenResult>('/api/image/img2img', opts)
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { error?: string } }; message?: string }
+    throw new Error(err?.response?.data?.error || err?.message || '图生图失败')
   }
 }
 

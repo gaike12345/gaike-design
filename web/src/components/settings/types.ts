@@ -6,7 +6,6 @@ export type Role = 'user' | 'admin' | 'superadmin'
 export interface UserProfile {
   id: string
   uid: number
-  email: string
   nickname: string
   avatar: string | null
   bio?: string | null

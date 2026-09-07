@@ -223,6 +223,8 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
   const [mTag, setMTag] = useState('')
   const [mDesc, setMDesc] = useState('')
   const [mCostTokens, setMCostTokens] = useState<number>(1000)
+  const [mConfig, setMConfig] = useState('')
+  const [mConfigError, setMConfigError] = useState('')
 
   // 积分制度：按模型内联编辑 costTokens + 保存时同步全局
   const [costEdits, setCostEdits] = useState<Record<string, number>>({})
@@ -279,6 +281,46 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
     setMTag('')
     setMDesc('')
     setMCostTokens(1000)
+    setMConfig('')
+    setMConfigError('')
+  }
+
+  // 模型类型切换时：自动填充建议积分 + 对应配置模板
+  const handleMTypeChange = (val: string) => {
+    setMType(val)
+    setMCostTokens(suggestedCostForType(val))
+    setMConfigError('')
+    if (val === 'image') {
+      setMConfig(JSON.stringify({
+        ratios: [
+          { id: '1:1', label: '1:1', w: 1024, h: 1024 },
+          { id: '3:4', label: '3:4', w: 832, h: 1104 },
+          { id: '4:3', label: '4:3', w: 1104, h: 832 },
+          { id: '16:9', label: '16:9', w: 1280, h: 720 },
+          { id: '9:16', label: '9:16', w: 720, h: 1280 },
+        ],
+        resolutions: [
+          { id: 'standard', label: '标准', quality: '高清画质', desc: '推荐', multiplier: 1.0 },
+          { id: 'quality', label: '高清', quality: '超清画质', desc: '更精细', multiplier: 1.3 },
+        ],
+        defaultRatio: '1:1',
+        defaultResolution: 'standard',
+        maxBatch: 4,
+        features: { negativePrompt: true, seed: true, enhance: false },
+      }, null, 2))
+    } else if (val === 'video') {
+      setMConfig(JSON.stringify({
+        durations: [5, 10, 15, 30],
+        defaultDuration: 5,
+        ratios: ['16:9', '9:16', '1:1'],
+        defaultRatio: '16:9',
+        qualities: ['480p', '720p', '1080p'],
+        defaultQuality: '720p',
+        supportsImg2Video: true,
+      }, null, 2))
+    } else {
+      setMConfig('')
+    }
   }
 
   // 根据模型类型给出建议的积分默认值（与后端 seed 规则一致）
@@ -374,6 +416,7 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
           tag: mTag.trim() || undefined,
           desc: mDesc.trim() || undefined,
           costTokens: Number.isFinite(mCostTokens) && mCostTokens >= 0 ? mCostTokens : suggestedCostForType(mType),
+          config: mConfig.trim() ? JSON.parse(mConfig) : undefined,
           password: confirmPassword,
         })
         setModelModalOpen(false)
@@ -727,7 +770,7 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
           <Field label="所属板块（type）" hint="对应后端 MODEL_TYPES：novel / image / comic / audio / video；决定模型出现在哪个板块" required>
             <select
               value={mType}
-              onChange={(e) => setMType(e.target.value)}
+              onChange={(e) => handleMTypeChange(e.target.value)}
               className="input"
             >
               <option value="">— 请选择所属板块 —</option>
@@ -773,6 +816,122 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
               className="input resize-none"
             />
           </Field>
+
+          {/* 高级配置 JSON（image / video 类型显示） */}
+          {(mType === 'image' || mType === 'video') && (
+            <Field
+              label="高级配置（config JSON）"
+              hint={mType === 'image'
+                ? '图片模型：ratios / resolutions / defaultRatio / defaultResolution / maxBatch / features'
+                : '视频模型：durations / defaultDuration / ratios / qualities / supportsImg2Video'}
+            >
+              <textarea
+                value={mConfig}
+                onChange={(e) => {
+                  setMConfig(e.target.value)
+                  try {
+                    if (e.target.value.trim()) JSON.parse(e.target.value)
+                    setMConfigError('')
+                  } catch {
+                    setMConfigError('JSON 格式错误')
+                  }
+                }}
+                rows={12}
+                className="input font-mono text-xs"
+                spellCheck={false}
+              />
+              {mConfigError && (
+                <p className="mt-1 text-xs text-rose-500">{mConfigError}</p>
+              )}
+              <div className="mt-2 flex flex-wrap gap-2">
+                {mType === 'image' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setMConfig(JSON.stringify({
+                        ratios: [
+                          { id: '1:1', label: '1:1', w: 1024, h: 1024 },
+                          { id: '3:4', label: '3:4', w: 832, h: 1104 },
+                          { id: '4:3', label: '4:3', w: 1104, h: 832 },
+                          { id: '16:9', label: '16:9', w: 1280, h: 720 },
+                          { id: '9:16', label: '9:16', w: 720, h: 1280 },
+                          { id: '3:2', label: '3:2', w: 1152, h: 768 },
+                          { id: '2:3', label: '2:3', w: 768, h: 1152 },
+                          { id: '4:5', label: '4:5', w: 896, h: 1120 },
+                          { id: '5:4', label: '5:4', w: 1120, h: 896 },
+                          { id: '21:9', label: '21:9', w: 1408, h: 608 },
+                        ],
+                        resolutions: [
+                          { id: 'speed', label: '快速', quality: '标准画质', desc: '速度快', multiplier: 0.7 },
+                          { id: 'standard', label: '标准', quality: '高清画质', desc: '推荐', multiplier: 1.0 },
+                          { id: 'quality', label: '高清', quality: '超清画质', desc: '更精细', multiplier: 1.3 },
+                        ],
+                        defaultRatio: '1:1',
+                        defaultResolution: 'standard',
+                        maxBatch: 4,
+                        features: { negativePrompt: true, seed: true, enhance: true },
+                      }, null, 2))}
+                      className="btn-ghost !py-1 !px-2.5 text-xs"
+                    >
+                      Flux 完整模板
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMConfig(JSON.stringify({
+                        ratios: [
+                          { id: '1:1', label: '1:1', w: 1024, h: 1024 },
+                          { id: '16:9', label: '16:9', w: 1280, h: 720 },
+                          { id: '9:16', label: '9:16', w: 720, h: 1280 },
+                        ],
+                        resolutions: [
+                          { id: 'standard', label: '标准', quality: '快速出图', desc: '秒级生成', multiplier: 1.0 },
+                        ],
+                        defaultRatio: '1:1',
+                        defaultResolution: 'standard',
+                        maxBatch: 2,
+                        features: { negativePrompt: false, seed: true, enhance: false },
+                      }, null, 2))}
+                      className="btn-ghost !py-1 !px-2.5 text-xs"
+                    >
+                      Turbo 快速模板
+                    </button>
+                  </>
+                )}
+                {mType === 'video' && (
+                  <button
+                    type="button"
+                    onClick={() => setMConfig(JSON.stringify({
+                      durations: [5, 10, 15, 30],
+                      defaultDuration: 5,
+                      ratios: ['16:9', '9:16', '1:1'],
+                      defaultRatio: '16:9',
+                      qualities: ['480p', '720p', '1080p'],
+                      defaultQuality: '720p',
+                      supportsImg2Video: true,
+                    }, null, 2))}
+                    className="btn-ghost !py-1 !px-2.5 text-xs"
+                  >
+                    视频默认模板
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    try {
+                      const parsed = JSON.parse(mConfig)
+                      setMConfig(JSON.stringify(parsed, null, 2))
+                      setMConfigError('')
+                    } catch {
+                      setMConfigError('JSON 格式错误，无法格式化')
+                    }
+                  }}
+                  className="btn-ghost !py-1 !px-2.5 text-xs"
+                >
+                  格式化
+                </button>
+              </div>
+            </Field>
+          )}
         </Modal>
       )}
 
@@ -850,6 +1009,8 @@ export function ModelsByType({ onError, typeFilter }: { onError: (e: string) => 
   const [mTag, setMTag] = useState('')
   const [mDesc, setMDesc] = useState('')
   const [mCostTokens, setMCostTokens] = useState<number>(1000)
+  const [mConfig, setMConfig] = useState('')
+  const [mConfigError, setMConfigError] = useState('')
   // typeFilter 对应的类型标签（用于锁定 type 选择）
   const typeLabel = typeFilter.map(t => MODEL_SECTION_OPTIONS.find(o => o.key === t)?.label.split(' ')[1]?.replace(/[()]/g, '') ?? t).join(' / ')
 
@@ -872,9 +1033,43 @@ export function ModelsByType({ onError, typeFilter }: { onError: (e: string) => 
     }
   }
 
-  // typeFilter 只有一个类型时，新建模型自动建议默认积分
+  // typeFilter 只有一个类型时，新建模型自动建议默认积分 + 对应配置模板
   useEffect(() => {
-    if (typeFilter.length === 1) setMCostTokens(suggestedCostForType(typeFilter[0]))
+    if (typeFilter.length === 1) {
+      const t = typeFilter[0]
+      setMCostTokens(suggestedCostForType(t))
+      if (t === 'image') {
+        setMConfig(JSON.stringify({
+          ratios: [
+            { id: '1:1', label: '1:1', w: 1024, h: 1024 },
+            { id: '3:4', label: '3:4', w: 832, h: 1104 },
+            { id: '4:3', label: '4:3', w: 1104, h: 832 },
+            { id: '16:9', label: '16:9', w: 1280, h: 720 },
+            { id: '9:16', label: '9:16', w: 720, h: 1280 },
+          ],
+          resolutions: [
+            { id: 'standard', label: '标准', quality: '高清画质', desc: '推荐', multiplier: 1.0 },
+            { id: 'quality', label: '高清', quality: '超清画质', desc: '更精细', multiplier: 1.3 },
+          ],
+          defaultRatio: '1:1',
+          defaultResolution: 'standard',
+          maxBatch: 4,
+          features: { negativePrompt: true, seed: true, enhance: false },
+        }, null, 2))
+      } else if (t === 'video') {
+        setMConfig(JSON.stringify({
+          durations: [5, 10, 15, 30],
+          defaultDuration: 5,
+          ratios: ['16:9', '9:16', '1:1'],
+          defaultRatio: '16:9',
+          qualities: ['480p', '720p', '1080p'],
+          defaultQuality: '720p',
+          supportsImg2Video: true,
+        }, null, 2))
+      } else {
+        setMConfig('')
+      }
+    }
   }, [typeFilter])
 
   const resetModelForm = () => {
@@ -884,6 +1079,41 @@ export function ModelsByType({ onError, typeFilter }: { onError: (e: string) => 
     setMTag('')
     setMDesc('')
     setMCostTokens(typeFilter.length === 1 ? suggestedCostForType(typeFilter[0]) : 1000)
+    setMConfigError('')
+    // 重置时保留对应类型的配置模板
+    if (typeFilter.length === 1) {
+      const t = typeFilter[0]
+      if (t === 'image') {
+        setMConfig(JSON.stringify({
+          ratios: [
+            { id: '1:1', label: '1:1', w: 1024, h: 1024 },
+            { id: '16:9', label: '16:9', w: 1280, h: 720 },
+            { id: '9:16', label: '9:16', w: 720, h: 1280 },
+          ],
+          resolutions: [
+            { id: 'standard', label: '标准', quality: '高清画质', desc: '推荐', multiplier: 1.0 },
+          ],
+          defaultRatio: '1:1',
+          defaultResolution: 'standard',
+          maxBatch: 4,
+          features: { negativePrompt: true, seed: true, enhance: false },
+        }, null, 2))
+      } else if (t === 'video') {
+        setMConfig(JSON.stringify({
+          durations: [5, 10, 15, 30],
+          defaultDuration: 5,
+          ratios: ['16:9', '9:16', '1:1'],
+          defaultRatio: '16:9',
+          qualities: ['480p', '720p', '1080p'],
+          defaultQuality: '720p',
+          supportsImg2Video: true,
+        }, null, 2))
+      } else {
+        setMConfig('')
+      }
+    } else {
+      setMConfig('')
+    }
   }
 
   const handleSaveCost = async (model: Model) => {
@@ -939,6 +1169,7 @@ export function ModelsByType({ onError, typeFilter }: { onError: (e: string) => 
           tag: mTag.trim() || undefined,
           desc: mDesc.trim() || undefined,
           costTokens: Number.isFinite(mCostTokens) && mCostTokens >= 0 ? mCostTokens : suggestedCostForType(modelType),
+          config: mConfig.trim() ? JSON.parse(mConfig) : undefined,
           password: confirmPassword,
         })
         setModelModalOpen(false)
@@ -1084,6 +1315,52 @@ export function ModelsByType({ onError, typeFilter }: { onError: (e: string) => 
           <Field label="描述（desc）">
             <textarea value={mDesc} onChange={(e) => setMDesc(e.target.value)} rows={2} placeholder="模型能力 / 适用场景" className="input resize-none" />
           </Field>
+
+          {/* 高级配置 JSON（image / video 类型显示） */}
+          {(typeFilter.includes('image') || typeFilter.includes('video')) && (
+            <Field
+              label="高级配置（config JSON）"
+              hint={typeFilter.includes('image')
+                ? '图片模型：ratios / resolutions / defaultRatio / defaultResolution / maxBatch / features'
+                : '视频模型：durations / defaultDuration / ratios / qualities / supportsImg2Video'}
+            >
+              <textarea
+                value={mConfig}
+                onChange={(e) => {
+                  setMConfig(e.target.value)
+                  try {
+                    if (e.target.value.trim()) JSON.parse(e.target.value)
+                    setMConfigError('')
+                  } catch {
+                    setMConfigError('JSON 格式错误')
+                  }
+                }}
+                rows={10}
+                className="input font-mono text-xs"
+                spellCheck={false}
+              />
+              {mConfigError && (
+                <p className="mt-1 text-xs text-rose-500">{mConfigError}</p>
+              )}
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    try {
+                      const parsed = JSON.parse(mConfig)
+                      setMConfig(JSON.stringify(parsed, null, 2))
+                      setMConfigError('')
+                    } catch {
+                      setMConfigError('JSON 格式错误，无法格式化')
+                    }
+                  }}
+                  className="btn-ghost !py-1 !px-2.5 text-xs"
+                >
+                  格式化
+                </button>
+              </div>
+            </Field>
+          )}
         </Modal>
       )}
 

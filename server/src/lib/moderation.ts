@@ -77,7 +77,8 @@ export type ModerationRisk = 'low' | 'medium' | 'high'
 export interface ModerationResult {
   passed: boolean
   riskLevel: ModerationRisk
-  reason: string
+  reason: string       // 内部详细原因（写日志用）
+  safeReason: string   // 对外安全提示（返回给前端用，不泄露具体命中词）
   provider: 'local' | 'aliyun' | 'zhipu'
   categories: string[]
   hits: string[]
@@ -359,6 +360,140 @@ async function scanProvider(text: string): Promise<{
   }
 }
 
+// ==================== 图片内容审核 ====================
+
+export interface ImageModerationResult {
+  passed: boolean
+  riskLevel: ModerationRisk
+  reason: string       // 内部详细原因
+  safeReason: string   // 对外安全提示
+  provider: 'aliyun' | 'none'
+  categories: string[]
+  hits: string[]
+}
+
+// 阿里云图片审核 - ImageModeration
+async function scanAliyunImage(imageUrl: string): Promise<{
+  categories: string[]
+  passed: boolean
+  reason: string
+} | null> {
+  const accessKeyId = process.env.MODERATION_API_KEY
+  const accessKeySecret = process.env.MODERATION_API_SECRET
+  const region = process.env.MODERATION_REGION || 'cn-shanghai'
+
+  if (!accessKeyId || !accessKeySecret) return null
+
+  try {
+    const params: Record<string, string> = {
+      Action: 'ImageModeration',
+      Version: '2022-03-02',
+      Format: 'JSON',
+      AccessKeyId: accessKeyId,
+      SignatureMethod: 'HMAC-SHA1',
+      SignatureVersion: '1.0',
+      SignatureNonce: crypto.randomBytes(8).toString('hex'),
+      Timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      Service: 'green',
+      ServiceParameters: JSON.stringify({
+        imageUrl,
+        scenes: ['porn', 'terrorism', 'politics', 'contraband', 'ad', 'live'],
+      }),
+    }
+    params.Signature = aliYunSign(params, accessKeySecret)
+
+    const url = `https://green.${region}.aliyuncs.com/?${Object.entries(params)
+      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+      .join('&')}`
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 10000) // 图片审核超时设长一点
+
+    const res = await fetch(url, { method: 'GET', signal: controller.signal })
+    clearTimeout(timeoutId)
+    const data = (await res.json()) as any
+
+    if (data.Code !== 200) {
+      logger.warn('阿里云图片审核返回错误', { code: data.Code, message: data.Message })
+      return null
+    }
+
+    const result = data.Data?.result?.[0]
+    if (!result) return null
+
+    const passed = result.suggestion === 'pass'
+    if (passed) return { categories: [], passed: true, reason: '阿里云图片审核通过' }
+
+    const categories: string[] = []
+    const details = result.results || []
+    const hitLabels: string[] = []
+    for (const d of details) {
+      const mapped = ALIYUN_CATEGORY_MAP[d.label] || 'low'
+      if (!categories.includes(mapped)) categories.push(mapped)
+      hitLabels.push(d.label)
+    }
+
+    return {
+      categories,
+      passed: false,
+      reason: `阿里云图片审核违规：${hitLabels.join('、')}`,
+    }
+  } catch (e) {
+    logger.warn('阿里云图片审核调用失败', { error: e instanceof Error ? e.message : String(e) })
+    return null // 服务商故障时降级，不阻断
+  }
+}
+
+// 主入口：审核图片 URL
+export async function moderateImageUrl(
+  imageUrl: string,
+  opts: { endpoint: string; userId: string },
+): Promise<ImageModerationResult> {
+  const hasKey = !!process.env.MODERATION_API_KEY
+
+  // 审核总开关
+  const enabled = await cfgBool('safety.image_moderation_enabled', true)
+  if (!enabled) {
+    return {
+      passed: true, riskLevel: 'low',
+      reason: '图片审核已关闭', safeReason: '审核通过',
+      provider: 'none', categories: [], hits: [],
+    }
+  }
+
+  // demo 模式：无 key 时直接通过（降级）
+  if (!hasKey) {
+    return {
+      passed: true, riskLevel: 'low',
+      reason: '无审核 Key，跳过图片审核（demo 模式）', safeReason: '审核通过',
+      provider: 'none', categories: [], hits: [],
+    }
+  }
+
+  const providerName = (process.env.MODERATION_PROVIDER as 'aliyun' | 'zhipu') || 'aliyun'
+
+  // 调用服务商图片审核
+  const providerResult = await scanAliyunImage(imageUrl)
+  if (providerResult && !providerResult.passed) {
+    return {
+      passed: false,
+      riskLevel: 'medium',
+      reason: providerResult.reason,
+      safeReason: '图片包含违规内容，已被拦截',
+      provider: providerName as 'aliyun',
+      categories: providerResult.categories,
+      hits: providerResult.categories,
+    }
+  }
+
+  // 通过
+  return {
+    passed: true, riskLevel: 'low',
+    reason: '图片审核通过', safeReason: '审核通过',
+    provider: providerName as 'aliyun', categories: [], hits: [],
+  }
+}
+
 // ==================== 主入口：审核文本 ====================
 export async function moderateText(
   text: string,
@@ -371,7 +506,7 @@ export async function moderateText(
   const enabled = await cfgBool('safety.moderation_enabled', true)
   if (!enabled) {
     return {
-      passed: true, riskLevel: 'low', reason: '审核已关闭（应急模式）',
+      passed: true, riskLevel: 'low', reason: '审核已关闭（应急模式）', safeReason: '审核通过',
       provider: 'local', categories: [], hits: [], placeholder: !hasKey,
     }
   }
@@ -400,6 +535,7 @@ export async function moderateText(
       passed: false,
       riskLevel: risk,
       reason: `命中本地敏感词：${local.hits.slice(0, 5).join('、')}`,
+      safeReason: '提示词包含违规内容，请修改后重试',
       provider: 'local',
       categories: local.categories,
       hits: local.hits,
@@ -414,6 +550,7 @@ export async function moderateText(
       passed: false,
       riskLevel: 'medium',
       reason: providerResult.reason,
+      safeReason: '提示词包含违规内容，请修改后重试',
       provider: providerName,
       categories: providerResult.categories,
       hits: [],
@@ -425,6 +562,7 @@ export async function moderateText(
     passed: true,
     riskLevel: 'low',
     reason: '审核通过',
+    safeReason: '审核通过',
     provider: hasKey ? providerName : 'local',
     categories: [],
     hits: [],
@@ -438,7 +576,13 @@ export async function recordViolation(opts: {
   stage: ModerationStage
   endpoint: string
   content: string
-  result: ModerationResult
+  result: {
+    riskLevel: ModerationRisk
+    reason: string
+    provider: string
+    categories: string[]
+    placeholder?: boolean
+  }
 }): Promise<void> {
   try {
     // 1. 写 ModerationLog（append-only，无 update/delete）
@@ -459,9 +603,11 @@ export async function recordViolation(opts: {
 
     // 2. 自动升降级 riskLevel（基于 violationCount + 本次违规严重度）
     //    规则：
-    //      high 违规：1 次即升到 2（限制），2 次升到 3（封禁）
-    //      medium 违规：2 次升到 1（警告），4 次升到 2，6 次升到 3
+    //      high 违规：1 次升到 2（限制观察期）
+    //      medium 违规：2 次升到 1（警告），4 次升到 2
     //      low 违规：3 次升到 1，6 次升到 2
+    //    注意：最高只升到 2（限制观察期），不会封禁账号（riskLevel 不会到 3）
+    //          违规仅导致本次生成失败并返还积分，不封禁账号
     const user = await prisma.user.findUnique({
       where: { id: opts.userId },
       select: { riskLevel: true, violationCount: true },
@@ -472,16 +618,19 @@ export async function recordViolation(opts: {
     let newRisk = user.riskLevel
 
     if (opts.result.riskLevel === 'high') {
-      newRisk = newCount >= 2 ? 3 : 2
+      // high 违规：1 次升到 2（限制观察期），不再升级到 3
+      newRisk = 2
     } else if (opts.result.riskLevel === 'medium') {
-      if (newCount >= 6) newRisk = 3
-      else if (newCount >= 4) newRisk = Math.max(newRisk, 2)
+      if (newCount >= 4) newRisk = Math.max(newRisk, 2)
       else if (newCount >= 2) newRisk = Math.max(newRisk, 1)
     } else {
       // low
       if (newCount >= 6) newRisk = Math.max(newRisk, 2)
       else if (newCount >= 3) newRisk = Math.max(newRisk, 1)
     }
+
+    // 封顶：最高 2 级（限制观察期），不封禁账号
+    newRisk = Math.min(newRisk, 2)
 
     await prisma.user.update({
       where: { id: opts.userId },
@@ -505,7 +654,8 @@ export async function recordViolation(opts: {
 
 export interface UploadModerationResult {
   passed: boolean
-  reason: string
+  reason: string       // 内部详细原因
+  safeReason: string   // 对外安全提示
   result?: ModerationResult
 }
 
@@ -533,6 +683,7 @@ export async function moderateUpload(
     return {
       passed: false,
       reason: `文件名违规：${nameResult.reason}`,
+      safeReason: '文件名包含违规内容',
       result: nameResult,
     }
   }
@@ -560,6 +711,7 @@ export async function moderateUpload(
         return {
           passed: false,
           reason: `文件内容违规：${contentResult.reason}`,
+          safeReason: '文件内容包含违规内容',
           result: contentResult,
         }
       }
@@ -569,7 +721,7 @@ export async function moderateUpload(
     }
   }
 
-  return { passed: true, reason: '审核通过' }
+  return { passed: true, reason: '审核通过', safeReason: '审核通过' }
 }
 
 // 工具：删除上传文件（审核失败时清理磁盘）— 异步非阻塞
@@ -607,4 +759,101 @@ export async function checkUserRiskGate(userId: string): Promise<{
     return { allowed: true, riskLevel: 2, message: '账号处于限制观察期，生成内容将接受人工复核' }
   }
   return { allowed: user.riskLevel < 3, riskLevel: user.riskLevel }
+}
+
+// ==================== 统一输入审核检查 ====================
+// 封装「风险门控 → 输入审核 → 违规记录 → 构造拦截响应」的完整流程，
+// 消除 image/audio/video/comic/canvas 5 个路由文件中的重复代码（约 80 行/文件）。
+//
+// 用法：
+//   const check = await checkInputModeration({ userId, text: prompt, endpoint: '/api/image/generate' })
+//   if (!check.passed) return res.status(check.statusCode).json(check.body)
+
+export interface ModerationCheckPassed {
+  passed: true
+}
+
+export interface ModerationCheckBlocked {
+  passed: false
+  statusCode: number
+  body: Record<string, unknown>
+}
+
+export type ModerationCheckResult = ModerationCheckPassed | ModerationCheckBlocked
+
+export interface CheckInputModerationOpts {
+  userId?: string          // 匿名用户传 undefined（仅审核不记违规）
+  text: string             // 待审核文本，空字符串/空白直接通过
+  endpoint: string         // 接口路径，用于日志
+  stage?: ModerationStage  // 默认 'input'
+  responseStyle?: 'simple' | 'detailed'
+  // simple:    { error: string } — 大多数路由使用
+  // detailed:  { ok:false, blocked:true, stage, error, riskLevel } — canvas 风格
+}
+
+export async function checkInputModeration(opts: CheckInputModerationOpts): Promise<ModerationCheckResult> {
+  const {
+    userId,
+    text,
+    endpoint,
+    stage = 'input',
+    responseStyle = 'simple',
+  } = opts
+
+  // 空白文本：直接通过（某些接口文本是可选的，如 video/img2video）
+  if (!text || !text.trim()) {
+    return { passed: true }
+  }
+
+  // 1) 风险门控（仅登录用户）
+  if (userId) {
+    const gate = await checkUserRiskGate(userId)
+    if (!gate.allowed) {
+      const body = responseStyle === 'detailed'
+        ? {
+            ok: false,
+            blocked: true,
+            stage,
+            error: gate.message || '账号已被限制 AI 生成',
+            riskLevel: 'high' as const,
+            riskUserLevel: gate.riskLevel,
+          }
+        : { error: gate.message }
+      return { passed: false, statusCode: 403, body }
+    }
+  }
+
+  // 2) 输入审核
+  const mod = await moderateText(text, {
+    stage,
+    endpoint,
+    userId: userId || 'anonymous',
+  })
+
+  if (!mod.passed) {
+    // 3) 违规记录（仅登录用户）
+    if (userId) {
+      await recordViolation({
+        userId,
+        stage,
+        endpoint,
+        content: text,
+        result: mod,
+      })
+    }
+
+    const body = responseStyle === 'detailed'
+      ? {
+          ok: false,
+          blocked: true,
+          stage,
+          error: mod.safeReason,
+          riskLevel: mod.riskLevel,
+        }
+      : { error: mod.safeReason }
+
+    return { passed: false, statusCode: 403, body }
+  }
+
+  return { passed: true }
 }

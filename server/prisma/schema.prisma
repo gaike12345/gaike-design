@@ -33,7 +33,8 @@ model User {
   riskUpdatedAt   DateTime?
   riskNote        String?  // 风险操作备注（手动调整时记录）
   wechatOpenId    String?  @unique      // 微信公众号 openid
-  loginMethod     String?               // 登录方式：password / email_code / wechat
+  phone           String?  @unique      // 手机号
+  loginMethod     String?               // 登录方式：password / email_code / wechat / phone
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -253,6 +254,49 @@ model UserQuota {
   resetAt         DateTime?                   // 额度重置时间
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  transactions    TokenTransaction[]
+}
+
+// ==================== 积分流水（不可篡改，所有积分变动都要记） ====================
+// 每一笔积分变动都有流水记录，支持：
+//   - 预扣（pending）→ 结算（settled）/ 退还（refunded）
+//   - 充值（recharge）
+//   - 管理员调整（admin_adjust）
+//   - 系统补偿（compensation）
+model TokenTransaction {
+  id            String   @id @default(cuid())
+  userId        String
+  quota         UserQuota @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  // 变动类型
+  type          String   // deduct | refund | recharge | admin_adjust | compensation | system_refund
+  // 状态
+  status        String   // pending | settled | refunded | failed | completed
+  // 积分变动量（正数=增加，负数=扣减）
+  amount        Int
+  // 变动前余额
+  balanceBefore Int
+  // 变动后余额
+  balanceAfter  Int
+
+  // 关联信息
+  relatedType   String?  // generation | task | order | admin | system
+  relatedId     String?  // 关联的生成日志ID / 任务ID / 订单ID / 管理员ID
+  modelId       String?  // 关联的AI模型
+  provider      String?  // 供应商
+
+  // 备注
+  reason        String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+  @@index([type])
+  @@index([status])
+  @@index([relatedType, relatedId])
+  @@index([createdAt])
 }
 
 // ==================== 异步任务 ====================

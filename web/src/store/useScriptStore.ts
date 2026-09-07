@@ -13,7 +13,7 @@
 //   useEditorStore    — 编辑器设置（字体、字号、缩进、间距）
 
 import { useMemo } from 'react'
-import { useStore } from 'zustand'
+import { useShallowStore } from './useShallowStore'
 import type {
   ScriptData,
   ScriptScene,
@@ -255,10 +255,10 @@ function selectEditor(s: EditorState) {
 
 // ========= 组合 Hook =========
 export function useScriptStore(): WritingPaneState {
-  const genState = useStore(useScriptGenStore, selectGen)
-  const wrState = useStore(useWRToolsStore, selectWR)
-  const novelState = useStore(useNovelStore, selectNovel)
-  const editorState = useStore(useEditorStore, selectEditor)
+  const genState = useShallowStore(useScriptGenStore, selectGen)
+  const wrState = useShallowStore(useWRToolsStore, selectWR)
+  const novelState = useShallowStore(useNovelStore, selectNovel)
+  const editorState = useShallowStore(useEditorStore, selectEditor)
 
   // Action 在每次渲染时重新绑定（事件处理器调用 .getState() 取最新值）
   const actions = useMemo(() => buildActions(), [])

@@ -1,10 +1,11 @@
-import { Router, Request } from 'express'
+﻿import { Router, Request } from 'express'
 import prisma from '../lib/prisma'
 import { authRequired, requireRole } from '../middleware/auth'
 import { withGeneration } from '../middleware/generation'
 import { imageLimiter } from '../middleware/rate-limit'
 import { getModelCost } from '../lib/modelCost'
-import { moderateText, recordViolation, checkUserRiskGate } from '../lib/moderation'
+import { checkInputModeration } from '../lib/moderation'
+import { signImageUrl } from './image'
 
 export const COMIC_MODEL = process.env.COMIC_MODEL || 'comic-pro'
 
@@ -82,6 +83,7 @@ function buildPlaceholderPanel(prompt: string, index: number, style = '日漫黑
   params.set('width', String(w))
   params.set('height', String(h))
   params.set('nologo', 'true')
+  params.set('safe', 'true')
   params.set('model', 'turbo')
   params.set('seed', seed)
   return `${baseUrl}/${styleKw}%2C${encodeURIComponent(prompt)}?${params.toString()}`
@@ -102,21 +104,14 @@ router.post('/storyboard', withGeneration('comic', costForStoryboard), requireRo
     return
   }
 
-  // 风险门控
-  const riskGate = await checkUserRiskGate(userId)
-  if (!riskGate.allowed) {
-    return res.status(403).json({ error: riskGate.message })
-  }
-
-  // 输入审核
-  const mod = await moderateText(prompt, {
-    stage: 'input',
-    endpoint: '/api/comic/storyboard',
+  // 风险门控 + 输入审核（统一封装）
+  const inputCheck = await checkInputModeration({
     userId,
+    text: prompt,
+    endpoint: '/api/comic/storyboard',
   })
-  if (!mod.passed) {
-    await recordViolation({ userId, stage: 'input', endpoint: '/api/comic/storyboard', content: prompt, result: mod })
-    return res.status(403).json({ error: mod.reason, moderation: mod })
+  if (!inputCheck.passed) {
+    return res.status(inputCheck.statusCode).json(inputCheck.body)
   }
 
   const panelsPerChapter: Record<string, number> = { '1x1': 1, '2x1': 2, '1x2': 2, '2x2': 4, '3x2': 6, '3x3': 9 }
@@ -166,34 +161,29 @@ router.post('/generate', withGeneration('comic', costForComicGenerate), requireR
     return
   }
 
-  // 风险门控
-  const riskGate = await checkUserRiskGate(userId)
-  if (!riskGate.allowed) {
-    return res.status(403).json({ error: riskGate.message })
-  }
-
-  // 输入审核：拼接所有 panel prompt 统一审核
+  // 风险门控 + 输入审核（拼接所有 panel prompt，空文本自动跳过）
   const allPrompts = panels.map((p) => p.panelPrompt || '').filter(Boolean).join('\n')
-  if (allPrompts.trim()) {
-    const mod = await moderateText(allPrompts, {
-      stage: 'input',
-      endpoint: '/api/comic/generate',
-      userId,
-    })
-    if (!mod.passed) {
-      await recordViolation({ userId, stage: 'input', endpoint: '/api/comic/generate', content: allPrompts.slice(0, 500), result: mod })
-      return res.status(403).json({ error: mod.reason, moderation: mod })
-    }
+  const inputCheck = await checkInputModeration({
+    userId,
+    text: allPrompts,
+    endpoint: '/api/comic/generate',
+  })
+  if (!inputCheck.passed) {
+    return res.status(inputCheck.statusCode).json(inputCheck.body)
   }
 
-  const results = panels.map((p, i) => ({
-    index: i + 1,
-    prompt: p.panelPrompt || `漫画分格 ${i + 1}`,
-    style: p.style || style,
-    size: p.size || size,
-    url: buildPlaceholderPanel(p.panelPrompt || `漫画分格 ${i + 1}`, i, p.style || style),
-    placeholder: true,
-  }))
+  const results = panels.map((p, i) => {
+    const directUrl = buildPlaceholderPanel(p.panelPrompt || `漫画分格 ${i + 1}`, i, p.style || style)
+    const url = signImageUrl(directUrl, userId, 0) // 漫画图片审核不单独扣费（已在生成时扣除）
+    return {
+      index: i + 1,
+      prompt: p.panelPrompt || `漫画分格 ${i + 1}`,
+      style: p.style || style,
+      size: p.size || size,
+      url,
+      placeholder: true,
+    }
+  })
 
   res.json({
     placeholder: true,

@@ -4,11 +4,10 @@
 import type { ReactNode } from 'react'
 import {
   AlertCircle,
-  ChevronLeft,
-  ChevronRight,
   Loader2,
   Zap,
 } from 'lucide-react'
+import { Pagination as UIPagination } from '../ui/Pagination'
 
 // ===== 工具函数 =====
 export function formatDate(s: string | null | undefined): string {
@@ -117,22 +116,16 @@ export function Stat({ label, value, accent }: { label: string; value: string; a
   )
 }
 
-// ===== 分页器 =====
-export function Pagination({ page, total, pageSize, onPage }: { page: number; total: number; pageSize: number; onPage: (p: number) => void }) {
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  if (totalPages <= 1) return null
+// ===== 分页器（bordered 变体） =====
+export function Pagination({ page, total, pageSize, onPageChange }: { page: number; total: number; pageSize: number; onPageChange: (p: number) => void }) {
   return (
-    <div className="flex items-center justify-between border-t border-neutral-200 px-4 py-3 text-xs">
-      <span className="text-neutral-500">共 {total} 条 · 第 {page}/{totalPages} 页</span>
-      <div className="flex gap-1">
-        <button type="button" onClick={() => onPage(page - 1)} disabled={page <= 1} className="btn-ghost !px-2 !py-1 disabled:opacity-40">
-          <ChevronLeft className="h-3.5 w-3.5" />
-        </button>
-        <button type="button" onClick={() => onPage(page + 1)} disabled={page >= totalPages} className="btn-ghost !px-2 !py-1 disabled:opacity-40">
-          <ChevronRight className="h-3.5 w-3.5" />
-        </button>
-      </div>
-    </div>
+    <UIPagination
+      page={page}
+      total={total}
+      pageSize={pageSize}
+      onPageChange={onPageChange}
+      variant="bordered"
+    />
   )
 }
 

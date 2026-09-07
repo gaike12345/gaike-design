@@ -89,7 +89,7 @@ export function PaymentsTab({ onError }: { onError: (e: string) => void }) {
           </tbody>
         </table>
       </div>
-      {total > pageSize && <Pagination page={page} total={total} pageSize={pageSize} onChange={setPage} />}
+      {total > pageSize && <Pagination page={page} total={total} pageSize={pageSize} onPageChange={setPage} />}
     </div>
   )
 }

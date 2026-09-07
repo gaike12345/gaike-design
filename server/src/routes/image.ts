@@ -1,75 +1,20 @@
-﻿import { Router, Request, Response } from 'express'
+import { Router, Request, Response } from 'express'
 import { createHmac } from 'crypto'
 import { authRequired } from '../middleware/auth'
 import { withGeneration } from '../middleware/generation'
 import { upload, validateUploadedFiles } from '../middleware/upload'
 import { imageLimiter } from '../middleware/rate-limit'
-import { getModelCost } from '../lib/modelCost'
-import { moderateUpload, cleanupUploadedFile, moderateText, recordViolation, checkUserRiskGate } from '../lib/moderation'
-
-// Pollinations 新版统一 API
-const POLLINATIONS_BASE = process.env.POLLINATIONS_BASE_URL || 'https://gen.pollinations.ai'
-const POLLINATIONS_KEY = process.env.POLLINATIONS_API_KEY || ''
-export const IMAGE_MODEL = process.env.POLLINATIONS_IMAGE_MODEL || 'flux'
-const IMAGE_FALLBACK_DEFAULT = 1000
-
-// 比例 → 基准尺寸（对应 2K 档，长边约 2048px；分辨率倍率再缩放 1K/2K/4K）
-// 尺寸必须对齐到 8 的倍数（Flux / Pollinations 通用要求）
-export const RATIO_SIZE: Record<string, { w: number; h: number }> = {
-  '1:1':   { w: 2048, h: 2048 },
-  '3:4':   { w: 1536, h: 2048 },
-  '4:3':   { w: 2048, h: 1536 },
-  '16:9':  { w: 2048, h: 1152 },
-  '9:16':  { w: 1152, h: 2048 },
-  '3:2':   { w: 2048, h: 1368 },
-  '2:3':   { w: 1368, h: 2048 },
-  '4:5':   { w: 1640, h: 2048 },
-  '5:4':   { w: 2048, h: 1640 },
-  '21:9':  { w: 2048, h: 880  },
-  'adapt': { w: 2048, h: 2048 },
-}
-
-// 分辨率倍率（基准 2K）
-export const RESOLUTION_MULTIPLIER: Record<string, number> = {
-  '1k': 0.5,
-  '2k': 1.0,
-  '4k': 2.0,
-}
-
-/** 根据 ratio + resolution 返回最终尺寸（对齐到 8 的倍数，最小 256） */
-export function computeImageSize(ratio: string, resolution?: string): { w: number; h: number } {
-  const base = RATIO_SIZE[String(ratio || '1:1')] || RATIO_SIZE['1:1']
-  const mult = RESOLUTION_MULTIPLIER[String(resolution || '2k').toLowerCase()] ?? 1.0
-  const align8 = (n: number) => Math.max(256, Math.round(n / 8) * 8)
-  return { w: align8(base.w * mult), h: align8(base.h * mult) }
-}
-
-export function imageSizeFactor(ratio: string, resolution?: string): number {
-  const { w, h } = computeImageSize(ratio, resolution)
-  const pixels = w * h
-  // 阈值按实际像素范围：1K / 2K / 4K 三档
-  if (pixels >= 6_000_000) return 2.6   // 4K 档约 8MP
-  if (pixels >= 2_800_000) return 1.8   // 2K 档约 2~3MP
-  if (pixels >=   900_000) return 1.25  // 1K 档约 1MP
-  return 1
-}
-
-/** 纯函数：根据参数返回 image 消耗 tokens（与扣量接口 100% 一致） */
-export async function estimateImageCost(params: {
-  model?: string
-  ratio?: string
-  resolution?: string
-}): Promise<number> {
-  const modelName = params.model || IMAGE_MODEL
-  const sizeFactor = imageSizeFactor(params.ratio || '1:1', params.resolution || '2k')
-  const base = await getModelCost(modelName, 'image', IMAGE_FALLBACK_DEFAULT)
-  return Math.max(1, Math.round(base * sizeFactor))
-}
-
-// 积分动态计算：image 板块，优先取 req.body.model，其次环境变量 IMAGE_MODEL
-const costForImage = async (req: Request): Promise<number> => {
-  return estimateImageCost({ model: req.body?.model, ratio: req.body?.ratio, resolution: req.body?.resolution })
-}
+import { moderateUpload, cleanupUploadedFile, moderateImageUrl, recordViolation, checkInputModeration } from '../lib/moderation'
+import { atomicRefundQuota } from '../lib/generation'
+import {
+  calcImageSize,
+  calcImageCost,
+  getImageModelConfig,
+  listImageModels,
+  getDefaultImageModel,
+  DEFAULT_IMAGE_MODEL,
+} from '../lib/imageModels'
+import { generateImage, generateImageFromImage } from '../lib/imageProviders'
 
 const router = Router()
 
@@ -81,15 +26,20 @@ const router = Router()
 const SIGNING_SECRET = process.env.IMAGE_SIGNING_SECRET || 'img-sign-key-change-in-prod'
 const SIGN_TTL_MS = 2 * 60 * 60 * 1000 // 签名有效期 2 小时
 
-function signImageUrl(originalUrl: string): string {
+export function signImageUrl(originalUrl: string, userId?: string, costTokens?: number): string {
   const ts = Date.now()
-  const payload = `${ts}:${originalUrl}`
+  const uid = userId || ''
+  const cost = costTokens != null ? String(costTokens) : ''
+  const payload = `${ts}:${uid}:${cost}:${originalUrl}`
   const sig = createHmac('sha256', SIGNING_SECRET).update(payload).digest('hex').slice(0, 16)
   const encoded = Buffer.from(originalUrl).toString('base64url')
-  return `/api/image/proxy?u=${encoded}&t=${ts}&s=${sig}`
+  let qs = `u=${encoded}&t=${ts}&s=${sig}`
+  if (uid) qs += `&uid=${encodeURIComponent(uid)}`
+  if (cost) qs += `&c=${cost}`
+  return `/api/image/proxy?${qs}`
 }
 
-function verifySignedUrl(encodedUrl: string, ts: string, sig: string): string | null {
+function verifySignedUrl(encodedUrl: string, ts: string, sig: string, uid?: string, costStr?: string): { url: string; userId?: string; costTokens?: number } | null {
   const timestamp = parseInt(ts, 10)
   if (isNaN(timestamp)) return null
   if (Date.now() - timestamp > SIGN_TTL_MS) return null // 过期
@@ -99,74 +49,97 @@ function verifySignedUrl(encodedUrl: string, ts: string, sig: string): string | 
   } catch {
     return null
   }
+  const uidPart = uid || ''
+  const costPart = costStr || ''
+  const payload = `${ts}:${uidPart}:${costPart}:${originalUrl}`
   const expectedSig = createHmac('sha256', SIGNING_SECRET)
-    .update(`${ts}:${originalUrl}`)
+    .update(payload)
     .digest('hex')
     .slice(0, 16)
   if (sig !== expectedSig) return null
-  // 只允许代理 Pollinations 的图片
-  if (!originalUrl.startsWith('https://image.pollinations.ai/')) return null
-  return originalUrl
+  // 只允许代理经过白名单的图片供应商域名
+  const allowedHosts = [
+    'image.pollinations.ai',
+    'dashscope.aliyuncs.com',
+    'dashscope-result.oss-cn-beijing.aliyuncs.com',
+    'dashscope-result.oss-cn-hangzhou.aliyuncs.com',
+  ]
+  try {
+    const urlObj = new URL(originalUrl)
+    if (!allowedHosts.some(h => urlObj.hostname === h || urlObj.hostname.endsWith('.' + h))) {
+      // 允许任意 aliyuncs.com 子域名（万相结果 OSS）
+      if (!urlObj.hostname.endsWith('.aliyuncs.com')) {
+        return null
+      }
+    }
+  } catch {
+    return null
+  }
+  const costTokens = costStr ? parseInt(costStr, 10) : undefined
+  return { url: originalUrl, userId: uid || undefined, costTokens: isNaN(costTokens!) ? undefined : costTokens }
 }
 
 // GET /api/image/proxy — 图片代理接口（需签名校验，无需登录）
+// 双层内容安全：Pollinations safe=true + 阿里云图片内容审核
 router.get('/proxy', async (req, res) => {
-  const { u, t, s } = req.query
+  const { u, t, s, uid, c } = req.query
   if (typeof u !== 'string' || typeof t !== 'string' || typeof s !== 'string') {
     return res.status(400).send('Invalid request')
   }
-  const originalUrl = verifySignedUrl(u, t, s)
-  if (!originalUrl) {
+  const verified = verifySignedUrl(
+    u, t, s,
+    typeof uid === 'string' ? uid : undefined,
+    typeof c === 'string' ? c : undefined,
+  )
+  if (!verified) {
     return res.status(403).send('Invalid or expired image URL')
   }
+  const originalUrl = verified.url
   try {
     const upstream = await fetch(originalUrl)
     if (!upstream.ok) {
+      // Pollinations safe=true 过滤拦截（返回 400）时，自动返还积分
+      if (upstream.status === 400 && verified.userId && verified.costTokens && verified.costTokens > 0) {
+        void atomicRefundQuota(verified.userId, verified.costTokens)
+      }
       return res.status(upstream.status).send('Upstream error')
     }
+
+    // 读取完整图片到 buffer（用于后续审核和返回）
     const contentType = upstream.headers.get('content-type') || 'image/png'
     const contentLength = upstream.headers.get('content-length')
+    const arrayBuffer = await upstream.arrayBuffer()
+    const imageBuffer = Buffer.from(arrayBuffer)
+
+    // 图片内容审核（生成后审核）
+    if (verified.userId) {
+      const imgMod = await moderateImageUrl(originalUrl, {
+        endpoint: '/api/image/proxy',
+        userId: verified.userId,
+      })
+      if (!imgMod.passed) {
+        // 图片违规：记录违规 + 返还积分 + 返回错误占位图
+        await recordViolation({
+          userId: verified.userId,
+          stage: 'output',
+          endpoint: '/api/image/proxy',
+          content: originalUrl.slice(0, 300),
+          result: imgMod,
+        })
+        if (verified.costTokens && verified.costTokens > 0) {
+          void atomicRefundQuota(verified.userId, verified.costTokens)
+        }
+        return res.status(403).send('Image content blocked')
+      }
+    }
+
+    // 审核通过：返回图片
     res.setHeader('content-type', contentType)
     res.setHeader('cache-control', 'public, max-age=86400')
     if (contentLength) {
       res.setHeader('content-length', contentLength)
     }
-    // 流式转发：直接 pipe 响应体，不加载到内存
-    // 大幅降低大图片的内存占用和首字节延迟
-    if (!upstream.body) {
-      return res.status(502).send('Proxy error: no response body')
-    }
-    // Node.js 18+ fetch 返回 ReadableStream，需转成 Node.js Readable
-    const reader = upstream.body.getReader()
-    const pump = async () => {
-      try {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) {
-            res.end()
-            break
-          }
-          if (!res.write(value)) {
-            // 背压处理：等待 drain 事件再继续
-            await new Promise<void>((resolve) => {
-              res.once('drain', resolve)
-            })
-          }
-        }
-      } catch {
-        if (!res.headersSent) {
-          res.status(502).send('Proxy stream error')
-        } else {
-          res.destroy()
-        }
-      }
-    }
-    pump()
-
-    // 客户端断开时取消上游读取
-    req.on('close', () => {
-      reader.cancel().catch(() => {})
-    })
+    res.end(imageBuffer)
   } catch {
     if (!res.headersSent) {
       res.status(502).send('Proxy error')
@@ -174,102 +147,120 @@ router.get('/proxy', async (req, res) => {
   }
 })
 
-// 以下接口需登录
-router.use(authRequired)
-router.use(imageLimiter)
-
-/**
- * 构建 Pollinations 图像 URL（新版端点：image.pollinations.ai/prompt/{prompt}）
- * 有 API Key 时通过 query param 鉴权，无 Key 时走旧端点兼容
- * @param refImage 可选的参考图 URL，用于图生图（image-to-image）
- */
-function buildImageUrl(prompt: string, w: number, h: number, seed: number, refImage?: string): string {
-  const params = new URLSearchParams()
-  params.set('width', String(w))
-  params.set('height', String(h))
-  params.set('model', IMAGE_MODEL)
-  params.set('seed', String(seed))
-  params.set('nologo', 'true')
-  if (POLLINATIONS_KEY) {
-    params.set('key', POLLINATIONS_KEY)
-  }
-  if (refImage) {
-    // Pollinations 图生图：通过 image 参数传入参考图 URL
-    params.set('image', refImage)
-  }
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?${params.toString()}`
-}
-
-// POST /api/image/generate — 文生图（Pollinations 新版 API）
-router.post('/generate', withGeneration('image', costForImage), async (req, res, next) => {
+// GET /api/image/models — 获取所有图片模型配置（公开接口）
+router.get('/models', async (_req, res, next) => {
   try {
-    const { prompt, ratio = '1:1', batch = 1, seed, resolution = '2k' } = req.body
-    if (!prompt) return res.status(400).json({ error: 'prompt 不能为空' })
-    const userId = req.user!.userId
-
-    // 风险门控
-    const riskGate = await checkUserRiskGate(userId)
-    if (!riskGate.allowed) {
-      return res.status(403).json({ error: riskGate.message })
-    }
-
-    // 输入审核
-    const mod = await moderateText(prompt, {
-      stage: 'input',
-      endpoint: '/api/image/generate',
-      userId,
-    })
-    if (!mod.passed) {
-      await recordViolation({ userId, stage: 'input', endpoint: '/api/image/generate', content: prompt, result: mod })
-      return res.status(403).json({ error: mod.reason, moderation: mod })
-    }
-
-    const { w, h } = computeImageSize(ratio, resolution)
-
-    const images = []
-    for (let i = 0; i < Math.min(batch, 4); i++) {
-      const s = seed != null ? seed + i : Math.floor(Math.random() * 1000000)
-      const directUrl = buildImageUrl(prompt, w, h, s)
-      const url = signImageUrl(directUrl)
-      images.push({ url, seed: s, width: w, height: h })
-    }
-    res.json({ images, placeholder: !POLLINATIONS_KEY })
+    const [models, defaultModel] = await Promise.all([
+      listImageModels(),
+      getDefaultImageModel(),
+    ])
+    res.json({ models, defaultModel })
   } catch (e) {
     next(e)
   }
 })
 
-// POST /api/image/img2img — 图生图（Pollinations 通过 image 参数传参考图）
+// 以下接口需登录
+router.use(authRequired)
+router.use(imageLimiter)
+
+// 积分动态计算：image 板块，根据 model + resolution + batch 计算
+const costForImage = async (req: Request): Promise<number> => {
+  const modelId = req.body?.model || (await getDefaultImageModel())
+  const resolution = req.body?.resolution || (await getImageModelConfig(modelId)).defaultResolution
+  const batch = Math.max(1, parseInt(req.body?.batch || '1', 10))
+  return calcImageCost(modelId, resolution, batch)
+}
+
+// POST /api/image/generate — 文生图（通过 provider 分发层自动选择供应商）
+router.post('/generate', withGeneration('image', costForImage), async (req, res, next) => {
+  try {
+    const { prompt, batch = 1, seed, negativePrompt } = req.body
+    const modelId = req.body.model || (await getDefaultImageModel())
+    const model = await getImageModelConfig(modelId)
+    const ratio = req.body.ratio || model.defaultRatio
+    const resolution = req.body.resolution || model.defaultResolution
+
+    if (!prompt) return res.status(400).json({ error: 'prompt 不能为空' })
+    const userId = req.user!.userId
+
+    // 风险门控 + 输入审核（统一封装）
+    const inputCheck = await checkInputModeration({
+      userId,
+      text: prompt,
+      endpoint: '/api/image/generate',
+    })
+    if (!inputCheck.passed) {
+      return res.status(inputCheck.statusCode).json(inputCheck.body)
+    }
+
+    const { w, h, actualRatio } = await calcImageSize(modelId, ratio, resolution)
+    const costPerImage = await calcImageCost(modelId, resolution, 1)
+    const actualBatch = Math.max(1, Math.min(batch, model.maxBatch))
+
+    const images = []
+    let isPlaceholder = false
+    for (let i = 0; i < actualBatch; i++) {
+      const s = seed != null ? seed + i : Math.floor(Math.random() * 1000000)
+      const result = await generateImage({
+        prompt: String(prompt),
+        model: modelId,
+        width: w,
+        height: h,
+        seed: s,
+        negativePrompt: negativePrompt ? String(negativePrompt) : undefined,
+      })
+      if (result.placeholder) isPlaceholder = true
+      const url = signImageUrl(result.url, userId, costPerImage)
+      images.push({ url, originalUrl: result.url, seed: result.seed ?? s, width: result.width, height: result.height })
+    }
+    res.json({ images, model: modelId, ratio: actualRatio, resolution, placeholder: isPlaceholder })
+  } catch (e) {
+    next(e)
+  }
+})
+
+// POST /api/image/img2img — 图生图（通过 provider 分发层）
 router.post('/img2img', withGeneration('image', costForImage), async (req, res, next) => {
   try {
-    const { prompt, ratio = '1:1', image: refImage, resolution = '2k' } = req.body
+    const { prompt, image: refImage, negativePrompt } = req.body
+    const modelId = req.body.model || (await getDefaultImageModel())
+    const model = await getImageModelConfig(modelId)
+    const ratio = req.body.ratio || model.defaultRatio
+    const resolution = req.body.resolution || model.defaultResolution
+
     if (!prompt) return res.status(400).json({ error: 'prompt 不能为空' })
     if (!refImage) return res.status(400).json({ error: 'image 参考图 URL 不能为空' })
     const userId = req.user!.userId
 
-    // 风险门控
-    const riskGate = await checkUserRiskGate(userId)
-    if (!riskGate.allowed) {
-      return res.status(403).json({ error: riskGate.message })
-    }
-
-    // 输入审核
-    const mod = await moderateText(prompt, {
-      stage: 'input',
-      endpoint: '/api/image/img2img',
+    // 风险门控 + 输入审核（统一封装）
+    const inputCheck = await checkInputModeration({
       userId,
+      text: prompt,
+      endpoint: '/api/image/img2img',
     })
-    if (!mod.passed) {
-      await recordViolation({ userId, stage: 'input', endpoint: '/api/image/img2img', content: prompt, result: mod })
-      return res.status(403).json({ error: mod.reason, moderation: mod })
+    if (!inputCheck.passed) {
+      return res.status(inputCheck.statusCode).json(inputCheck.body)
     }
 
-    const { w, h } = computeImageSize(ratio, resolution)
-    const s = Math.floor(Math.random() * 1000000)
-    // 真正使用 refImage 作为图生图输入
-    const directUrl = buildImageUrl(prompt, w, h, s, String(refImage))
-    const url = signImageUrl(directUrl)
-    res.json({ images: [{ url, seed: s, width: w, height: h, refImage: String(refImage) }], placeholder: !POLLINATIONS_KEY })
+    const { w, h, actualRatio } = await calcImageSize(modelId, ratio, resolution)
+    const costForImg2Img = await calcImageCost(modelId, resolution, 1)
+
+    const result = await generateImageFromImage({
+      prompt: String(prompt),
+      model: modelId,
+      width: w,
+      height: h,
+      refImage: String(refImage),
+      negativePrompt: negativePrompt ? String(negativePrompt) : undefined,
+    })
+    const url = signImageUrl(result.url, userId, costForImg2Img)
+    res.json({
+      images: [{ url, originalUrl: result.url, seed: result.seed, width: result.width, height: result.height, refImage: String(refImage) }],
+      model: modelId,
+      ratio: actualRatio,
+      placeholder: result.placeholder,
+    })
   } catch (e) {
     next(e)
   }
@@ -286,10 +277,9 @@ router.post('/upload', upload.single('image'), validateUploadedFiles, async (req
   })
   if (!mod.passed) {
     void cleanupUploadedFile(req.file.path)
-    return res.status(403).json({ error: mod.reason, moderation: mod.result })
+    return res.status(403).json({ error: mod.safeReason })
   }
   res.json({ url: `/uploads/${req.file.filename}` })
 })
 
 export default router
-

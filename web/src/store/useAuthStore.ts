@@ -12,7 +12,6 @@ import { api, setToken, clearToken, getToken } from '../services/api'
 export interface AuthUser {
   id: string
   uid: number
-  email: string
   nickname: string
   avatar: string | null
   banner?: string | null
@@ -34,11 +33,8 @@ interface AuthState {
   isAuthed: () => boolean
 
   // 动作
-  login: (account: string, password: string) => Promise<boolean>
-  register: (email: string, password: string, nickname: string) => Promise<boolean>
-  // 邮箱验证码登录
-  sendEmailCode: (email: string) => Promise<{ ok: boolean; error?: string }>
-  loginWithEmailCode: (email: string, code: string) => Promise<boolean>
+  login: (uid: string, password: string) => Promise<boolean>
+  register: (password: string, nickname: string) => Promise<boolean>
   // 微信扫码登录
   getWechatQrcode: () => Promise<{ sceneId: string; qrCodeUrl: string; expireAt: number }>
   pollWechatStatus: (sceneId: string) => Promise<{ status: string; token?: string; user?: AuthUser }>
@@ -72,11 +68,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     return !!getToken() && !!get().user
   },
 
-  login: async (account, password) => {
+  login: async (uid, password) => {
     set({ loading: true, error: null })
     try {
       const res = await api.post<{ token: string; user: AuthUser }>('/api/auth/login', {
-        account,
+        uid,
         password,
       })
       setToken(res.token)
@@ -94,11 +90,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  register: async (email, password, nickname) => {
+  register: async (password, nickname) => {
     set({ loading: true, error: null })
     try {
       const res = await api.post<{ token: string; user: AuthUser }>('/api/auth/register', {
-        email,
         password,
         nickname,
       })
@@ -107,34 +102,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // 注册成功：关闭登录弹窗，清除跳转目标
       set({ user: res.user, loading: false, loginModalOpen: false, loginRedirectTo: null })
       // 跳转到目标页
-      if (redirectTo) {
-        doRedirect(redirectTo)
-      }
-      return true
-    } catch (e) {
-      set({ error: (e as Error).message, loading: false })
-      return false
-    }
-  },
-
-  // 发送邮箱验证码
-  sendEmailCode: async (email) => {
-    try {
-      const res = await api.post<{ ok: boolean; message: string }>('/api/auth/email/send-code', { email })
-      return { ok: true }
-    } catch (e) {
-      return { ok: false, error: (e as Error).message }
-    }
-  },
-
-  // 邮箱验证码登录
-  loginWithEmailCode: async (email, code) => {
-    set({ loading: true, error: null })
-    try {
-      const res = await api.post<{ token: string; user: AuthUser }>('/api/auth/email/login', { email, code })
-      setToken(res.token)
-      const redirectTo = get().loginRedirectTo
-      set({ user: res.user, loading: false, loginModalOpen: false, loginRedirectTo: null })
       if (redirectTo) {
         doRedirect(redirectTo)
       }

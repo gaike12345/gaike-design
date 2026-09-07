@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import prisma from '../lib/prisma'
-import { authRequired, requireRole, requireSuperAdmin, requireAdminOrAbove, isStrictlyAbove, canSeeRole, roleAssignableBy, preventSuperadminSelfDemotion, UNIQUE_SUPERADMIN_EMAIL } from '../middleware/auth'
+import { addTokens } from '../lib/tokenService'
+import { authRequired, requireRole, requireSuperAdmin, requireAdminOrAbove, isStrictlyAbove, roleAssignableBy, preventSuperadminSelfDemotion, UNIQUE_SUPERADMIN_EMAIL } from '../middleware/auth'
 import { cfgNum } from '../lib/siteConfig'
 import { generateNextUid } from '../lib/uidGenerator'
 import bcrypt from 'bcryptjs'
@@ -53,6 +54,7 @@ router.get('/users', async (req: Request, res: Response, next: NextFunction) => 
       where,
       select: {
         id: true,
+        uid: true,
         email: true,
         nickname: true,
         avatar: true,
@@ -710,7 +712,7 @@ router.post('/users', async (req: Request, res: Response, next: NextFunction) =>
           nickname: nickname ? String(nickname) : String(email).split('@')[0],
           role: targetRole,
         },
-        select: { id: true, email: true, nickname: true, avatar: true, bio: true, role: true, createdAt: true },
+        select: { id: true, uid: true, email: true, nickname: true, avatar: true, bio: true, role: true, createdAt: true },
       })
       // 事务内不变量核查
       const supers = await tx.user.findMany({ where: { role: 'superadmin' }, select: { id: true, email: true } })
@@ -761,9 +763,21 @@ router.post('/users/:id/recharge', requireSuperAdmin, async (req: Request, res: 
         data: { userId: id, totalTokens: 100000, usedTokens: 0, remainingTokens: 100000, planId: 'free' },
       })
     }
+
+    // 走统一积分服务：记录流水 + 更新余额
+    const addResult = await addTokens({
+      userId: id,
+      amount: tokenAmount,
+      type: 'admin_adjust',
+      relatedType: 'admin',
+      relatedId: req.user?.userId,
+      reason: `管理员充值，操作人: ${req.user?.email || req.user?.id}`,
+    })
+
+    // 同步 totalTokens（totalTokens 是累计充值总额概念）
     const updated = await prisma.userQuota.update({
       where: { userId: id },
-      data: { totalTokens: { increment: tokenAmount }, remainingTokens: { increment: tokenAmount } },
+      data: { totalTokens: { increment: tokenAmount } },
     })
 
     // 记录充值订单
@@ -777,7 +791,7 @@ router.post('/users/:id/recharge', requireSuperAdmin, async (req: Request, res: 
       },
     })
 
-    res.json({ ok: true, newTotal: updated.totalTokens, added: tokenAmount })
+    res.json({ ok: true, newTotal: updated.totalTokens, newRemaining: addResult.remaining, added: tokenAmount })
   } catch (e) {
     next(e)
   }

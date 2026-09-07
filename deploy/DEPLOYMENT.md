@@ -80,7 +80,7 @@ git clone <your-repo-url>
 cd AI漫剧圈
 
 # 2. 复制环境变量文件
-cp .env.production .env
+cp .env.production.example .env
 
 # 3. 修改必要配置（至少修改 JWT_SECRET）
 vim .env
@@ -105,7 +105,7 @@ git clone <your-repo-url>
 cd AI漫剧圈
 
 # 2. 复制环境变量
-cp .env.production .env
+cp .env.production.example .env
 
 # 3. 修改生产配置（重要！）
 vim .env

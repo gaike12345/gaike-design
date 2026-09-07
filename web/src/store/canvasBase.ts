@@ -39,10 +39,13 @@ export type ImageStatus = 'loading' | 'done' | 'error'
 export interface GenImage {
   id: string
   url: string
+  originalUrl?: string
   prompt: string
   seed: number
   ratio: AspectRatio
   status: ImageStatus
+  width?: number
+  height?: number
   createdAt: number
 }
 
@@ -96,6 +99,7 @@ export interface UnifiedNodeData {
   imageCfg?: number
   imageSampler?: string
   imageSeed?: number
+  imageErrorMsg?: string  // 节点级错误消息（如审核失败、网络错误等）
   // video
   videoStatus?: GenStatus
   videoTaskId?: string
@@ -105,11 +109,14 @@ export interface UnifiedNodeData {
   videoResolution?: string
   videoDuration?: string
   videoRatio?: string
+  videoAudio?: boolean
+  videoErrorMsg?: string  // 节点级错误消息
   // audio
   audioText?: string
   audioVoice?: string
   audioResult?: AudioResult
   audioStatus?: GenStatus
+  audioErrorMsg?: string  // 节点级错误消息
   // negative
   negative?: string
   // params
@@ -182,27 +189,7 @@ export const UNODE_LABELS: Record<UnifiedNodeType, string> = {
 export const GRID_SIZE = 24
 
 export const IMAGE_MODELS = [
-  { id: 'general-pro', name: 'General image Pro', tag: 'Pro', desc: '通用专业图片生成模型', duration: 50, isNew: false },
-]
-
-export const IMAGE_RESOLUTIONS = [
-  { id: '1k', label: '1K', quality: '标准画质', desc: '快速预览' },
-  { id: '2k', label: '2K', quality: '高清画质', desc: '推荐' },
-  { id: '4k', label: '4K', quality: '超清画质', desc: '超高清' },
-]
-
-export const IMAGE_RATIOS = [
-  { id: 'adapt', label: '自适应', w: 0, h: 0 },
-  { id: '1:1', label: '1:1', w: 1, h: 1 },
-  { id: '9:16', label: '9:16', w: 9, h: 16 },
-  { id: '16:9', label: '16:9', w: 16, h: 9 },
-  { id: '3:4', label: '3:4', w: 3, h: 4 },
-  { id: '4:3', label: '4:3', w: 4, h: 3 },
-  { id: '3:2', label: '3:2', w: 3, h: 2 },
-  { id: '2:3', label: '2:3', w: 2, h: 3 },
-  { id: '4:5', label: '4:5', w: 4, h: 5 },
-  { id: '5:4', label: '5:4', w: 5, h: 4 },
-  { id: '21:9', label: '21:9', w: 21, h: 9 },
+  { id: 'sdxl', name: 'SDXL 基础', tag: '通用', desc: '稳定通用大模型', duration: 30, isNew: false },
 ]
 
 export const VIDEO_MODELS = [
@@ -293,9 +280,9 @@ export function normalizePortRef(
 export function defaultNodeData(type: UnifiedNodeType): UnifiedNodeData {
   switch (type) {
     case 'image':
-      return { imageResults: [], imageStatus: 'idle', imageRatio: '16:9', imageResolution: '2k', imageCount: 1, imageSteps: 28, imageCfg: 7, imageModel: 'general-pro' }
+      return { imageResults: [], imageStatus: 'idle', imageModel: 'sdxl', imageRatio: '1:1', imageResolution: 'standard', imageCount: 1, imageSteps: 28, imageCfg: 7 }
     case 'video':
-      return { videoStatus: 'idle', videoPrompt: '', videoModel: 'seedance', videoResolution: '1080p', videoDuration: '5s', videoRatio: '16:9' }
+      return { videoStatus: 'idle', videoPrompt: '', videoModel: 'seedance-pro', videoResolution: '720p', videoDuration: '5s', videoRatio: '16:9', videoAudio: false }
     case 'audio':
       return { audioText: '', audioVoice: 'nova', audioStatus: 'idle' }
   }

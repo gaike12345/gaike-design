@@ -8,6 +8,7 @@ export type ImageStatus = 'loading' | 'done' | 'error'
 export interface GenImage {
   id: string
   url: string
+  originalUrl?: string
   prompt: string
   seed: number
   ratio: AspectRatio

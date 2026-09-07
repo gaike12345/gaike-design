@@ -13,6 +13,7 @@ interface Props {
 interface State {
   hasError: boolean
   error?: Error
+  componentStack?: string
 }
 
 /**
@@ -42,6 +43,7 @@ export class ErrorBoundary extends Component<Props, State> {
       console.error('[ErrorBoundary] 组件渲染出错:', error)
       console.error('[ErrorBoundary] 组件栈:', info.componentStack)
     }
+    this.setState({ componentStack: info.componentStack })
     this.props.onError?.(error, info)
   }
 
@@ -119,12 +121,26 @@ export class ErrorBoundary extends Component<Props, State> {
                 padding: '12px',
                 marginBottom: '20px',
                 overflow: 'auto',
-                maxHeight: '160px',
+                maxHeight: '300px',
                 fontSize: '12px',
                 color: '#f87171',
                 fontFamily: 'ui-monospace, Consolas, monospace',
+                whiteSpace: 'pre-wrap',
               }}>
+                <div style={{ fontWeight: 600, marginBottom: '8px', color: '#fca5a5' }}>错误信息</div>
                 {this.state.error.message}
+                {this.state.error.stack && (
+                  <>
+                    <div style={{ fontWeight: 600, margin: '12px 0 8px', color: '#fca5a5' }}>调用栈</div>
+                    {this.state.error.stack.split('\n').slice(0, 15).join('\n')}
+                  </>
+                )}
+                {this.state.componentStack && (
+                  <>
+                    <div style={{ fontWeight: 600, margin: '12px 0 8px', color: '#fbbf24' }}>组件栈</div>
+                    {this.state.componentStack.split('\n').slice(0, 20).join('\n')}
+                  </>
+                )}
               </div>
             )}
 

@@ -154,7 +154,7 @@ export function WorksTab({ role, onError }: { role?: Role; onError: (e: string) 
         </table>
       </div>
       {total > pageSize && (
-        <Pagination page={page} total={total} pageSize={pageSize} onChange={setPage} />
+        <Pagination page={page} total={total} pageSize={pageSize} onPageChange={setPage} />
       )}
     </div>
   )

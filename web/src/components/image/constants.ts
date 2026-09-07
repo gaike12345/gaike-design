@@ -20,10 +20,6 @@ export const RATIOS: { value: AspectRatio; label: string; w: number; h: number }
 // 模型列表
 export const MODELS = [
   { id: 'sdxl', name: 'SDXL 基础', tag: '通用', desc: '稳定通用大模型' },
-  { id: 'flux', name: 'Flux Dev', tag: '高质量', desc: '细节表现优异' },
-  { id: 'smart-v2', name: '智能图片 V2', tag: '长文本', desc: '长排版文字准确' },
-  { id: 'seedream', name: 'Seedream 5.0', tag: '多语言', desc: '交互式编辑' },
-  { id: 'guoman', name: '国漫专用', tag: '风格', desc: '中文漫画优化' },
 ]
 
 // 提示词模板

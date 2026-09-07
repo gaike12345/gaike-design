@@ -37,8 +37,19 @@ import AboutPage from './pages/AboutPage'
 import AdminPage from './pages/AdminPage'
 import SettingsPage from './pages/SettingsPage'
 import NotFoundPage from './pages/NotFoundPage'
+import { getToken } from './services/api'
 
 function App() {
+  const fetchMe = useAuthStore((s) => s.fetchMe)
+
+  // 应用启动时预加载用户信息（有 token 时）
+  // 这样进入需要登录的页面时 user 已就绪，避免验证等待
+  useEffect(() => {
+    if (getToken()) {
+      fetchMe()
+    }
+  }, [fetchMe])
+
   return (
     <>
     <Routes>

@@ -28,6 +28,7 @@ import {
   ShieldCheck,
   ShieldX,
   Trash2,
+  UserPlus,
   UserX,
   Users,
   X,
@@ -47,6 +48,7 @@ import {
   isStrictlyAbove,
 } from './common'
 import { api } from '../../services/api'
+import { useResizableTable, ResizableHandle } from './ResizableTable'
 
 // ===== 套餐选项（用户详情抽屉使用）=====
 const PLAN_OPTIONS: { id: string; label: string }[] = [
@@ -70,8 +72,27 @@ export function UsersTab({ currentUserId, role, onError }: { currentUserId: stri
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null)
   // 超级管理员删除账号 —— 行级垃圾桶按钮触发的密码二次确认弹窗
   const [deleteUserPrompt, setDeleteUserPrompt] = useState<AdminUser | null>(null)
+
+  // 可拖拽调整列宽
+  const COL_KEYS = ['uid', 'nickname', 'email', 'role', 'status', 'works', 'comments', 'createdAt', 'actions'] as const
+  type ColKey = typeof COL_KEYS[number]
+  const DEFAULT_WIDTHS: Record<ColKey, number> = {
+    uid: 80,
+    nickname: 140,
+    email: 200,
+    role: 90,
+    status: 90,
+    works: 70,
+    comments: 70,
+    createdAt: 160,
+    actions: 140,
+  }
+  const { colWidths, handleMouseDown } = useResizableTable<ColKey>(COL_KEYS, DEFAULT_WIDTHS)
   const [deleteConfirmPassword, setDeleteConfirmPassword] = useState('')
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null)
+  // 新建用户弹窗
+  const [createModalOpen, setCreateModalOpen] = useState(false)
+  const [creatingUser, setCreatingUser] = useState(false)
   const canDeleteAccounts = role === 'superadmin'
   // 密码框 ref —— 用 useEffect 显式聚焦，比 autoFocus 可靠（避免点击删除按钮后键入字符
   // 仍落入搜索框触发 keyword 防抖搜索"邮箱"的问题）
@@ -107,6 +128,20 @@ export function UsersTab({ currentUserId, role, onError }: { currentUserId: stri
     },
     [onError],
   )
+
+  // 新建用户
+  const handleCreateUser = async (data: { email: string; password: string; nickname?: string; role: Role }) => {
+    setCreatingUser(true)
+    try {
+      const newUser = await api.post<AdminUser>('/api/admin/users', data)
+      setUsers((prev) => [newUser, ...prev])
+      setCreateModalOpen(false)
+    } catch (e) {
+      onError((e as Error).message)
+    } finally {
+      setCreatingUser(false)
+    }
+  }
 
   // 保存编辑的下级用户信息
   const handleSaveEdit = async (data: { nickname: string; email: string; bio: string }) => {
@@ -242,6 +277,15 @@ export function UsersTab({ currentUserId, role, onError }: { currentUserId: stri
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
           刷新
         </button>
+        {role && isStrictlyAbove(role, 'user') && (
+          <button
+            onClick={() => setCreateModalOpen(true)}
+            className="btn-primary !px-3 !py-1.5 text-sm"
+          >
+            <UserPlus className="h-4 w-4" />
+            新建用户
+          </button>
+        )}
         <span className="ml-auto text-sm text-neutral-400">共 {users.length} 位用户</span>
       </div>
 
@@ -258,17 +302,44 @@ export function UsersTab({ currentUserId, role, onError }: { currentUserId: stri
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-[980px] w-full text-sm">
+            <table className="w-full text-sm table-fixed">
               <thead className="bg-neutral-50/80">
                 <tr className="text-left text-xs font-medium uppercase tracking-wide text-neutral-500">
-                  <th className="px-4 py-3 whitespace-nowrap">昵称</th>
-                  <th className="px-4 py-3 whitespace-nowrap">邮箱</th>
-                  <th className="px-4 py-3 whitespace-nowrap">角色</th>
-                  <th className="px-4 py-3 whitespace-nowrap">状态</th>
-                  <th className="px-4 py-3 whitespace-nowrap text-center">作品</th>
-                  <th className="px-4 py-3 whitespace-nowrap text-center">评论</th>
-                  <th className="px-4 py-3 whitespace-nowrap">注册时间</th>
-                  <th className="px-4 py-3 whitespace-nowrap text-right">操作</th>
+                  <th className="relative px-4 py-3 whitespace-nowrap" style={{ width: colWidths.uid }}>
+                    UID
+                    <ResizableHandle onMouseDown={(e) => handleMouseDown(e, 'uid')} />
+                  </th>
+                  <th className="relative px-4 py-3 whitespace-nowrap" style={{ width: colWidths.nickname }}>
+                    昵称
+                    <ResizableHandle onMouseDown={(e) => handleMouseDown(e, 'nickname')} />
+                  </th>
+                  <th className="relative px-4 py-3 whitespace-nowrap" style={{ width: colWidths.email }}>
+                    邮箱
+                    <ResizableHandle onMouseDown={(e) => handleMouseDown(e, 'email')} />
+                  </th>
+                  <th className="relative px-4 py-3 whitespace-nowrap" style={{ width: colWidths.role }}>
+                    角色
+                    <ResizableHandle onMouseDown={(e) => handleMouseDown(e, 'role')} />
+                  </th>
+                  <th className="relative px-4 py-3 whitespace-nowrap" style={{ width: colWidths.status }}>
+                    状态
+                    <ResizableHandle onMouseDown={(e) => handleMouseDown(e, 'status')} />
+                  </th>
+                  <th className="relative px-4 py-3 whitespace-nowrap text-center" style={{ width: colWidths.works }}>
+                    作品
+                    <ResizableHandle onMouseDown={(e) => handleMouseDown(e, 'works')} />
+                  </th>
+                  <th className="relative px-4 py-3 whitespace-nowrap text-center" style={{ width: colWidths.comments }}>
+                    评论
+                    <ResizableHandle onMouseDown={(e) => handleMouseDown(e, 'comments')} />
+                  </th>
+                  <th className="relative px-4 py-3 whitespace-nowrap" style={{ width: colWidths.createdAt }}>
+                    注册时间
+                    <ResizableHandle onMouseDown={(e) => handleMouseDown(e, 'createdAt')} />
+                  </th>
+                  <th className="px-4 py-3 whitespace-nowrap text-right" style={{ width: colWidths.actions }}>
+                    操作
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100 bg-white">
@@ -287,6 +358,11 @@ export function UsersTab({ currentUserId, role, onError }: { currentUserId: stri
                       : ROLE_ASSIGNABLE_OPTIONS
                   return (
                     <tr key={u.id} className={`hover:bg-neutral-50/60 ${u.enabled === false ? 'bg-rose-50/30' : ''} ${isUniqueSuperadmin ? 'bg-gradient-to-r from-amber-50/70 via-amber-50/20 to-transparent' : ''}`}>
+                      <td className="px-4 py-3">
+                        <code className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs font-mono font-semibold text-neutral-700">
+                          {u.uid}
+                        </code>
+                      </td>
                       <td className="px-4 py-3">
                         <div className="flex min-w-[200px] items-center gap-2">
                           <UserAvatar user={u} />
@@ -446,6 +522,16 @@ export function UsersTab({ currentUserId, role, onError }: { currentUserId: stri
           saving={updatingId === editingUser.id}
           onSave={handleSaveEdit}
           onClose={() => setEditingUser(null)}
+        />
+      )}
+
+      {/* 新建用户弹窗 */}
+      {createModalOpen && (
+        <CreateUserDialog
+          operatorRole={role}
+          creating={creatingUser}
+          onCreate={handleCreateUser}
+          onClose={() => setCreateModalOpen(false)}
         />
       )}
 
@@ -615,6 +701,135 @@ export function EditUserDialog({
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             保存
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ===== 新建用户弹窗 =====
+export function CreateUserDialog({
+  operatorRole,
+  creating,
+  onCreate,
+  onClose,
+}: {
+  operatorRole?: Role
+  creating: boolean
+  onCreate: (data: { email: string; password: string; nickname?: string; role: Role }) => void
+  onClose: () => void
+}) {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [nickname, setNickname] = useState('')
+  const [role, setRole] = useState<Role>('user')
+  const [error, setError] = useState('')
+
+  const canCreateAdmin = operatorRole === 'superadmin'
+  const roleOptions: Role[] = canCreateAdmin ? ['user', 'admin'] : ['user']
+
+  const handleSubmit = () => {
+    setError('')
+    if (!email.trim()) {
+      setError('请输入邮箱')
+      return
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('邮箱格式不正确')
+      return
+    }
+    if (!password || password.length < 6) {
+      setError('密码至少 6 位')
+      return
+    }
+    onCreate({ email: email.trim(), password, nickname: nickname.trim() || undefined, role })
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div
+        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-bold text-neutral-900">新建用户账号</h3>
+          <button onClick={onClose} className="rounded-md p-1 text-neutral-400 hover:bg-neutral-100">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {error && (
+          <div className="mb-4 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-600 border border-rose-200">
+            {error}
+          </div>
+        )}
+
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-neutral-700">
+              邮箱 <span className="text-rose-500">*</span>
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="input"
+              placeholder="user@example.com"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-neutral-700">
+              初始密码 <span className="text-rose-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="input"
+              placeholder="至少 6 位"
+            />
+            <p className="mt-1 text-[11px] text-neutral-400">用户首次登录后可自行修改密码</p>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-neutral-700">昵称</label>
+            <input
+              type="text"
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              className="input"
+              placeholder="留空则用邮箱前缀"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-neutral-700">角色</label>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value as Role)}
+              className="input"
+            >
+              {roleOptions.map((r) => (
+                <option key={r} value={r}>{ROLE_LABELS[r] || r}</option>
+              ))}
+            </select>
+            {!canCreateAdmin && (
+              <p className="mt-1 text-[11px] text-neutral-400">管理员仅能创建普通用户账号</p>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-6 flex justify-end gap-3">
+          <button onClick={onClose} className="btn-outline !px-4 !py-2 text-sm">
+            取消
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={creating}
+            className="btn-primary !px-4 !py-2 text-sm disabled:opacity-50"
+          >
+            {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+            创建账号
           </button>
         </div>
       </div>

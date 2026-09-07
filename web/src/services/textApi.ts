@@ -1,7 +1,7 @@
 // LLM 文本生成服务层（前端 → Vite proxy → Node 后端 → DeepSeek/模板）
 // 已对接后端 API，自动携带 JWT auth header
 
-import { getToken } from './api'
+import { api } from './api'
 
 export interface ScriptCharacter {
   name: string
@@ -43,33 +43,23 @@ interface LlmResponse<T> {
 
 async function postJson<T>(url: string, body: unknown): Promise<LlmResponse<T>> {
   try {
-    const token = getToken()
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (token) headers.Authorization = `Bearer ${token}`
-
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    })
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}))
-      // 内容审核拦截（403 + source=moderation）：返回带 blocked 标记的响应，便于前端显示违规提示
-      if (errBody.blocked || errBody.source === 'moderation') {
+    return await api.post<LlmResponse<T>>(url, body)
+  } catch (e: any) {
+    // 403 内容审核拦截：返回带 blocked 标记的响应，便于前端显示违规提示
+    if (e.status === 403 && e.data) {
+      const errData = e.data as any
+      if (errData.blocked || errData.source === 'moderation') {
         return {
           ok: false,
           source: 'moderation',
-          error: errBody.error || '内容审核拦截',
+          error: errData.error || '内容审核拦截',
           blocked: true,
-          stage: errBody.stage,
-          riskLevel: errBody.riskLevel,
+          stage: errData.stage,
+          riskLevel: errData.riskLevel,
         } as unknown as LlmResponse<T>
       }
-      throw new Error(errBody.error || `HTTP ${res.status}`)
     }
-    return (await res.json()) as LlmResponse<T>
-  } catch (e) {
-    return { ok: false, error: (e as Error).message }
+    return { ok: false, error: e.message || '请求失败' }
   }
 }
 

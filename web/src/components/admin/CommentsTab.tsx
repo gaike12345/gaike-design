@@ -75,7 +75,7 @@ export function CommentsTab({ onError }: { onError: (e: string) => void }) {
           </div>
         ))}
       </div>
-      {total > pageSize && <Pagination page={page} total={total} pageSize={pageSize} onChange={setPage} />}
+      {total > pageSize && <Pagination page={page} total={total} pageSize={pageSize} onPageChange={setPage} />}
     </div>
   )
 }

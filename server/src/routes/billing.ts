@@ -6,19 +6,21 @@ import { getAllSiteConfigs } from '../lib/siteConfig'
 const router = Router()
 
 // 会员套餐定义（H3: 默认值，运行时从 SiteConfig 读取，可在管理后台动态调整）
+// 标准汇率：1元 = 100积分
 const DEFAULT_PLANS = [
-  { id: 'free', name: '免费版', price: 0, tokens: 100000, features: ['基础生成', '社区浏览', '每日 100 次调用'] },
-  { id: 'pro', name: '专业版', price: 29, tokens: 500000, features: ['无限生成', '优先队列', '高清导出', '无水印'] },
-  { id: 'business', name: '商业版', price: 99, tokens: 2000000, features: ['专业版全部功能', '商用授权', 'API 接入', '专属客服'] },
-  { id: 'enterprise', name: '企业版', price: 299, tokens: 10000000, features: ['商业版全部功能', '私有部署', '定制模型', 'SLA 保障'] },
+  { id: 'free', name: '免费版', price: 0, tokens: 1000, features: ['基础生成', '社区浏览', '每日签到赠积分'] },
+  { id: 'pro', name: '专业版', price: 29, tokens: 3000, features: ['优先队列', '高清导出', '无水印', '专属模板'] },
+  { id: 'business', name: '商业版', price: 99, tokens: 12000, features: ['专业版全部功能', '商用授权', 'API 接入', '专属客服'] },
+  { id: 'enterprise', name: '企业版', price: 299, tokens: 40000, features: ['商业版全部功能', '私有部署', '定制模型', 'SLA 保障'] },
 ]
 
 // 充值套餐定义（H3: 默认值，运行时从 SiteConfig 读取）
+// 标准汇率：1元 = 100积分，充值越多赠送越多
 const DEFAULT_RECHARGE_PACKAGES = [
-  { id: 'pkg_10', tokens: 100000, price: 9, bonus: 0 },
-  { id: 'pkg_50', tokens: 500000, price: 39, bonus: 50000 },
-  { id: 'pkg_100', tokens: 1000000, price: 69, bonus: 150000 },
-  { id: 'pkg_500', tokens: 5000000, price: 299, bonus: 1000000 },
+  { id: 'pkg_10', tokens: 900, price: 9, bonus: 100 },
+  { id: 'pkg_50', tokens: 3900, price: 39, bonus: 600 },
+  { id: 'pkg_100', tokens: 6900, price: 69, bonus: 1600 },
+  { id: 'pkg_500', tokens: 29900, price: 299, bonus: 10100 },
 ]
 
 // H3: 从 SiteConfig 读取计费配置，解析失败或未配置时回退到硬编码默认值

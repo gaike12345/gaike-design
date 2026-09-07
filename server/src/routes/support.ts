@@ -63,7 +63,7 @@ router.post('/chat', authLimiter, authOptional, async (req, res, next) => {
       }
       return res.status(403).json({
         ok: false, blocked: true, stage: 'input',
-        error: inputMod.reason,
+        error: inputMod.safeReason,
         riskLevel: inputMod.riskLevel,
       })
     }

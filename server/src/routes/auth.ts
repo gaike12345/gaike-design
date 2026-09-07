@@ -1,4 +1,4 @@
-﻿import { Router } from 'express'
+import { Router } from 'express'
 import bcrypt from 'bcryptjs'
 import prisma from '../lib/prisma'
 import { signToken } from '../lib/jwt'
@@ -8,43 +8,36 @@ import { authLimiter } from '../middleware/rate-limit'
 import { validate, z } from '../middleware/validate'
 import { cfgNum } from '../lib/siteConfig'
 import { moderateUpload, cleanupUploadedFile } from '../lib/moderation'
-import { sendEmailCode, verifyEmailCodeAndLogin } from '../lib/emailCode'
 import { createWechatScanScene, getWechatScanStatus } from '../lib/wechatLogin'
 import { generateNextUid } from '../lib/uidGenerator'
 
 const router = Router()
 
 // POST /api/auth/register
+// 注册：自动分配 UID，设置密码和昵称
+// email 字段保留用于系统兼容，但不作为登录凭据（用户无需感知）
 router.post('/register', authLimiter, validate({
   body: z.object({
-    email: z.string().email().max(255),
     password: z.string().min(6).max(128),
     nickname: z.string().min(1).max(32).optional(),
   }),
 }), async (req, res, next) => {
   try {
-    const { email, password, nickname } = req.body
-    // 唯一超级管理员不变量：禁止外部注册占用系统保留邮箱 admin@manktv.com
-    // （否则会导致后续 seed 失败 / 真实超管无法创建，破坏唯一性约束）
-    if (String(email).trim().toLowerCase() === UNIQUE_SUPERADMIN_EMAIL.toLowerCase()) {
-      return res.status(403).json({ error: `系统保留邮箱(${UNIQUE_SUPERADMIN_EMAIL})不可注册` })
-    }
-    const exists = await prisma.user.findUnique({ where: { email } })
-    if (exists) {
-      return res.status(409).json({ error: '该邮箱已注册' })
-    }
+    const { password, nickname } = req.body
     const hashed = await bcrypt.hash(password, 10)
     const uid = await generateNextUid()
+    // 用 UID 生成一个内部邮箱占位符（保持数据库唯一约束兼容）
+    const internalEmail = `uid_${uid}@local`
     const user = await prisma.user.create({
       data: {
         uid,
-        email,
+        email: internalEmail,
         password: hashed,
-        nickname: nickname || email.split('@')[0],
+        nickname: nickname || `用户${uid}`,
       },
     })
     // 新用户免费额度：从站点配置读取（可在后台可视化调整）
-    const freeTokens = Math.max(0, await cfgNum('login.new_user_tokens', 100_000))
+    const freeTokens = Math.max(0, await cfgNum('login.new_user_tokens', 1000))
     await prisma.userQuota.create({
       data: {
         userId: user.id,
@@ -54,13 +47,12 @@ router.post('/register', authLimiter, validate({
         planId: 'free',
       },
     })
-    const token = signToken({ userId: user.id, email: user.email, role: user.role })
+    const token = signToken({ userId: user.id, uid: user.uid, email: user.email, role: user.role })
     res.json({
       token,
       user: {
         id: user.id,
         uid: user.uid,
-        email: user.email,
         nickname: user.nickname,
         avatar: user.avatar,
         role: user.role,
@@ -71,42 +63,39 @@ router.post('/register', authLimiter, validate({
   }
 })
 
-// POST /api/auth/login — 支持邮箱 或 UID 登录
+// POST /api/auth/login — 仅 UID 登录
 router.post('/login', authLimiter, validate({
   body: z.object({
-    account: z.string().min(1).max(255), // 邮箱 或 UID
+    uid: z.string().regex(/^\d+$/, 'UID 必须是数字'),
     password: z.string().min(1).max(128),
   }),
 }), async (req, res, next) => {
   try {
-    const { account, password } = req.body
+    const { uid, password } = req.body
 
-    // 判断是 UID（纯数字）还是邮箱
-    const isUid = /^\d+$/.test(account)
-    const user = isUid
-      ? await prisma.user.findUnique({ where: { uid: parseInt(account, 10) } })
-      : await prisma.user.findUnique({ where: { email: account } })
+    const user = await prisma.user.findUnique({
+      where: { uid: parseInt(uid, 10) },
+    })
 
     if (!user) {
-      return res.status(401).json({ error: '账号或密码错误' })
+      return res.status(401).json({ error: 'UID 或密码错误' })
     }
     if (!user.password) {
-      return res.status(401).json({ error: '该账号未设置密码，请使用验证码或微信登录' })
+      return res.status(401).json({ error: '该账号未设置密码，请联系管理员' })
     }
     const valid = await bcrypt.compare(password, user.password)
     if (!valid) {
-      return res.status(401).json({ error: '账号或密码错误' })
+      return res.status(401).json({ error: 'UID 或密码错误' })
     }
     if (!user.enabled) {
       return res.status(403).json({ error: '账号已被关闭，请联系管理员' })
     }
-    const token = signToken({ userId: user.id, email: user.email, role: user.role })
+    const token = signToken({ userId: user.id, uid: user.uid, email: user.email, role: user.role })
     res.json({
       token,
       user: {
         id: user.id,
         uid: user.uid,
-        email: user.email,
         nickname: user.nickname,
         avatar: user.avatar,
         role: user.role,
@@ -127,7 +116,7 @@ router.get('/me', authRequired, async (req, res, next) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user!.userId },
-      select: { id: true, uid: true, email: true, nickname: true, avatar: true, bio: true, role: true },
+      select: { id: true, uid: true, nickname: true, avatar: true, bio: true, role: true },
     })
     if (!user) return res.status(404).json({ error: '用户不存在' })
     res.json({ user })
@@ -146,9 +135,55 @@ router.put('/profile', authRequired, async (req, res, next) => {
         ...(nickname !== undefined && { nickname }),
         ...(bio !== undefined && { bio }),
       },
-      select: { id: true, email: true, nickname: true, avatar: true, bio: true, role: true },
+      select: { id: true, uid: true, nickname: true, avatar: true, bio: true, role: true },
     })
     res.json({ user })
+  } catch (e) {
+    next(e)
+  }
+})
+
+// PUT /api/auth/password — 修改密码（需验证旧密码）
+router.put('/password', authRequired, validate({
+  body: z.object({
+    oldPassword: z.string().min(1).max(128),
+    newPassword: z.string().min(6).max(128),
+  }),
+}), async (req, res, next) => {
+  try {
+    const { oldPassword, newPassword } = req.body
+    const userId = req.user!.userId
+
+    // 1. 查找用户并验证旧密码
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, password: true },
+    })
+    if (!user) return res.status(404).json({ error: '用户不存在' })
+
+    // 无密码的账号（如第三方登录用户）不能设置密码
+    if (!user.password) {
+      return res.status(400).json({ error: '当前账号未设置密码，请联系管理员' })
+    }
+
+    const valid = await bcrypt.compare(oldPassword, user.password)
+    if (!valid) {
+      return res.status(400).json({ error: '旧密码不正确' })
+    }
+
+    // 2. 新密码不能和旧密码相同
+    if (oldPassword === newPassword) {
+      return res.status(400).json({ error: '新密码不能与旧密码相同' })
+    }
+
+    // 3. 哈希并更新
+    const hashed = await bcrypt.hash(newPassword, 10)
+    await prisma.user.update({
+      where: { id: userId },
+      data: { password: hashed },
+    })
+
+    res.json({ ok: true, message: '密码修改成功' })
   } catch (e) {
     next(e)
   }
@@ -164,43 +199,10 @@ router.post('/avatar', authRequired, upload.single('avatar'), validateUploadedFi
   })
   if (!mod.passed) {
     void cleanupUploadedFile(req.file.path)
-    return res.status(403).json({ error: mod.reason, moderation: mod.result })
+    return res.status(403).json({ error: mod.safeReason })
   }
   const url = `/uploads/${req.file.filename}`
   res.json({ url })
-})
-
-// ============================================================
-// 邮箱验证码登录（163 SMTP）
-// ============================================================
-
-// POST /api/auth/email/send-code — 发送验证码
-router.post('/email/send-code', authLimiter, validate({
-  body: z.object({
-    email: z.string().email().max(255),
-  }),
-}), async (req, res) => {
-  const { email } = req.body
-  const result = await sendEmailCode(email)
-  if (!result.ok) {
-    return res.status(400).json({ error: result.error })
-  }
-  res.json({ ok: true, message: '验证码已发送' })
-})
-
-// POST /api/auth/email/login — 验证码登录（自动注册新用户）
-router.post('/email/login', authLimiter, validate({
-  body: z.object({
-    email: z.string().email().max(255),
-    code: z.string().length(6),
-  }),
-}), async (req, res) => {
-  const { email, code } = req.body
-  const result = await verifyEmailCodeAndLogin(email, code)
-  if (!result.ok) {
-    return res.status(400).json({ error: result.error })
-  }
-  res.json({ token: result.token, user: result.user })
 })
 
 // ============================================================

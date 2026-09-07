@@ -1,29 +1,25 @@
 // 充值中心 Tab 组件
 // 从 SettingsPage.tsx 抽取。
+// 注意：实际支付功能暂未开放，点击充值后弹出「联系管理员」弹窗作为临时替代。
 
 import { useCallback, useEffect, useState } from 'react'
 import {
-  AlertCircle,
-  Check,
   CreditCard,
-  Loader2,
   Zap,
 } from 'lucide-react'
 import { api } from '../../services/api'
-import DemoBadge from '../ui/DemoBadge'
 import { LoadingBlock, ErrorBlock, EmptyBlock } from './common'
 import { formatTokens } from './common'
-import type { Package, PackagesResponse, PayResult } from './types'
+import type { Package, PackagesResponse } from './types'
+import ContactAdminModal from '../ContactAdminModal'
 
 export function RechargeTab() {
   const [packages, setPackages] = useState<Package[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [payMethod, setPayMethod] = useState<'alipay' | 'wechat'>('alipay')
-  const [paying, setPaying] = useState(false)
-  const [payOrder, setPayOrder] = useState<{ id: string } | null>(null)
-  const [payMsg, setPayMsg] = useState<string | null>(null)
-  const [actionError, setActionError] = useState<string | null>(null)
+  const [showContact, setShowContact] = useState(false)
+  const [selectedPkg, setSelectedPkg] = useState<Package | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -40,33 +36,9 @@ export function RechargeTab() {
 
   useEffect(() => { load() }, [load])
 
-  const handleRecharge = async (pkg: Package) => {
-    setActionError(null)
-    setPaying(true)
-    try {
-      const res = await api.post<PayResult>('/api/billing/recharge', { packageId: pkg.id, payMethod })
-      setPayOrder({ id: res.order.id })
-      setPayMsg(res.message || `已创建订单，支付方式：${payMethod === 'alipay' ? '支付宝' : '微信'}`)
-    } catch (e) {
-      setActionError((e as Error).message)
-    } finally {
-      setPaying(false)
-    }
-  }
-
-  const handleConfirmPay = async () => {
-    if (!payOrder) return
-    setPaying(true)
-    setActionError(null)
-    try {
-      await api.post<{ ok: boolean; message?: string }>(`/api/billing/pay/${payOrder.id}`)
-      setPayMsg('支付成功，额度已刷新')
-      setPayOrder(null)
-    } catch (e) {
-      setActionError((e as Error).message)
-    } finally {
-      setPaying(false)
-    }
+  const handleRecharge = (pkg: Package) => {
+    setSelectedPkg(pkg)
+    setShowContact(true)
   }
 
   if (loading) return <LoadingBlock />
@@ -74,7 +46,6 @@ export function RechargeTab() {
 
   return (
     <div className="space-y-5">
-      <DemoBadge variant="banner" className="mb-4">充值流程为 MVP 演示阶段，不会真的扣费，可点击「模拟支付完成」立即到账。</DemoBadge>
       <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base font-semibold text-neutral-900 flex items-center gap-2">
@@ -100,20 +71,6 @@ export function RechargeTab() {
             </div>
           </div>
         </div>
-
-        {actionError && (
-          <div className="mt-3 flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
-            <AlertCircle className="h-3.5 w-3.5" />
-            {actionError}
-          </div>
-        )}
-
-        {payMsg && !payOrder && (
-          <div className="mt-3 flex items-center gap-1.5 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-700">
-            <Check className="h-3.5 w-3.5" />
-            {payMsg}
-          </div>
-        )}
 
         {/* 套餐网格 */}
         {packages.length === 0 ? (
@@ -142,46 +99,29 @@ export function RechargeTab() {
                 <button
                   type="button"
                   onClick={() => handleRecharge(pkg)}
-                  disabled={paying}
                   className="btn-primary mt-4 w-full !py-2 text-sm"
                 >
-                  {paying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CreditCard className="h-3.5 w-3.5" />}
+                  <CreditCard className="h-3.5 w-3.5" />
                   立即充值
                 </button>
               </div>
             ))}
           </div>
         )}
-
-        {/* 支付确认弹层 */}
-        {payOrder && (
-          <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50/60 p-5">
-            <div className="flex items-center gap-2 text-amber-700">
-              <AlertCircle className="h-4 w-4" />
-              <span className="text-sm font-medium">支付确认</span>
-            </div>
-            <p className="mt-2 text-xs text-amber-700">{payMsg || '订单已创建，点击下方按钮模拟完成支付'}</p>
-            <div className="mt-3 flex gap-2">
-              <button
-                type="button"
-                onClick={handleConfirmPay}
-                disabled={paying}
-                className="btn-primary !py-1.5 text-xs"
-              >
-                {paying ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                确认支付
-              </button>
-              <button
-                type="button"
-                onClick={() => { setPayOrder(null); setPayMsg(null) }}
-                className="btn-ghost !py-1.5 text-xs"
-              >
-                取消
-              </button>
-            </div>
-          </div>
-        )}
       </section>
+
+      {/* 联系管理员弹窗 */}
+      <ContactAdminModal
+        open={showContact}
+        onClose={() => setShowContact(false)}
+        title="充值确认"
+        description={
+          selectedPkg
+            ? `您选择了 ${formatTokens(selectedPkg.tokens)} 积分套餐（¥${selectedPkg.price}），请联系管理员充值到账。`
+            : '请联系管理员办理充值，我们将在 24 小时内为您处理。'
+        }
+        tone="amber"
+      />
     </div>
   )
 }

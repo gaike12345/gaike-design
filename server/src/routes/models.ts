@@ -3,7 +3,7 @@ import prisma from '../lib/prisma'
 import { authRequired, requireRole, requireAdminOrAbove } from '../middleware/auth'
 import bcrypt from 'bcryptjs'
 import { invalidateModelCostCache } from '../lib/modelCost'
-import { estimateImageCost } from './image'
+import { calcImageCost, invalidateImageModelCache } from '../lib/imageModels'
 import { estimateVideoCost } from './video'
 import { estimateTTSCost, estimateMusicCost } from './audio'
 import {
@@ -170,6 +170,7 @@ modelRouter.post('/', authRequired, requireAdminOrAbove, verifyPassword, async (
     if (typeof costTokens === 'number' && Number.isFinite(costTokens) && costTokens >= 0) data.costTokens = Math.trunc(costTokens)
     const model = await prisma.aIModel.create({ data })
     invalidateModelCostCache() // 新增模型 → 下次请求重拉
+    if (type === 'image') invalidateImageModelCache() // 图片模型配置缓存也失效
     res.json({ model })
   } catch (e) {
     next(e)
@@ -209,6 +210,9 @@ modelRouter.put('/:id', authRequired, requireAdminOrAbove, async (req, res, next
       data: updateData,
     })
     invalidateModelCostCache() // 更新模型 → 全局失效（含 costTokens 变更）
+    // 如果是图片模型或 type/config 变化，也失效图片模型配置缓存
+    const updatedType = type || updated.type
+    if (updatedType === 'image') invalidateImageModelCache()
     res.json({ model: updated })
   } catch (e) {
     next(e)
@@ -224,7 +228,7 @@ modelRouter.patch('/:id/cost', authRequired, requireAdminOrAbove, async (req, re
     if (typeof costTokens !== 'number' || !Number.isFinite(costTokens) || costTokens < 0) {
       return res.status(400).json({ error: 'costTokens 必须是 ≥0 的整数积分值' })
     }
-    const model = await prisma.aIModel.findUnique({ where: { id }, select: { id: true, name: true, costTokens: true } })
+    const model = await prisma.aIModel.findUnique({ where: { id }, select: { id: true, name: true, costTokens: true, type: true } })
     if (!model) return res.status(404).json({ error: '模型不存在' })
     const oldValue = model.costTokens
     const newValue = Math.trunc(costTokens)
@@ -246,6 +250,7 @@ modelRouter.patch('/:id/cost', authRequired, requireAdminOrAbove, async (req, re
       }),
     ])
     invalidateModelCostCache() // 核心：积分制度全局同步 — 下一次扣减立即使用新值
+    if (model.type === 'image') invalidateImageModelCache() // 图片模型配置也含 costTokens
     res.json({
       model: updated,
       changed: { from: oldValue, to: newValue },
@@ -262,7 +267,10 @@ modelRouter.delete('/:id', authRequired, requireAdminOrAbove, verifyPassword, as
   try {
     const exists = await prisma.aIModel.findUnique({ where: { id: String(req.params.id) } })
     if (!exists) return res.status(404).json({ error: '模型不存在' })
+    const wasImage = exists.type === 'image'
     await prisma.aIModel.delete({ where: { id: String(req.params.id) } })
+    invalidateModelCostCache()
+    if (wasImage) invalidateImageModelCache()
     res.json({ ok: true })
   } catch (e) {
     next(e)
@@ -303,11 +311,11 @@ router.post('/models/estimate-cost', authRequired, async (req: Request, res: Res
     let tokens = 0
     switch (kind) {
       case 'image':
-        tokens = await estimateImageCost({
-          model: params.model as string | undefined,
-          ratio: params.ratio as string | undefined,
-          resolution: params.resolution as string | undefined,
-        })
+        tokens = await calcImageCost(
+          (params.model as string) || 'flux',
+          (params.resolution as string) || 'standard',
+          1,
+        )
         break
       case 'video':
         tokens = await estimateVideoCost({

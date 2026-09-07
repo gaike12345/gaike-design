@@ -88,62 +88,128 @@ export const DEFAULT_SENSITIVE_WORDS: Record<string, string[]> = {
     // 中文
     '颠覆国家政权', '推翻社会主义制度', '分裂国家', '煽动颠覆', '推翻政权',
     '反党反社会主义', '境外敌对势力', '颜色革命', '政治谣言',
-    // 英文
-    'overthrow government', 'subvert state power', 'separatism', 'color revolution',
-    'political rumor', 'enemy forces', 'anti-government',
+    // 英文单词级（归一化后命中）
+    'separatism', 'sedition', 'treason', 'insurgency', 'coup',
+    'dissident', 'subversion',
+    // 英文短语
+    'overthrow government', 'subvert state power', 'color revolution',
+    'political rumor', 'enemy forces', 'anti government',
+    'regime change', 'overthrow regime', 'violent revolution',
+    'independence movement', 'secessionist', 'hostile foreign',
   ],
   violence: [
     // 中文
     '制造炸弹', '恐怖袭击', '自杀方法', '杀人技巧', '极端组织',
     '爆炸物制作', '血腥暴力', '持枪杀人', '砍人方法', '投毒方法',
     '恐怖主义', '圣战', '极端宗教', '仇杀',
-    // 英文（单词级，归一化后仍能匹配）
+    // 英文单词级（归一化后命中）
     'terrorism', 'jihad', 'torture', 'beheading', 'massacre',
-    'assassination', 'kidnapping', 'snuff', 'gore',
+    'assassination', 'kidnapping', 'snuff', 'gore', 'mutilation',
+    'crucifixion', 'decapitation', 'dismemberment', 'bloodshed',
+    'slaughter', 'carnage', 'butchery', 'homicide', 'manslaughter',
+    'stabbing', 'strangulation', 'suffocation', 'drowning',
     // 英文短语
-    'make bomb', 'bomb making', 'terrorist attack', 'how to kill', 'extremist group',
-    'suicide method', 'mass shooting', 'hate crime', 'school shooting',
-    'serial killer', 'execution video', 'bombing attack', 'kill people',
-    'graphic violence', 'blood bath', 'gory death', 'murder scene',
-    'real death', 'violent porn', 'bloody gore',
+    'make bomb', 'bomb making', 'terrorist attack', 'how to kill',
+    'extremist group', 'suicide method', 'mass shooting', 'hate crime',
+    'school shooting', 'serial killer', 'execution video',
+    'bombing attack', 'kill people', 'graphic violence', 'blood bath',
+    'gory death', 'murder scene', 'real death', 'violent porn',
+    'bloody gore', 'bomb recipe', 'explosive device', 'chemical weapon',
+    'biological weapon', 'nuclear bomb', 'pipe bomb', 'pressure cooker',
+    'self harm', 'cutting self', 'suicide tutorial', 'death threat',
   ],
   porn: [
     // 中文
     '色情直播', '成人视频', '裸聊', '性交易', '招嫖',
     '卖淫', '嫖娼', '色情服务', '成人内容',
     '一夜情', '包养', '淫秽',
-    // 英文
-    'porn', 'pornography', 'nude chat', 'sex chat', 'escort service',
-    'prostitution', 'adult video', 'live porn', 'one night stand',
-    'nsfw', 'xxx video',
+    // 英文单词级（归一化后命中）
+    'porn', 'pornography', 'nudity', 'erotic', 'xxx', 'nsfw',
+    'prostitution', 'escort', 'semen', 'ejaculation',
+    'intercourse', 'masturbation', 'orgasm', 'fetish',
+    'bondage', 'bestiality', 'zoophilia', 'incest',
+    'pedophilia', 'underage', 'loli', 'lolicon',
+    // 人体性器官（医学术语 + 俚语）
+    'penis', 'vagina', 'clitoris', 'testicle', 'testicles',
+    'breast', 'boobs', 'boob', 'tits', 'tit', 'nipple',
+    'buttock', 'butt', 'asshole', 'anus', 'rectum',
+    'crotch', 'genital', 'genitals', 'pubic', 'pussy',
+    'dick', 'cock', 'balls', 'ball', 'threesome',
+    'orgy', 'gangbang', 'cumshot', 'cum',
+    // 性行为相关
+    'fuck', 'fucking', 'suck', 'sucking', 'blowjob',
+    'handjob', 'footjob', 'anal', 'anal sex', 'oral',
+    'oral sex', 'vaginal sex', 'hardcore', 'softcore',
+    'sexy', 'nude',
+    'naked', 'topless', 'bottomless', 'skimpy',
+    'thong', 'g string',
+    // 色情场景/类型
+    'hentai', 'doujin', 'rule34', 'rule 34',
+    'milf', 'gilf', 'teen porn', 'young porn',
+    'amateur porn', 'homemade porn', 'celebrity nude',
+    'upskirt', 'downblouse', 'voyeur', 'peeping',
+    'rape', 'sexual assault', 'sexual abuse',
+    'child porn', 'cp porn', 'baby porn', 'toddler porn',
+    'animal sex', 'horse sex', 'dog sex',
+    // 英文短语
+    'nude chat', 'sex chat', 'escort service', 'adult video',
+    'live porn', 'one night stand', 'xxx video', 'adult content',
+    'sex tape', 'naked photo', 'explicit content', 'sexual act',
+    'sex worker', 'strip club', 'nude model', 'lingerie porn',
+    'deepnude', 'deepfake porn', 'revenge porn',
+    'naked body', 'nude body', 'bare chest', 'bare breast',
+    'sex scene', 'sexual intercourse', 'making love',
+    'adult movie', 'adult film', 'x rated', 'xxx rated',
+    'private parts', 'private part', 'intimate part',
   ],
   gambling: [
     // 中文
     '网络赌博', '赌场代理', '百家乐', '六合彩', '外围赌球',
     '在线赌场', '赌博网站', '赌球平台', '时时彩', '牛牛',
     '炸金花', '德州扑克', '赌资',
-    // 英文
-    'online casino', 'sports betting', 'gambling site', 'baccarat',
-    'lottery', 'poker', 'blackjack', 'roulette', 'slot machine',
-    'betting agent',
+    // 英文单词级
+    'casino', 'baccarat', 'poker', 'blackjack', 'roulette',
+    'slots', 'lottery', 'wagering', 'bookmaker',
+    // 英文短语
+    'online casino', 'sports betting', 'gambling site',
+    'betting agent', 'slot machine', 'sports gamble',
+    'betting odds', 'gambling addiction', 'online poker',
+    'real money', 'cash game', 'sports book',
   ],
   drug: [
     // 中文
     '贩卖毒品', '冰毒制作', '大麻种植', '吸毒方法', '毒品交易',
     '制毒工艺', '海洛因', '可卡因', '摇头丸', '麻古',
     '吸毒工具', '毒品货源', '贩毒渠道',
-    // 英文
+    // 英文单词级
+    'meth', 'heroin', 'cocaine', 'ecstasy', 'lsd',
+    'marijuana', 'cannabis', 'weed', 'opium', 'fentanyl',
+    'amphetamine', 'barbiturate', 'benzodiazepine',
+    'crystal meth', 'mdma', 'shrooms', 'psilocybin',
+    'dmt', 'ketamine', 'pcp', 'heroin', 'crack',
+    // 英文短语
     'sell drugs', 'drug dealing', 'meth recipe', 'how to make meth',
-    'grow weed', 'marijuana grow', 'drug use', 'heroin', 'cocaine',
-    'ecstasy', 'lsd', 'drug supply', 'drug trafficking',
+    'grow weed', 'marijuana grow', 'drug use', 'drug supply',
+    'drug trafficking', 'drug manufacturing', 'cooking meth',
+    'drug paraphernalia', 'needle sharing', 'drug overdose',
+    'cocaine snort', 'heroin inject', 'smoke weed',
+    'buy drugs', 'drug dealer', 'narcotics', 'illicit drug',
   ],
   insult: [
     // 中文
     '人肉搜索', '恶意诽谤', '造谣生事', '网络暴力', '人身攻击',
     '辱骂诅咒', '煽动仇恨', '地域歧视', '残疾歧视',
-    // 英文
-    'doxxing', 'dox', 'cyberbullying', 'hate speech', 'personal attack',
-    'incite hatred', 'discrimination', 'defamation', 'harassment',
+    // 英文单词级
+    'doxxing', 'dox', 'cyberbullying', 'harassment', 'defamation',
+    'slander', 'libel', 'extortion', 'blackmail', 'stalking',
+    'threat', 'intimidation', 'bigotry', 'xenophobia',
+    'homophobia', 'transphobia', 'racism', 'sexism', 'misogyny',
+    // 英文短语
+    'hate speech', 'personal attack', 'incite hatred',
+    'racial discrimination', 'gender discrimination',
+    'religious discrimination', 'disability discrimination',
+    'hate crime', 'death threat', 'revenge porn',
+    'online harassment', 'cyber stalking',
   ],
 }
 

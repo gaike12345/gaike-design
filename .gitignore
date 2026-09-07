@@ -31,6 +31,7 @@ Thumbs.db
 .env.production.local
 .env.*
 !.env.example
+!.env.production.example
 
 # 私有密钥格式文件
 *.pem

@@ -22,6 +22,8 @@ import { Plus, Trash2, Maximize2, Wand2, Move, Wrench, Library, Users, History, 
 
 import { cn } from '../../lib/utils'
 import logo from '../../assets/logo.png'
+import QuotaDropdown from './QuotaDropdown'
+import ProfilePopover from './ProfilePopover'
 
 // 端口在画布坐标系中的位置
 // 与 UnifiedNodes.UPortHandle 的实际渲染位置完全一致
@@ -77,17 +79,34 @@ function bezierPath(sx: number, sy: number, tx: number, ty: number) {
 export default function UnifiedCanvas() {
   const containerRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
-  const {
-    nodes, connections, viewport, drag, selectedNodeId,
-    panBy, zoomTo,
-    selectNode, moveNode, removeNode, removeConnection,
-    startDrag, endDrag,
-    addNode, addConnection,
-  } = useUnifiedCanvasStore()
-  const { activeProjectId, createProject, deleteProject } = useProjectStore()
+
+  // 使用单个值选择器，避免选择器返回新对象导致 React 19 无限更新
+  const nodes = useUnifiedCanvasStore((s) => s.nodes)
+  const connections = useUnifiedCanvasStore((s) => s.connections)
+  const viewport = useUnifiedCanvasStore((s) => s.viewport)
+  const drag = useUnifiedCanvasStore((s) => s.drag)
+  const selectedNodeId = useUnifiedCanvasStore((s) => s.selectedNodeId)
+  const panBy = useUnifiedCanvasStore((s) => s.panBy)
+  const zoomTo = useUnifiedCanvasStore((s) => s.zoomTo)
+  const selectNode = useUnifiedCanvasStore((s) => s.selectNode)
+  const moveNode = useUnifiedCanvasStore((s) => s.moveNode)
+  const removeNode = useUnifiedCanvasStore((s) => s.removeNode)
+  const removeConnection = useUnifiedCanvasStore((s) => s.removeConnection)
+  const startDrag = useUnifiedCanvasStore((s) => s.startDrag)
+  const endDrag = useUnifiedCanvasStore((s) => s.endDrag)
+  const addNode = useUnifiedCanvasStore((s) => s.addNode)
+  const addConnection = useUnifiedCanvasStore((s) => s.addConnection)
+
+  const activeProjectId = useProjectStore((s) => s.activeProjectId)
+  const createProject = useProjectStore((s) => s.createProject)
+  const deleteProject = useProjectStore((s) => s.deleteProject)
   const remainingTokens = useQuotaStore((s) => s.quota.remainingTokens)
   const refreshQuota = useQuotaStore((s) => s.refreshQuota)
   const quotaLoading = useQuotaStore((s) => s.loading)
+
+  // 右上角弹出菜单状态
+  const [quotaDropdownOpen, setQuotaDropdownOpen] = useState(false)
+  const [profilePopoverOpen, setProfilePopoverOpen] = useState(false)
 
   // refs 避免事件监听器依赖变化导致重建
   const nodesRef = useRef(nodes)
@@ -890,31 +909,44 @@ export default function UnifiedCanvas() {
 
       {/* 右上角：用户头像 + 积分 */}
       <div className="pointer-events-auto absolute top-4 right-4 z-30 flex items-center gap-2.5">
-        {/* 积分 */}
-        <div className="flex items-center gap-1.5 rounded-full bg-[#141414]/90 border border-[#262626] px-3 py-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.45)] backdrop-blur">
-          <span className="h-4 w-4 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-[9px] font-black text-black shadow-inner">₵</span>
-          <span
-            className="text-[12px] font-semibold text-amber-300 tabular-nums"
+        {/* 积分（可点击弹出） */}
+        <div className="relative">
+          <button
+            onClick={() => {
+              setQuotaDropdownOpen((v) => !v)
+              setProfilePopoverOpen(false)
+            }}
+            className="flex items-center gap-1.5 rounded-full bg-[#141414]/90 border border-[#262626] px-3 py-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.45)] backdrop-blur transition-colors hover:border-[#3a3a3a]"
             title={quotaLoading ? '积分读取中…' : `剩余积分 ${formatTokensCompact(remainingTokens)}`}
           >
-            {quotaLoading ? '…' : formatTokensCompact(remainingTokens)}
-          </span>
-          <button
-            onClick={() => navigate('/settings#quota')}
-            className="ml-1 h-4 w-4 rounded-md bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 border border-amber-500/30 flex items-center justify-center transition-colors"
-            title="前往充值中心"
-          >
-            <Plus className="h-2.5 w-2.5"/>
+            <span className="h-4 w-4 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-[9px] font-black text-black shadow-inner">₵</span>
+            <span
+              className="text-[12px] font-semibold text-amber-300 tabular-nums"
+            >
+              {quotaLoading ? '…' : formatTokensCompact(remainingTokens)}
+            </span>
+            <Plus className="h-3 w-3 text-amber-400/70 ml-0.5" />
           </button>
+          <QuotaDropdown open={quotaDropdownOpen} onClose={() => setQuotaDropdownOpen(false)} />
         </div>
-        {/* 用户头像 */}
-        <button className="group relative h-9 w-9 rounded-full bg-gradient-to-br from-violet-500 via-fuchsia-500 to-pink-500 p-[2px] shadow-[0_4px_16px_rgba(139,92,246,0.35)] transition-transform hover:scale-[1.03]">
-          <div className="h-full w-full rounded-full bg-[#0d0d0d] flex items-center justify-center text-[12px] font-bold text-white">
-            漫
-          </div>
-          {/* 在线绿点 */}
-          <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-[#0d0d0d]"/>
-        </button>
+
+        {/* 用户头像（可点击弹出） */}
+        <div className="relative">
+          <button
+            onClick={() => {
+              setProfilePopoverOpen((v) => !v)
+              setQuotaDropdownOpen(false)
+            }}
+            className="group relative h-9 w-9 rounded-full bg-gradient-to-br from-violet-500 via-fuchsia-500 to-pink-500 p-[2px] shadow-[0_4px_16px_rgba(139,92,246,0.35)] transition-transform hover:scale-[1.03]"
+          >
+            <div className="h-full w-full rounded-full bg-[#0d0d0d] flex items-center justify-center text-[12px] font-bold text-white">
+              漫
+            </div>
+            {/* 在线绿点 */}
+            <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-[#0d0d0d]"/>
+          </button>
+          <ProfilePopover open={profilePopoverOpen} onClose={() => setProfilePopoverOpen(false)} />
+        </div>
       </div>
 
       {/* 画布容器 */}
