@@ -84,6 +84,10 @@ web/public/videos/
 *.mp3
 *.wav
 
+# ---------- 视频（白名单例外） ----------
+!web/public/hero-*.mp4
+!web/public/login-hero.mp4
+
 # ---------- 临时审计 / 个人笔记 ----------
 AUDIT_REPORT.md
 POLLINATIONS_API_NOTES.txt
