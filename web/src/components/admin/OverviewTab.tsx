@@ -1,10 +1,25 @@
 // 运营总览 Tab：8 KPI + 作品柱状图 + AI调用饼图 + 7天趋势
+import { useCallback, useEffect, useState } from 'react'
 import {
   Users, Palette, MessageSquare, Heart, Coins, Zap, TrendingUp, Cpu,
-  BookOpen, Image, Music, Video, FileText, RefreshCw, Loader2,
+  BookOpen, Image, Music, Video, FileText, RefreshCw, Loader2, Cloud, AlertCircle,
 } from 'lucide-react'
+import { api } from '../../services/api'
 import { formatCompact, pct, EmptyBar } from './common'
 import type { IconComponent, Stats } from './types'
+
+// ===== Pollinations 账户余额类型 =====
+interface PollinationsAccountInfo {
+  balance: number | null
+  tier: string | null
+  nextResetAt: string | null
+  githubUsername: string | null
+  fxRate: number
+  balanceInTokens: number | null
+  apiKeyConfigured: boolean
+  fetchedAt: string
+  error?: string
+}
 
 // ===== 渐变 KPI 卡片 =====
 function KpiCard({ icon: Icon, label, value, sub, from, to, labelColor }: {
@@ -128,7 +143,17 @@ function DualLineChart({ data }: { data: { date: string; calls: number; tokens: 
 }
 
 // ===== 运营总览 Tab =====
-export function OverviewTab({ stats, loading, onRefresh }: { stats: Stats | null; loading: boolean; onRefresh: () => void }) {
+export function OverviewTab({
+  stats,
+  loading,
+  onRefresh,
+  lastRefreshedAt,
+}: {
+  stats: Stats | null
+  loading: boolean
+  onRefresh: () => void
+  lastRefreshedAt: Date | null
+}) {
   const TYPE_META: Record<string, { label: string; color: string; icon: IconComponent }> = {
     novel: { label: '小说', color: '#6366f1', icon: BookOpen },
     image: { label: '插画', color: '#06b6d4', icon: Image },
@@ -149,10 +174,54 @@ export function OverviewTab({ stats, loading, onRefresh }: { stats: Stats | null
   const aiTypes = Object.entries(stats?.aiByType ?? {})
   const totalAiCalls = aiTypes.reduce((s, [, v]) => s + (v.calls || 0), 0)
 
+  // ===== Pollinations 账户实际可用余额（实时抓取） =====
+  const [apiBalance, setApiBalance] = useState<PollinationsAccountInfo | null>(null)
+  const [apiBalanceLoading, setApiBalanceLoading] = useState(false)
+
+  const loadApiBalance = useCallback(async (force = false) => {
+    setApiBalanceLoading(true)
+    try {
+      const url = force ? '/api/admin/pollinations/balance?refresh=1' : '/api/admin/pollinations/balance'
+      const res = await api.get<PollinationsAccountInfo>(url)
+      setApiBalance(res)
+    } catch {
+      // 静默失败，不打断运营总览
+    } finally {
+      setApiBalanceLoading(false)
+    }
+  }, [])
+
+  // 首次加载 + 60 秒轮询
+  useEffect(() => {
+    loadApiBalance()
+    const id = setInterval(() => loadApiBalance(), 60_000)
+    return () => clearInterval(id)
+  }, [loadApiBalance])
+
+  // 数据新鲜度信号：显示上次更新时间，60s 内为「新鲜」，超过为「陈旧」
+  const freshnessLabel = (() => {
+    if (!lastRefreshedAt) return null
+    const diffMs = Date.now() - lastRefreshedAt.getTime()
+    const sec = Math.floor(diffMs / 1000)
+    if (sec < 60) return `刚刚更新（${sec}s 前）`
+    const min = Math.floor(sec / 60)
+    if (min < 60) return `${min} 分钟前更新`
+    const hr = Math.floor(min / 60)
+    return `${hr} 小时前更新`
+  })()
+  const isStale = !!(lastRefreshedAt && Date.now() - lastRefreshedAt.getTime() > 60_000)
+
   return (
     <div className="space-y-6">
-      {/* 顶栏：刷新按钮 */}
-      <div className="flex items-center justify-end gap-3">
+      {/* 顶栏：数据新鲜度 + 刷新按钮 */}
+      <div className="flex items-center justify-end gap-3 text-xs">
+        {freshnessLabel && (
+          <span className={`inline-flex items-center gap-1.5 ${isStale ? 'text-amber-600' : 'text-emerald-600'}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${isStale ? 'bg-amber-500' : 'bg-emerald-500 animate-pulse'}`} />
+            {freshnessLabel}
+            {isStale && '· 数据可能已过期'}
+          </span>
+        )}
         <button onClick={onRefresh} disabled={loading} className="btn-outline !px-3 !py-1.5 text-sm">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
           刷新数据
@@ -169,6 +238,155 @@ export function OverviewTab({ stats, loading, onRefresh }: { stats: Stats | null
         <KpiCard icon={Zap} label="AI 调用 (总)" value={formatCompact(totalAiCalls)} from="from-fuchsia-600" to="to-fuchsia-500" labelColor="text-fuchsia-100" />
         <KpiCard icon={TrendingUp} label="今日新增用户" value={`+${stats?.todayNewUsers ?? 0}`} sub={stats?.ydayNewUsers ? `较昨日 ${((((stats.todayNewUsers ?? 0) - stats.ydayNewUsers) / stats.ydayNewUsers) * 100).toFixed(0)}%` : ''} from="from-orange-500" to="to-amber-500" labelColor="text-orange-100" />
         <KpiCard icon={Cpu} label="活跃模型" value={stats?.activeModels ?? 0} sub="模型市场在线" from="from-blue-600" to="to-sky-500" labelColor="text-blue-100" />
+      </div>
+
+      {/* Pollinations API 账户实际可用余额 */}
+      <div className="rounded-xl border border-neutral-200/70 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-neutral-800">
+            <Cloud className="h-4 w-4 text-sky-600" /> Pollinations API 账户余额
+            {apiBalance?.githubUsername && (
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-slate-200/60">
+                {apiBalance.githubUsername}
+              </span>
+            )}
+            {apiBalance?.tier && (
+              <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-700 ring-1 ring-sky-200/60">
+                Tier: {apiBalance.tier}
+              </span>
+            )}
+            {apiBalance?.nextResetAt && (
+              <span className="text-xs text-neutral-400">
+                下次重置: {new Date(apiBalance.nextResetAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
+          </h3>
+          <div className="flex items-center gap-2">
+            {apiBalance?.fetchedAt && (
+              <span className="text-xs text-neutral-400">
+                实时更新于 {new Date(apiBalance.fetchedAt).toLocaleTimeString('zh-CN')}
+              </span>
+            )}
+            <button
+              onClick={() => loadApiBalance(true)}
+              disabled={apiBalanceLoading}
+              className="btn-outline !px-2.5 !py-1 text-xs"
+              title="强制刷新（跳过缓存）"
+            >
+              {apiBalanceLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              强制刷新
+            </button>
+          </div>
+        </div>
+
+        {apiBalanceLoading && !apiBalance ? (
+          <div className="flex items-center justify-center py-8 text-sm text-neutral-400">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 正在查询 Pollinations 账户...
+          </div>
+        ) : apiBalance?.error ? (
+          <div className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2.5 text-sm text-amber-700 ring-1 ring-amber-200/60">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p className="font-medium">无法获取账户余额</p>
+              <p className="mt-0.5 text-xs text-amber-600">{apiBalance.error}</p>
+              {!apiBalance.apiKeyConfigured && (
+                <p className="mt-1 text-xs text-amber-600">请在服务端配置 <code className="rounded bg-amber-100 px-1">POLLINATIONS_API_KEY</code> 环境变量</p>
+              )}
+            </div>
+          </div>
+        ) : apiBalance ? (
+          <div className="space-y-3">
+            {/* PAID 余额 + 换算公式 */}
+            {(() => {
+              const pack = apiBalance.packBalance
+              const packTokens = apiBalance.packBalanceInTokens
+              const packZero = pack !== null && pack <= 0
+              return (
+                <div className={`rounded-lg p-4 ring-1 ${packZero ? 'bg-gradient-to-br from-rose-50 to-red-50 ring-rose-200' : 'bg-gradient-to-br from-sky-50 to-blue-50 ring-sky-100'}`}>
+                  <div className="flex items-center justify-between">
+                    <p className={`text-[11px] font-medium uppercase tracking-wide ${packZero ? 'text-rose-700/80' : 'text-sky-700/80'}`}>
+                      PAID · 付费余额（付费模型可用）
+                    </p>
+                    {packZero && (
+                      <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700">
+                        付费模型不可用
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-2 flex items-baseline gap-2">
+                    <p className={`text-3xl font-bold tracking-tight ${packZero ? 'text-rose-900' : 'text-sky-900'}`}>
+                      {pack !== null ? pack.toFixed(2) : '—'}
+                    </p>
+                    <span className={`text-sm font-medium ${packZero ? 'text-rose-600/80' : 'text-sky-600/80'}`}>pollen</span>
+                  </div>
+                  <p className={`mt-1 text-xs ${packZero ? 'text-rose-600' : 'text-sky-600/70'}`}>
+                    {packTokens !== null ? `≈ ${formatCompact(packTokens)} 积分` : '—'}
+                    {packZero && ' · 充值后付费模型才能正常调用'}
+                  </p>
+
+                  {/* 换算公式 */}
+                  {!packZero && pack !== null && (
+                    <div className="mt-3 rounded-md bg-white/60 px-3 py-2 ring-1 ring-sky-100/80">
+                      <div className="flex items-center justify-between gap-2 text-[11px] text-sky-700/80">
+                        <span>
+                          等值 <span className="font-semibold text-sky-900">${apiBalance.packBalanceInUsd?.toFixed(2) ?? '—'}</span> USD
+                          · <span className="font-semibold text-sky-900">¥{apiBalance.packBalanceInCny?.toFixed(2) ?? '—'}</span> CNY
+                        </span>
+                      </div>
+                      <div className="mt-1.5 flex items-center gap-1 text-[10px] text-slate-500">
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5">${apiBalance.pollenPerUsd}/pollen</span>
+                        <span className="text-slate-300">→</span>
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5">1 pollen = {apiBalance.fxRate} 积分</span>
+                        <span className="text-slate-300">→</span>
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5">¥{apiBalance.usdToCny} = {apiBalance.tokensPerCny} 积分</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
+            {/* QUEST + 合计 + 系统积分 */}
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              {/* QUEST 免费余额 */}
+              <div className="rounded-lg bg-gradient-to-br from-violet-50 to-purple-50 p-3 ring-1 ring-violet-100">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-violet-700/80">
+                  QUEST · 免费余额
+                </p>
+                <p className="mt-1.5 text-xl font-bold tracking-tight text-violet-900">
+                  {apiBalance.tierBalance !== null ? apiBalance.tierBalance.toFixed(2) : '—'}
+                </p>
+                <p className="mt-0.5 text-[11px] text-violet-600/70">
+                  ≈ {apiBalance.tierBalanceInTokens !== null ? formatCompact(apiBalance.tierBalanceInTokens) : '—'} 积分 · 按小时自动恢复
+                </p>
+              </div>
+              {/* 合计 */}
+              <div className="rounded-lg bg-gradient-to-br from-slate-50 to-gray-50 p-3 ring-1 ring-slate-200">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-slate-700/80">
+                  合计
+                </p>
+                <p className="mt-1.5 text-xl font-bold tracking-tight text-slate-900">
+                  {apiBalance.balance !== null ? apiBalance.balance.toFixed(2) : '—'}
+                </p>
+                <p className="mt-0.5 text-[11px] text-slate-600/70">
+                  ≈ {apiBalance.balanceInTokens !== null ? formatCompact(apiBalance.balanceInTokens) : '—'} 积分 · @{apiBalance.githubUsername || '—'}
+                </p>
+              </div>
+              {/* 系统剩余积分 */}
+              <div className="rounded-lg bg-gradient-to-br from-emerald-50 to-green-50 p-3 ring-1 ring-emerald-100">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-emerald-700/80">
+                  系统剩余积分
+                </p>
+                <p className="mt-1.5 text-xl font-bold tracking-tight text-emerald-900">
+                  {formatCompact(stats?.totalQuota.remaining ?? 0)}
+                </p>
+                <p className="mt-0.5 text-[11px] text-emerald-600/70">
+                  已用 {formatCompact(stats?.totalQuota.used ?? 0)} / 总额 {formatCompact(stats?.totalQuota.total ?? 0)}
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {/* 图表区：上2下1布局 */}

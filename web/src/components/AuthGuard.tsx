@@ -17,6 +17,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useAuthStore } from '../store/useAuthStore'
 import { getToken, setToken } from '../services/api'
+import logger from '../utils/logger'
 
 export function AuthGuard({ children }: { children: ReactNode }) {
   const user = useAuthStore((s) => s.user)
@@ -52,9 +53,9 @@ export function AuthGuard({ children }: { children: ReactNode }) {
         if (!store.user) {
           useAuthStore.setState({ user: DEV_USER })
         }
-        console.warn(
-          '%c[DEV MODE] 已启用开发模式自动登录',
-          'background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-weight:bold',
+        logger.warn(
+          'AuthGuard',
+          '[DEV MODE] 已启用开发模式自动登录',
           '禁用：localStorage.removeItem("mank_tv_dev_auth")'
         )
         setState('authed')

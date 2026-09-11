@@ -7,350 +7,313 @@ import {
   Languages,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
-import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react'
+import React, { useMemo } from 'react'
 
 /* -------------------------------------------------------------------------- */
-/*  交互式乐谱：点击五线谱任意位置 → 合法音高吸附 + 弹跳音符 + Web Audio 短音     */
+/*  复古留声机：哑光黄铜 + 深红木纹 + 褪色纸张底，19世纪爱迪生时代质感          */
 /* -------------------------------------------------------------------------- */
 
-type NoteDur = 'q' /* quarter */ | 'e' /* eighth */ | 'h' /* half */ | 'w' /* whole */
-type Accidental = '#' | 'b' | 'n'
+const PHONO_W = 400
+const PHONO_H = 300
 
-interface NoteBubble {
-  id: number
-  x: number               // svg x
-  posIdx: number          // 0..N_POS-1（C4..C6）吸附后的位置
-  dur: NoteDur
-  acc: Accidental
-  color: string
-  bornAt: number
-}
-
-const SCORE_W = 400
-const SCORE_H = 250
-const STAFF_TOP = 70
-const LINE_SPACING = 15           // 五线谱两线间距（半间距 = 1 位阶）
-const CLEF_W = 44
-const N_POS = 15                  // C4 (60) ~ C6 (84)
-const POS_Y_BASE = STAFF_TOP + LINE_SPACING * 5   // position 0 = C4 的 SVG y
-const MAX_NOTES = 16
-
-/** 音位 → 标准音名 & midi（仅用于偶然音判断、frequency 计算） */
-const DIATONIC = [
-  { name: 'C', midi: 60 },
-  { name: 'D', midi: 62 },
-  { name: 'E', midi: 64 },
-  { name: 'F', midi: 65 },
-  { name: 'G', midi: 67 },
-  { name: 'A', midi: 69 },
-  { name: 'B', midi: 71 },
-  { name: 'C', midi: 72 },
-  { name: 'D', midi: 74 },
-  { name: 'E', midi: 76 },
-  { name: 'F', midi: 77 },
-  { name: 'G', midi: 79 },
-  { name: 'A', midi: 81 },
-  { name: 'B', midi: 83 },
-  { name: 'C', midi: 84 },
-]
-
-function posIdxToY(i: number): number {
-  return POS_Y_BASE - i * (LINE_SPACING / 2)
-}
-function yToPosIdx(y: number): number {
-  const raw = Math.round((POS_Y_BASE - y) / (LINE_SPACING / 2))
-  return Math.max(0, Math.min(N_POS - 1, raw))
-}
-function midiOf(idx: number, acc: Accidental): number {
-  const d = DIATONIC[idx]
-  if (acc === '#') return d.midi + 1
-  if (acc === 'b') return d.midi - 1
-  return d.midi
-}
-function midiToFreq(m: number): number {
-  return 440 * Math.pow(2, (m - 69) / 12)
-}
-
-function InteractiveMusicScore({ accent }: { accent: string }): ReactNode {
-  const svgRef = useRef<SVGSVGElement | null>(null)
-  const audioCtxRef = useRef<AudioContext | null>(null)
-  const masterGainRef = useRef<GainNode | null>(null)
-  const [notes, setNotes] = useState<NoteBubble[]>([])
-  const nextIdRef = useRef(1)
-
-  /** 按需初始化 WebAudio（首次用户手势触发，满足 autoplay policy） */
-  const ensureAudio = useCallback(() => {
-    if (audioCtxRef.current) return audioCtxRef.current
-    try {
-      const AC: typeof AudioContext =
-        (window as unknown as { AudioContext: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext ??
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-      const ctx = new AC()
-      const gain = ctx.createGain()
-      gain.gain.value = 0.0001
-      gain.connect(ctx.destination)
-      audioCtxRef.current = ctx
-      masterGainRef.current = gain
-      // 默认用户第一声后 master 音量拉起（否则 iOS 初始可能仍为 0）
-      void ctx.resume?.()
-      gain.gain.setTargetAtTime(0.22, ctx.currentTime, 0.02)
-      return ctx
-    } catch {
-      return null
-    }
+function VintagePhonograph({ accent }: { accent: string }): ReactNode {
+  /** 黑胶凹槽线（手摇式 78 转老唱片，沟槽深且疏） */
+  const grooves = useMemo(() => {
+    return Array.from({ length: 9 }, (_, i) => 55 - i * 5.2)
   }, [])
 
-  /** 播放单音：正弦 + 快速包络（0.4s 总时长，钢琴般短促） */
-  const playTone = useCallback((freqHz: number, durMs = 360) => {
-    const ctx = ensureAudio()
-    if (!ctx || !masterGainRef.current) return
-    const t0 = ctx.currentTime
-    const osc = ctx.createOscillator()
-    const g = ctx.createGain()
-    osc.type = 'triangle' // 比 sine 丰满、比方波柔和（更像 MIDI 电钢）
-    osc.frequency.value = freqHz
-    g.gain.setValueAtTime(0.0001, t0)
-    g.gain.exponentialRampToValueAtTime(0.9, t0 + 0.01)            // attack
-    g.gain.exponentialRampToValueAtTime(0.35, t0 + 0.07)           // decay -> sustain
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + durMs / 1000) // release
-    osc.connect(g)
-    g.connect(masterGainRef.current)
-    osc.start(t0)
-    osc.stop(t0 + durMs / 1000 + 0.05)
-  }, [ensureAudio])
-
-  /** 将 click 的 clientX/Y 转成 SVG 坐标，并生成吸附后音符写入 state */
-  const onStaffClick = useCallback(
-    (e: React.MouseEvent<SVGSVGElement>) => {
-      const svg = svgRef.current
-      if (!svg) return
-      const pt = svg.createSVGPoint()
-      pt.x = e.clientX
-      pt.y = e.clientY
-      const local = pt.matrixTransform(svg.getScreenCTM()?.inverse())
-      if (!local) return
-      // x 限在谱面可视区（避开高音谱号 + 右侧边距）
-      const xMin = CLEF_W + 10
-      const xMax = SCORE_W - 16
-      const x = Math.max(xMin, Math.min(xMax, local.x))
-      const posIdx = yToPosIdx(local.y)
-      // 随机时值 & 偶然音（增加点击变化感）
-      const durs: NoteDur[] = ['q', 'q', 'q', 'e', 'h', 'w']
-      const accs: Accidental[] = ['n', 'n', 'n', 'n', '#', 'b']
-      const dur = durs[Math.floor(Math.random() * durs.length)]
-      const acc = accs[Math.floor(Math.random() * accs.length)]
-      const midi = midiOf(posIdx, acc)
-
-      // 加入 state（先进先出，最多 MAX_NOTES）
-      setNotes((prev) => {
-        const next: NoteBubble[] = [
-          ...prev,
-          {
-            id: nextIdRef.current++,
-            x,
-            posIdx,
-            dur,
-            acc,
-            color: accent,
-            bornAt: performance.now(),
-          },
-        ]
-        return next.length > MAX_NOTES ? next.slice(next.length - MAX_NOTES) : next
+  /** 纸张噪点纹理（做旧泛黄效果） */
+  const paperSpecks = useMemo(() => {
+    const arr: { x: number; y: number; r: number; o: number }[] = []
+    for (let i = 0; i < 60; i++) {
+      arr.push({
+        x: Math.random() * PHONO_W,
+        y: Math.random() * PHONO_H,
+        r: Math.random() * 1.2 + 0.3,
+        o: Math.random() * 0.15 + 0.05,
       })
-
-      // 真实音高发声
-      playTone(midiToFreq(midi))
-    },
-    [accent, playTone],
-  )
-
-  /** 自动清理已消逝音符（> 4.5s），避免 state 线性膨胀 */
-  useEffect(() => {
-    const t = setInterval(() => {
-      const now = performance.now()
-      setNotes((prev) => (prev.length === 0 ? prev : prev.filter((n) => now - n.bornAt < 4500)))
-    }, 800)
-    return () => clearInterval(t)
+    }
+    return arr
   }, [])
-
-  const GRAY = '#475569'
-  const LIGHT = '#94a3b8'
 
   return (
-    <div className="relative w-full select-none">
-      {/* 谱面容器：圆角纸感 + 细边框 + 内阴影（仿乐谱纸） */}
+    <div
+      className="relative w-full select-none"
+      style={{ filter: 'sepia(0.18) saturate(0.85) contrast(0.95)' }}
+    >
       <div
-        className="relative overflow-hidden rounded-2xl"
+        className="relative mx-auto overflow-hidden"
         style={{
-          aspectRatio: `${SCORE_W} / ${SCORE_H}`,
+          width: '100%',
+          maxWidth: PHONO_W,
+          aspectRatio: `${PHONO_W} / ${PHONO_H}`,
           background:
-            'linear-gradient(180deg, #ffffff 0%, #f8fafc 55%, #ffffff 100%)',
-          border: `1px solid ${accent}33`,
+            'radial-gradient(ellipse at 50% 35%, #f4ead0 0%, #e8d9b5 40%, #d4be8e 80%, #b89d6a 100%)',
+          border: '4px solid #3a2410',
+          borderRadius: '4px',
           boxShadow:
-            `0 20px 40px -18px ${accent}55, 0 6px 14px -6px rgba(15,23,42,0.08), inset 0 1px 0 rgba(255,255,255,0.9)`,
+            `inset 0 0 60px rgba(90,60,20,0.35), inset 0 2px 0 rgba(255,240,200,0.4), 0 18px 36px -10px rgba(40,20,5,0.55), 0 4px 12px -2px rgba(40,20,5,0.3)`,
         }}
       >
-        {/* 角落的水印提示（点击乐谱生成音符） */}
-        <div className="pointer-events-none absolute left-3 top-2 text-[10px] font-mono tracking-widest"
-             style={{ color: LIGHT }}>
-          ▶ click staff &nbsp;·&nbsp; 点击作曲
-        </div>
-        <div className="pointer-events-none absolute right-3 top-2 text-[10px] font-mono tracking-widest"
-             style={{ color: accent, opacity: 0.8 }}>
-          ♪ interactive score
-        </div>
-
+        {/* 纸张做旧斑点层 */}
         <svg
-          ref={svgRef}
-          id="interactive-score-svg"
-          data-testid="interactive-score"
-          viewBox={`0 0 ${SCORE_W} ${SCORE_H}`}
-          className="h-full w-full cursor-crosshair"
-          onClick={onStaffClick}
+          viewBox={`0 0 ${PHONO_W} ${PHONO_H}`}
+          className="absolute inset-0 h-full w-full"
+          xmlns="http://www.w3.org/2000/svg"
+          style={{ opacity: 0.6, mixBlendMode: 'multiply' }}
+        >
+          {paperSpecks.map((s, i) => (
+            <circle key={i} cx={s.x} cy={s.y} r={s.r} fill="#6b4a20" opacity={s.o} />
+          ))}
+          {/* 四角泛黄焦痕 */}
+          <radialGradient id="cornerBurn" cx="0%" cy="0%" r="80%">
+            <stop offset="0%" stopColor="#8a5a20" stopOpacity="0.5" />
+            <stop offset="100%" stopColor="#8a5a20" stopOpacity="0" />
+          </radialGradient>
+          <rect x="0" y="0" width="80" height="80" fill="url(#cornerBurn)" />
+          <rect x="320" y="0" width="80" height="80" fill="url(#cornerBurn)" transform="scale(-1,1) translate(-720,0)" />
+        </svg>
+
+        {/* 主留声机 SVG */}
+        <svg
+          viewBox={`0 0 ${PHONO_W} ${PHONO_H}`}
+          className="absolute inset-0 h-full w-full"
           xmlns="http://www.w3.org/2000/svg"
         >
-          {/* 5 条谱线（不规则曲线：每条用贝塞尔 path 替代直线，高低起伏明显） */}
-          {[0, 1, 2, 3, 4].map((i) => {
-            const baseY = STAFF_TOP + i * LINE_SPACING
-            return (
+          <defs>
+            {/* —— 深红木纹底座 —— */}
+            <linearGradient id="woodBase" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="#6b3a1a" />
+              <stop offset="30%" stopColor="#4a2510" />
+              <stop offset="100%" stopColor="#2a1505" />
+            </linearGradient>
+            <linearGradient id="woodTop" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="#7a4520" />
+              <stop offset="60%" stopColor="#5a2c12" />
+              <stop offset="100%" stopColor="#3a1a08" />
+            </linearGradient>
+            {/* 木纹纵向条纹 */}
+            <pattern id="woodGrain" x="0" y="0" width="8" height="30" patternUnits="userSpaceOnUse">
+              <rect width="8" height="30" fill="transparent" />
+              <line x1="2" y1="0" x2="3" y2="30" stroke="#2a1505" strokeWidth="0.5" opacity="0.4" />
+              <line x1="5" y1="0" x2="4" y2="30" stroke="#3a1a08" strokeWidth="0.3" opacity="0.3" />
+            </pattern>
+
+            {/* —— 哑光老黄铜（无强反光，偏暗沉） —— */}
+            <radialGradient id="brassBell" cx="32%" cy="32%" r="85%">
+              <stop offset="0%" stopColor="#d4b070" />
+              <stop offset="30%" stopColor="#b8924c" />
+              <stop offset="65%" stopColor="#8a6820" />
+              <stop offset="90%" stopColor="#5a3e10" />
+              <stop offset="100%" stopColor="#3a2808" />
+            </radialGradient>
+            <linearGradient id="brassArm" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#8a6820" />
+              <stop offset="50%" stopColor="#b8924c" />
+              <stop offset="100%" stopColor="#6a4818" />
+            </linearGradient>
+
+            {/* —— 黑胶（棕黑带磨损，非纯黑） —— */}
+            <radialGradient id="vinyl" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="#2a1f15" />
+              <stop offset="50%" stopColor="#181208" />
+              <stop offset="100%" stopColor="#080604" />
+            </radialGradient>
+            {/* 褪色标签纸（米黄而非鲜艳 accent） */}
+            <radialGradient id="labelGrad" cx="40%" cy="40%" r="65%">
+              <stop offset="0%" stopColor="#e8c878" />
+              <stop offset="70%" stopColor="#c4a050" />
+              <stop offset="100%" stopColor="#8a6820" />
+            </radialGradient>
+
+            {/* —— 喇叭内壁深阴影 —— */}
+            <radialGradient id="bellInner" cx="38%" cy="38%" r="62%">
+              <stop offset="0%" stopColor="#000" stopOpacity="0" />
+              <stop offset="60%" stopColor="#000" stopOpacity="0.25" />
+              <stop offset="100%" stopColor="#000" stopOpacity="0.7" />
+            </radialGradient>
+
+            {/* 老旧投影（柔和大范围、暖棕调） */}
+            <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
+              <feGaussianBlur in="SourceAlpha" stdDeviation="5" />
+              <feOffset dx="4" dy="7" result="off" />
+              <feFlood floodColor="#1a0a02" floodOpacity="0.45" />
+              <feComposite in2="off" operator="in" />
+              <feMerge>
+                <feMergeNode />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+
+          {/* ============ 1) 木质底座（方正厚重，复古箱体） ============ */}
+          <g filter="url(#softShadow)">
+            {/* 前面板 */}
+            <rect x="68" y="248" width="264" height="32" fill="url(#woodBase)" />
+            <rect x="68" y="248" width="264" height="32" fill="url(#woodGrain)" />
+            {/* 顶面（薄椭圆） */}
+            <ellipse cx="200" cy="248" rx="132" ry="14" fill="url(#woodTop)" />
+            {/* 顶面木纹 */}
+            <ellipse cx="200" cy="248" rx="132" ry="14" fill="url(#woodGrain)" opacity="0.6" />
+            {/* 顶面边缘描深 */}
+            <ellipse cx="200" cy="248" rx="132" ry="14" fill="none" stroke="#1a0a02" strokeWidth="0.6" opacity="0.7" />
+            {/* 底座装饰线（雕花凹槽） */}
+            <rect x="76" y="256" width="248" height="16" fill="none" stroke="#1a0a02" strokeWidth="0.5" opacity="0.6" />
+            <rect x="80" y="260" width="240" height="8" fill="none" stroke="#3a1a08" strokeWidth="0.4" opacity="0.5" />
+            {/* 四角铜钉 */}
+            {[[76, 252], [324, 252], [76, 276], [324, 276]].map(([x, y], i) => (
+              <g key={i}>
+                <circle cx={x} cy={y} r="2.5" fill="#6a4818" />
+                <circle cx={x} cy={y} r="2.5" fill="none" stroke="#2a1808" strokeWidth="0.4" />
+                <circle cx={x - 0.8} cy={y - 0.8} r="0.8" fill="#b8924c" opacity="0.5" />
+              </g>
+            ))}
+          </g>
+
+          {/* ============ 2) 黑胶唱片（78转，慢速转动） ============ */}
+          <g
+            style={{
+              transformOrigin: '200px 212px',
+              animation: 'phonographSpin 12s linear infinite',
+            }}
+          >
+            {/* 唱片主体 */}
+            <circle cx="200" cy="212" r="58" fill="url(#vinyl)" />
+            {/* 凹槽线（手摇式老唱片，疏而深） */}
+            {grooves.map((r, i) => (
+              <circle
+                key={i}
+                cx="200" cy="212" r={r}
+                fill="none"
+                stroke="#3a2a18" strokeWidth="0.4"
+                opacity={0.5 + (i % 3) * 0.08}
+              />
+            ))}
+            {/* 磨损划痕（随机细线，做旧感） */}
+            <path d="M 158 198 Q 200 188 242 200" fill="none" stroke="#4a3a20" strokeWidth="0.3" opacity="0.4" />
+            <path d="M 165 225 Q 200 230 235 222" fill="none" stroke="#4a3a20" strokeWidth="0.3" opacity="0.3" />
+            {/* 中心标签（米黄纸） */}
+            <circle cx="200" cy="212" r="18" fill="url(#labelGrad)" />
+            <circle cx="200" cy="212" r="18" fill="none" stroke="#5a3810" strokeWidth="0.5" opacity="0.6" />
+            {/* 标签文字（深棕，老印刷感） */}
+            <text x="200" y="209" fontSize="5" fontFamily="'Georgia', 'Times New Roman', serif" fill="#3a1a08" textAnchor="middle" opacity="0.85" fontWeight="700" letterSpacing="0.5">MAN TV</text>
+            <text x="200" y="217" fontSize="3" fontFamily="'Georgia', serif" fill="#5a2c12" textAnchor="middle" opacity="0.7" letterSpacing="0.8">78 RPM · 1908</text>
+            {/* 中心孔 */}
+            <circle cx="200" cy="212" r="1.8" fill="#0a0604" />
+          </g>
+
+          {/* ============ 3) 唱针臂（哑光黄铜，老旧厚重） ============ */}
+          <g filter="url(#softShadow)">
+            {/* 支点（圆形底座，黄铜） */}
+            <circle cx="300" cy="180" r="9" fill="url(#brassArm)" />
+            <circle cx="300" cy="180" r="9" fill="none" stroke="#2a1808" strokeWidth="0.6" />
+            <circle cx="300" cy="180" r="4" fill="#2a1808" />
+            <circle cx="298" cy="178" r="1.5" fill="#d4b070" opacity="0.4" />
+            {/* 臂杆（粗实，无亮高光） */}
+            <line x1="300" y1="180" x2="232" y2="220" stroke="url(#brassArm)" strokeWidth="5" strokeLinecap="round" />
+            <line x1="300" y1="180" x2="232" y2="220" stroke="#3a2808" strokeWidth="0.8" strokeLinecap="round" opacity="0.5" />
+            {/* 针头 */}
+            <circle cx="232" cy="220" r="5.5" fill="url(#brassArm)" />
+            <circle cx="232" cy="220" r="5.5" fill="none" stroke="#2a1808" strokeWidth="0.5" />
+            <circle cx="232" cy="220" r="2.5" fill="#1a0a02" />
+          </g>
+
+          {/* ============ 4) 喇叭花（哑光黄铜大喇叭，柔和无反光） ============ */}
+          <g filter="url(#softShadow)">
+            {/* 喇叭管颈 */}
+            <path
+              d="M 295 178 Q 280 158 262 142 L 248 158 Q 258 172 275 188 Z"
+              fill="url(#brassArm)"
+              stroke="#2a1808" strokeWidth="0.6"
+            />
+            {/* 喇叭主体（大椭圆口） */}
+            <ellipse
+              cx="128" cy="108" rx="68" ry="58"
+              fill="url(#brassBell)"
+              stroke="#2a1808" strokeWidth="1"
+            />
+            {/* 喇叭表面铜锈做旧（不规则色斑） */}
+            <ellipse cx="115" cy="95" rx="20" ry="14" fill="#5a4a20" opacity="0.25" />
+            <ellipse cx="150" cy="125" rx="16" ry="12" fill="#3a2a10" opacity="0.2" />
+            <ellipse cx="95" cy="130" rx="14" ry="10" fill="#4a3a18" opacity="0.18" />
+            {/* 内壁阴影（深度） */}
+            <ellipse
+              cx="128" cy="108" rx="58" ry="48"
+              fill="url(#bellInner)"
+            />
+            {/* 喇叭口内圈深孔 */}
+            <ellipse
+              cx="128" cy="108" rx="48" ry="40"
+              fill="#1a0a02"
+              opacity="0.85"
+            />
+            {/* 喇叭口柔和过渡边缘 */}
+            <ellipse
+              cx="128" cy="108" rx="50" ry="42"
+              fill="none" stroke="#3a2010" strokeWidth="0.6" opacity="0.5"
+            />
+            {/* 喇叭口微弱漫射光（非锐利反光，做旧后黯淡） */}
+            <path
+              d="M 80 92 Q 100 78 128 75"
+              fill="none"
+              stroke="#c4a060" strokeWidth="2" strokeLinecap="round" opacity="0.4"
+            />
+            <path
+              d="M 78 102 Q 92 88 120 84"
+              fill="none"
+              stroke="#a88840" strokeWidth="1" strokeLinecap="round" opacity="0.25"
+            />
+          </g>
+
+          {/* ============ 5) 声波（从喇叭口飘出，细线、柔和） ============ */}
+          <g style={{ transformOrigin: '128px 108px' }} opacity="0.7">
+            {[0, 1, 2].map(i => (
               <path
                 key={i}
-                d={`M 16 ${baseY} C ${SCORE_W * 0.15} ${baseY + Math.sin(i * 1.7 + 0.3) * 14 - 6}, ${SCORE_W * 0.3} ${baseY + Math.cos(i * 1.1) * 18 + 4}, ${SCORE_W * 0.45} ${baseY + Math.sin(i * 2.3 + 1) * 16 - 3} S ${SCORE_W * 0.72} ${baseY + Math.cos(i * 1.9 + 0.5) * 20 + 5}, ${SCORE_W * 0.88} ${baseY + Math.sin(i * 2.8 + 0.2) * 14 - 4}, ${SCORE_W - 16} ${baseY + Math.cos(i * 3.1) * 10 + 2}`}
+                d="M 95 95 Q 80 82 68 70 M 105 78 Q 95 62 86 50 M 115 70 Q 108 52 106 38"
                 fill="none"
-                stroke={GRAY}
-                strokeWidth="1.1"
+                stroke="#6a4a20"
+                strokeWidth="1.2"
                 strokeLinecap="round"
-              />
-            )
-          })}
-
-
-          {/* 高音谱号 𝄞（serif 字形渲染较自然） */}
-          <text
-            x="20"
-            y={STAFF_TOP + 4 * LINE_SPACING + 2}
-            fontSize="64"
-            fontFamily="'EB Garamond', 'Times New Roman', serif"
-            fill={accent}
-            style={{ filter: `drop-shadow(0 2px 6px ${accent}55)` }}
-          >𝄞</text>
-
-          {/* 拍号（4 / 4） */}
-          <text x="64" y={STAFF_TOP + 2 * LINE_SPACING + 5} fontSize="20" fontWeight="700" fill={GRAY} fontFamily="'Georgia', serif">4</text>
-          <text x="64" y={STAFF_TOP + 4 * LINE_SPACING - 1} fontSize="20" fontWeight="700" fill={GRAY} fontFamily="'Georgia', serif">4</text>
-
-          {/* 已生成音符：弹跳入场 + 缓慢淡出 */}
-          {notes.map((n) => {
-            const yC = posIdxToY(n.posIdx)               // 音符头中心 y
-            const stemUp = n.posIdx < N_POS / 2           // 低位 stem 朝上，高位朝下
-            const headR = 6.2
-            const headW = headR * 1.35                    // 椭圆宽（标准音符头横向拉长）
-            const headH = headR
-            const stemLen = 3 * LINE_SPACING - 1
-            const stemX = stemUp ? n.x + headW : n.x - headW
-            const stemY1 = stemUp ? yC - stemLen : yC
-            const stemY2 = stemUp ? yC : yC + stemLen
-
-            // 加线（ledger lines）：超出 5 线时画短横线
-            const ledgers: number[] = []
-            for (let p = -2; p <= 16; p++) {
-              // 加线位阶：偶数（与五条线一致，偶数 = 线，奇数 = 间）
-              if (p % 2 !== 0) continue
-              // 在 5 线外（0..8 对应 C4 底 ~ 5 线上方），五线内位阶 2..10 对应五条线（line 0..4）
-              if (p >= 2 && p <= 10) continue
-              if (n.posIdx === p) ledgers.push(p)
-            }
-
-            return (
-              <g
-                key={n.id}
                 style={{
-                  transformOrigin: `${n.x}px ${yC}px`,
-                  animation: 'scoreBounceIn 0.55s cubic-bezier(.22,1.2,.36,1) both, scoreFade 4.5s ease-in forwards',
+                  transformOrigin: '128px 108px',
+                  transform: `scale(${0.7 + i * 0.15})`,
+                  animation: 'phonographWave 3s ease-out infinite',
+                  animationDelay: `${i * 0.6}s`,
                 }}
-              >
-                {/* 加线（ledger lines） */}
-                {ledgers.map((p) => (
-                  <line
-                    key={p}
-                    x1={n.x - headW - 4}
-                    y1={posIdxToY(p)}
-                    x2={n.x + headW + 4}
-                    y2={posIdxToY(p)}
-                    stroke={GRAY}
-                    strokeWidth="1"
-                    strokeLinecap="round"
-                  />
-                ))}
+              />
+            ))}
+          </g>
 
-                {/* 偶然音 # / b / n (在音符左侧) */}
-                {n.acc !== 'n' ? (
-                  <text
-                    x={n.x - headW - 16}
-                    y={yC + 4}
-                    fontSize="16"
-                    fontFamily="'Times New Roman', serif"
-                    fontWeight="700"
-                    textAnchor="middle"
-                    fill={n.color}
-                    style={{ filter: `drop-shadow(0 1px 2px ${n.color}88)` }}
-                  >
-                    {n.acc === '#' ? '♯' : '♭'}
-                  </text>
-                ) : null}
+          {/* ============ 6) 底座铜铭牌（深棕背景 + 暗黄铜字） ============ */}
+          <g>
+            <rect x="145" y="262" width="110" height="14" rx="1" fill="#1a0a02" />
+            <rect x="145" y="262" width="110" height="14" rx="1" fill="none" stroke="#5a3e10" strokeWidth="0.6" />
+            <text x="200" y="272" fontSize="6" fontFamily="'Georgia', 'Times New Roman', serif" fill="#b8924c" textAnchor="middle" fontWeight="700" letterSpacing="1.5" opacity="0.85">MAN TV GRAMOPHONE</text>
+          </g>
 
-                {/* 音符头（空心 / 实心，whole 无 stem，whole/half 空心） */}
-                {n.dur === 'w' ? (
-                  <ellipse cx={n.x} cy={yC} rx={headW} ry={headH}
-                    fill="#ffffff" stroke={n.color} strokeWidth="1.8"
-                    transform={`rotate(-20 ${n.x} ${yC})`}
-                    style={{ filter: `drop-shadow(0 1px 2px ${n.color}aa)` }}
-                  />
-                ) : n.dur === 'h' ? (
-                  <>
-                    <ellipse cx={n.x} cy={yC} rx={headW} ry={headH}
-                      fill="#ffffff" stroke={n.color} strokeWidth="1.8"
-                      transform={`rotate(-20 ${n.x} ${yC})`}
-                      style={{ filter: `drop-shadow(0 1px 2px ${n.color}aa)` }}
-                    />
-                    <line x1={stemX} y1={stemY1} x2={stemX} y2={stemY2} stroke={n.color} strokeWidth="1.8" strokeLinecap="round" />
-                  </>
-                ) : (
-                  <>
-                    <ellipse cx={n.x} cy={yC} rx={headW} ry={headH}
-                      fill={n.color}
-                      transform={`rotate(-20 ${n.x} ${yC})`}
-                      style={{ filter: `drop-shadow(0 1px 2px ${n.color}88)` }}
-                    />
-                    <line x1={stemX} y1={stemY1} x2={stemX} y2={stemY2} stroke={n.color} strokeWidth="1.8" strokeLinecap="round" />
-                    {/* 八分音符：1 条符尾（flag，朝 stem 顶端） */}
-                    {n.dur === 'e' ? (
-                      <path
-                        d={stemUp
-                          ? `M ${stemX} ${stemY1} c 4 -2, 10 -4, 10 10`
-                          : `M ${stemX} ${stemY2} c -4 2, -10 4, -10 -10`}
-                        fill="none" stroke={n.color} strokeWidth="2.2" strokeLinecap="round"
-                      />
-                    ) : null}
-                  </>
-                )}
-              </g>
-            )
-          })}
+          {/* ============ 7) 手摇把（右侧，哑光黄铜） ============ */}
+          <g filter="url(#softShadow)">
+            {/* 把手轴 */}
+            <line x1="332" y1="246" x2="346" y2="240" stroke="url(#brassArm)" strokeWidth="3" strokeLinecap="round" />
+            <line x1="332" y1="246" x2="346" y2="240" stroke="#2a1808" strokeWidth="0.5" strokeLinecap="round" opacity="0.5" />
+            {/* 把手圆环 */}
+            <circle cx="350" cy="238" r="7" fill="none" stroke="url(#brassArm)" strokeWidth="3" />
+            <circle cx="350" cy="238" r="7" fill="none" stroke="#2a1808" strokeWidth="0.5" opacity="0.5" />
+          </g>
         </svg>
       </div>
 
-      {/* 关键帧（组件级 style，不污染全局） */}
+      {/* 关键帧 */}
       <style>{`
-        @keyframes scoreBounceIn {
-          0%   { transform: scale(0.0) rotate(-45deg); opacity: 0; }
-          62%  { transform: scale(1.22) rotate(6deg);  opacity: 1; }
-          80%  { transform: scale(0.94) rotate(-2deg); opacity: 1; }
-          100% { transform: scale(1.0) rotate(0deg);   opacity: 1; }
+        @keyframes phonographSpin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
         }
-        @keyframes scoreFade {
-          0%, 70% { opacity: 1; }
-          100%    { opacity: 0.05; }
+        @keyframes phonographWave {
+          0%   { opacity: 0; transform: scale(0.6) translate(0, 0); }
+          30%  { opacity: 0.6; }
+          100% { opacity: 0; transform: scale(1.15) translate(-12px, -10px); }
         }
       `}</style>
     </div>
@@ -732,7 +695,7 @@ export default function AudioLanding() {
       heroDesc={desc}
       primaryCta={{ label: '进入音频工作区', to: '/workspace/audio' }}
       secondaryCta={{ label: '浏览社区作品', to: '/community' }}
-      preview={{ title: '可交互乐谱 · 点击谱面作曲', maxWidthPx: 400, bare: true, custom: <InteractiveMusicScore accent={accent.main} /> }}
+      preview={{ title: '复古留声机 · 19世纪黄铜质感', maxWidthPx: 400, bare: true, custom: <VintagePhonograph accent={accent.main} /> }}
       works={AUDIO_WORKS}
       heroDecor={<AudioHeroDecor accent={accent.main} />}
 

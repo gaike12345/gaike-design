@@ -4,8 +4,9 @@
 // UBaseNode: 节点容器(header + 端口 + 内容 + 删除)
 // 具体节点: TextNode / ScriptNode / ImageNode / VideoNode / AudioNode / UNegativeNode / UParamsNode
 
-import { useRef, useState, useCallback, useEffect, memo, type ReactNode, type MouseEvent, type ComponentType, type SVGProps } from 'react'
+import { useRef, useState, useCallback, useEffect, useMemo, memo, type ReactNode, type MouseEvent, type ComponentType, type SVGProps } from 'react'
 import { createPortal } from 'react-dom'
+import logger from '../../utils/logger'
 import {
   X, Dices, Loader2, Wand2, RotateCcw, Play, Pause, Minus, Plus,
   Type, Ban, Sliders, Image as ImageIcon, Film, Music, FileText, Cpu, GalleryHorizontalEnd, AlertCircle, Send, Volume2,
@@ -19,7 +20,7 @@ import {
 } from '../../store/useUnifiedCanvasStore'
 import { getImageModel, validateRatio, validateResolution, useImageModels } from '../../config/imageModels'
 import { useVideoModels, estimateVideoCost } from '../../config/videoModels'
-import { RATIOS, RATIO_CLASS } from '../image/constants'
+import { RATIOS, RATIO_CLASS } from './constants'
 import type { AspectRatio } from '../../store/useStudioStore'
 import { useProjectStore } from '../../store/useProjectStore'
 import { cn } from '../../lib/utils'
@@ -28,6 +29,7 @@ import { CostBadge } from '../ui/CostBadge'
 import { useQuotaModalStore } from '../../store/useQuotaModalStore'
 import { useQuotaStore } from '../../store/useQuotaStore'
 import { buildRetryUrl } from '../../services/imageApi'
+import { uploadFile, api } from '../../services/api'
 
 // 免费翻译函数 —— 使用 MyMemory Translation API（无需 API Key）
 // 中→英 方向；自动检测是否包含中文，不包含时原样返回
@@ -56,8 +58,8 @@ export const PORT_Y_OFFSET = 14
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement> & { size?: number | string }>
 
-// 获取连接到指定输入端口的源节点完整引用信息
-export function getSourceRefs(nodeId: string, portId: string): Array<{ connId: string; srcLabel: string; srcType: UnifiedNodeType; srcImage?: string }> {
+// 获取连接到指定输入端口的源节点完整引用信息（已建立真实连线的）
+export function getSourceRefs(nodeId: string, portId: string): Array<{ connId: string; srcNodeId: string; srcLabel: string; srcType: UnifiedNodeType; srcImage?: string }> {
   const { connections, nodes } = useUnifiedCanvasStore.getState()
   if (!connections || !nodes) return []
   return connections
@@ -77,7 +79,7 @@ export function getSourceRefs(nodeId: string, portId: string): Array<{ connId: s
       } else if (srcNode.type === 'audio') {
         srcImage = srcNode.data.audioResult?.url
       }
-      return { connId: conn.id, srcLabel: label, srcType: srcNode.type, srcImage }
+      return { connId: conn.id, srcNodeId: srcNode.id, srcLabel: label, srcType: srcNode.type, srcImage }
     })
     .filter((r): r is NonNullable<typeof r> => r !== null)
 }
@@ -218,6 +220,259 @@ const RefIcon = memo(function RefIcon({
   )
 })
 
+// ===== 视频 Prompt @-mention 自动补全组件 =====
+// 当用户在 textarea 中输入 "@" 时弹出已连接图片节点列表，选中后插入 [ref: 节点昵称] 占位符
+// 纯前端交互：不新增 store 字段，不改变后端 API contract，mention 标记原样进入 prompt 字段
+interface MentionCandidate {
+  connId: string
+  srcLabel: string
+  srcType: UnifiedNodeType
+  srcImage?: string
+  // 额外：源节点 id，用于未来在 runVideoGen 做更精细的 mention 解析
+  srcNodeId?: string
+}
+
+interface VideoPromptMentionInputProps {
+  value: string
+  onChange: (value: string) => void
+  refs: MentionCandidate[]            // 已真实连线的图片节点候选
+  placeholder?: string
+  rows?: number
+  className?: string
+  style?: React.CSSProperties
+  accentColor?: string
+}
+
+const VideoPromptMentionInput = memo(function VideoPromptMentionInput({
+  value, onChange, refs, placeholder, rows, className, style, accentColor = '#fbbf24',
+}: VideoPromptMentionInputProps) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [mentionState, setMentionState] = useState<{
+    active: boolean
+    query: string
+    startIdx: number
+    cursorPos: { x: number; y: number }
+    activeIndex: number
+  } | null>(null)
+
+  // 当前过滤后的候选（按 srcLabel 模糊匹配）
+  const candidates = useMemo<MentionCandidate[]>(() => {
+    if (!mentionState?.active) return []
+    const q = mentionState.query.toLowerCase().trim()
+    if (!q) return refs
+    return refs.filter(r => r.srcLabel.toLowerCase().includes(q))
+  }, [mentionState, refs])
+
+  // 选中候选后：在 prompt 里插入 @图1 这样的可读文本标记
+  // 注意：候选只来自 getSourceRefs（已真实连线的图片节点），所以不需要再 addConnection
+  const insertMention = useCallback((candidate: MentionCandidate) => {
+    if (!mentionState) return
+    const ta = textareaRef.current
+    if (!ta) return
+
+    const domValue = ta.value
+    const endIdx = ta.selectionStart
+    const before = domValue.substring(0, mentionState.startIdx)
+    const after = domValue.substring(endIdx)
+    const tag = `@${candidate.srcLabel}`
+    const newValue = before + tag + ' ' + after
+    onChange(newValue)
+
+    const newCursor = before.length + tag.length + 1
+    requestAnimationFrame(() => {
+      ta.focus()
+      ta.setSelectionRange(newCursor, newCursor)
+    })
+    setMentionState(null)
+  }, [mentionState, onChange])
+
+  // 监听 textarea 中光标变化 —— 检测 @mention 触发
+  const handleSelectionChange = useCallback(() => {
+    try {
+      const ta = textareaRef.current
+      if (!ta) return
+      const pos = ta.selectionStart
+      if (pos !== ta.selectionEnd) return // 有选中时不触发
+
+      // 找到光标前最近的 @（@ 前面必须是空白或行首）
+      let atIdx = -1
+      for (let i = pos - 1; i >= Math.max(0, pos - 30); i--) {
+        if (ta.value[i] === '@' && (i === 0 || /[\s\n]/.test(ta.value[i - 1]))) {
+          atIdx = i
+          break
+        }
+        if (/[\s\n]/.test(ta.value[i])) break // @ 前必须是空白字符
+      }
+
+      if (atIdx >= 0) {
+        const query = ta.value.substring(atIdx + 1, pos)
+        // query 中不能有空白（说明 @xxx 输入已经断开）
+        if (!/\s/.test(query)) {
+          // 计算 @ 的屏幕位置
+          const rect = ta.getBoundingClientRect()
+          const offset = getCaretCoords(ta, atIdx)
+          setMentionState({
+            active: true,
+            query,
+            startIdx: atIdx,
+            cursorPos: { x: rect.left + offset.x, y: rect.top + offset.y + 18 },
+            activeIndex: 0,
+          })
+          return
+        }
+      }
+      setMentionState(null)
+    } catch (err) {
+      logger.warn('[VideoPromptMentionInput] handleSelectionChange error:', err)
+      setMentionState(null)
+    }
+  }, [])
+
+  // 输入时：更新 @mention 状态
+  const handleInput = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    onChange(e.target.value)
+    // setTimeout 等 React 把 value 更新到 DOM 后再算光标位置
+    requestAnimationFrame(handleSelectionChange)
+  }, [onChange, handleSelectionChange])
+
+  // 键盘导航
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!mentionState?.active || candidates.length === 0) {
+      // 没激活或无候选 → 关闭
+      if (mentionState?.active) setMentionState(null)
+      return
+    }
+    const total = candidates.length
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setMentionState(s => s ? { ...s, activeIndex: (s.activeIndex + 1) % total } : s)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setMentionState(s => s ? { ...s, activeIndex: (s.activeIndex - 1 + total) % total } : s)
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault()
+      insertMention(candidates[mentionState.activeIndex])
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      setMentionState(null)
+    }
+  }, [mentionState, candidates])
+
+  // 点击 dropdown 外部关闭
+  const handleBlur = useCallback(() => {
+    // 延迟关闭让 mousedown 能先触发 insertMention
+    setTimeout(() => setMentionState(null), 150)
+  }, [])
+
+  // 无连接节点时，输入 @ 也不弹菜单
+  const hasRefs = refs.length > 0
+
+  return (
+    <>
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={handleInput}
+        onKeyDown={handleKeyDown}
+        onKeyUp={handleSelectionChange}
+        onClick={handleSelectionChange}
+        onBlur={handleBlur}
+        placeholder={hasRefs ? `${placeholder ?? ''} （输入 @ 引用连接的图片）` : placeholder}
+        rows={rows}
+        className={className}
+        style={style}
+      />
+      {/* @-mention 下拉菜单 —— Portal 到 body，fixed 定位，脱离父容器裁剪 */}
+      {mentionState?.active && hasRefs && candidates.length > 0 && createPortal(
+        <div
+          className="fixed z-[500] w-[240px] max-h-[220px] overflow-y-auto rounded-lg border border-[#2a2a2a] bg-[#121212] shadow-xl"
+          style={{ left: mentionState.cursorPos.x, top: mentionState.cursorPos.y }}
+          onWheel={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.preventDefault()} // 防止 textarea blur 抢先触发
+        >
+          <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-neutral-500">
+            引用图片节点（{candidates.length}）
+          </div>
+          <div className="border-t border-[#222]">
+            {candidates.map((c, i) => (
+              <button
+                key={c.connId}
+                type="button"
+                onClick={() => insertMention(c)}
+                className={cn(
+                  'flex w-full items-center gap-2.5 px-2 py-1.5 text-left transition-colors',
+                  i === mentionState.activeIndex ? 'bg-[#1e1e1e] text-white' : 'text-neutral-300 hover:bg-[#1a1a1a]'
+                )}
+              >
+                {c.srcImage ? (
+                  <img src={c.srcImage} alt="" className="h-6 w-10 rounded object-cover shrink-0" />
+                ) : (
+                  <div className="flex h-6 w-10 items-center justify-center rounded shrink-0" style={{ background: accentColor + '20' }}>
+                    <ImageIcon className="h-3 w-3" style={{ color: accentColor }} />
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="text-[12px] font-medium truncate">{c.srcLabel}</div>
+                  <div className="text-[10px] text-neutral-500 capitalize">{c.srcType} 节点</div>
+                </div>
+                {i === mentionState.activeIndex && (
+                  <span className="text-[10px] text-neutral-500">Enter</span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  )
+})
+
+// 工具：计算 textarea 中指定 index 字符的屏幕坐标
+function getCaretCoords(ta: HTMLTextAreaElement, index: number): { x: number; y: number } {
+  const mirror = document.createElement('div')
+  const style = window.getComputedStyle(ta)
+  const props = [
+    'boxSizing', 'width', 'height', 'overflowX', 'overflowY',
+    'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+    'borderStyle', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+    'fontStyle', 'fontVariant', 'fontWeight', 'fontStretch', 'fontSize',
+    'fontSizeAdjust', 'lineHeight', 'fontFamily', 'textAlign', 'textTransform',
+    'textIndent', 'textDecoration', 'letterSpacing', 'wordSpacing', 'tabSize',
+    'MozTabSize', 'whiteSpace',
+  ]
+  props.forEach(p => {
+    mirror.style[p] = style.getPropertyValue(p)
+  })
+  mirror.style.position = 'absolute'
+  mirror.style.visibility = 'hidden'
+  mirror.style.whiteSpace = 'pre-wrap'
+  mirror.style.wordWrap = 'break-word'
+
+  const textBefore = ta.value.substring(0, index).replace(/\n/g, '\n')
+  const textNode = document.createTextNode(textBefore)
+  mirror.appendChild(textNode)
+  // 占位（让最后一行文字撑开高度）
+  const span = document.createElement('span')
+  span.textContent = 'X'
+  mirror.appendChild(span)
+
+  document.body.appendChild(mirror)
+  const rect = span.getBoundingClientRect()
+  const mirrorRect = mirror.getBoundingClientRect()
+  document.body.removeChild(mirror)
+
+  // CSS 数值需要 parseFloat（"4px" → 4），直接做算术会得到 NaN
+  const padLeft = parseFloat(style.paddingLeft) || 0
+  const padTop = parseFloat(style.paddingTop) || 0
+  return {
+    x: Math.round(rect.left - mirrorRect.left - padLeft),
+    y: Math.round(rect.top - mirrorRect.top - padTop),
+  }
+}
+
 // 节点元信息（标签/图标/颜色）
 export const UNODE_META: Record<UnifiedNodeType, { label: string; icon: IconComponent; color: string }> = {
   image: { label: '图片生成', icon: ImageIcon, color: '#22d3ee' },
@@ -275,14 +530,16 @@ export const UBaseNode = memo(function UBaseNode({
   const Icon = meta.icon
   const [hovered, setHovered] = useState(false)
   const nodeRef = useRef<HTMLDivElement | null>(null)
+  const zoom = useUnifiedCanvasStore((s) => s.viewport.zoom)
   // 动态节点高度：生成前后壳高度会变，端口必须同步真实高度的 1/2 居中，否则端口/连线错位
+  // 注意：getBoundingClientRect 返回的是屏幕坐标（已被画布 scale 缩放），需除以 zoom 换回画布坐标系
   const [realH, setRealH] = useState<number>(size.height)
   useEffect(() => {
     const el = nodeRef.current
     if (!el) return
     const measure = () => {
-      const h = el.getBoundingClientRect().height || el.offsetHeight || size.height
-      setRealH(h)
+      const screenH = el.getBoundingClientRect().height || el.offsetHeight || size.height
+      setRealH(screenH / zoom)
     }
     measure()
     // ResizeObserver 监听内容尺寸变化（图片生成 / 设置面板展开等）
@@ -298,7 +555,7 @@ export const UBaseNode = memo(function UBaseNode({
       if (ro) ro.disconnect()
       clearTimeout(t1); clearTimeout(t2)
     }
-  }, [size.height, node.id, node.type])
+  }, [size.height, node.id, node.type, zoom])
 
   // 补位虚拟端口：所有节点都保证 至少 1 个输入口 + 1 个输出口（用于 hover 时显示左右 + 号锚点）
   // 真实连线校验仍然走原端口定义 canConnect
@@ -582,28 +839,16 @@ export const ImageNode = memo(function ImageNode({ node }: { node: UCanvasNode }
   const cur = results[safeIndex]
   const hasMultiple = results.length > 1
 
-  // 实际显示比例：加载完成后用图片真实比例，否则用选中的比例
-  const [naturalRatio, setNaturalRatio] = useState<string | null>(null)
-  const displayRatio = naturalRatio || ratio
-  const displayRatioStyle = displayRatio === 'adapt' ? '1/1' : displayRatio.replace(':', '/')
+  // 预览比例固定为 16:9（与视频节点一致），不随参数/生成结果变化
+  // 用户选的 ratio 参数只影响"后台生成"和全屏预览，画布内预览框永远固定
 
-  // 切换结果 / 重新生成时，重置真实比例（用选中比例作为占位）
-  useEffect(() => {
-    setNaturalRatio(null)
-  }, [cur?.id, ratio])
-
-  // 图片加载完成 → 更新状态为 done + 记录真实比例
+  // 图片加载完成 → 更新状态为 done
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     if (!cur) return
     const img = e.currentTarget
     const nw = img.naturalWidth
     const nh = img.naturalHeight
-    if (nw && nh) {
-      // 简化为常见比例（约等于 8 种比例之一）
-      setNaturalRatio(simplifyRatio(nw, nh))
-    }
     if (cur.status !== 'loading') return
-    // 使用函数式更新，基于最新状态修改，避免并发更新时的竞态条件
     updateNodeData(node.id, (prev) => {
       const prevResults = (prev.imageResults ?? []) as GenImage[]
       const updated = prevResults.map((r) =>
@@ -612,7 +857,6 @@ export const ImageNode = memo(function ImageNode({ node }: { node: UCanvasNode }
       const allDone = updated.every((r) => r.status === 'done' || r.status === 'error')
       const patch: Partial<UnifiedNodeData> = { imageResults: updated }
       if (allDone) patch.imageStatus = 'done' as const
-      // 全部加载完成后释放队列槽位
       if (allDone) setTimeout(() => completeImageGen(node.id), 0)
       return patch
     })
@@ -725,11 +969,10 @@ export const ImageNode = memo(function ImageNode({ node }: { node: UCanvasNode }
           </button>
         </div>
       )}
-      {/* 预览区 */}
+      {/* 预览区 —— 固定 16:9 比例，与视频节点一致；真实效果通过全屏预览看 */}
       <div
         className="relative overflow-hidden select-none rounded-lg bg-[#161616] group"
-        style={{ aspectRatio: displayRatioStyle }}
-        // 阻止原生图片拖拽，避免“拖出图片”效果 + 松手后跟随的粘手 Bug
+        style={{ aspectRatio: '16 / 9' }}
         onDragStart={(e) => e.preventDefault()}
       >
         {/* 空状态 */}
@@ -756,13 +999,13 @@ export const ImageNode = memo(function ImageNode({ node }: { node: UCanvasNode }
           </div>
         )}
 
-        {/* 预览图 — 永远不拦截鼠标/原生拖动。节点拖拽走父容器的 onMouseDown。 */}
+        {/* 预览图 —— object-cover 铺满固定 16:9 预览框，真实效果通过全屏预览看 */}
         {cur && cur.status !== 'error' && (
           <img
             src={cur.url}
             alt="生成图"
             draggable={false}
-            className="h-full w-full object-contain transition-opacity duration-200 pointer-events-none select-none"
+            className="h-full w-full object-cover transition-opacity duration-200 pointer-events-none select-none"
             onLoad={handleImageLoad}
             onError={handleImageError}
           />
@@ -862,6 +1105,9 @@ export function ImageSettingsPanel({ node }: { node: UCanvasNode }) {
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewImg, setPreviewImg] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
+  const [imageSortMode, setImageSortMode] = useState<'price-desc' | 'price-asc' | 'name'>(
+    () => (localStorage.getItem('imageModelSort') as any) || 'price-desc'
+  )
   const { models: imageModelList, defaultModel: defaultImageModel } = useImageModels()
 
   const model = node.data.imageModel ?? defaultImageModel
@@ -872,6 +1118,13 @@ export function ImageSettingsPanel({ node }: { node: UCanvasNode }) {
   const currentModel = imageModelList.find(m => m.id === model)
   const currentResolution = modelCfg.resolutions.find(r => r.id === resolution)
   const ratioOptions = modelCfg.ratios
+  const sortedImageModels = (() => {
+    const copy = [...imageModelList]
+    if (imageSortMode === 'price-desc') copy.sort((a, b) => b.costTokens - a.costTokens)
+    else if (imageSortMode === 'price-asc') copy.sort((a, b) => a.costTokens - b.costTokens)
+    else copy.sort((a, b) => a.label.localeCompare(b.label, 'zh'))
+    return copy
+  })()
   const cur = results[0]
   const refCount = getSourceRefs(node.id, 'ref').length
 
@@ -939,7 +1192,7 @@ export function ImageSettingsPanel({ node }: { node: UCanvasNode }) {
       </div>
 
       {/* 标签内容 */}
-      <div className="flex-1 px-3 py-1 overflow-y-auto">
+      <div className="flex-1 px-3 py-1 overflow-y-auto" onWheel={(e) => e.stopPropagation()}>
         {refTab === 'reference' && (
           <div className="relative h-full">
             <textarea
@@ -1049,8 +1302,24 @@ export function ImageSettingsPanel({ node }: { node: UCanvasNode }) {
             <ChevronUp className={cn('h-3 w-3 shrink-0 text-neutral-500 transition-transform', showModelList && 'rotate-180')} />
           </button>
           {showModelList && (
-            <div className="absolute bottom-full left-0 z-50 mb-1 max-h-[140px] w-[200px] overflow-y-auto rounded-lg border border-[#1f1f1f] bg-[#121212] p-1 shadow-lg">
-              {imageModelList.map((m) => (
+            <div className="absolute bottom-full left-0 z-50 mb-1 w-[230px] rounded-lg border border-[#1f1f1f] bg-[#121212] p-1 shadow-lg" onWheel={(e) => e.stopPropagation()}>
+              {/* 排序 tabs */}
+              <div className="mb-1 flex items-center gap-0.5 rounded-md bg-[#1a1a1a] p-0.5">
+                {(['price-desc', 'price-asc', 'name'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => { setImageSortMode(mode); localStorage.setItem('imageModelSort', mode) }}
+                    className={cn(
+                      'flex-1 rounded px-1 py-0.5 text-[9px] font-medium transition-colors',
+                      imageSortMode === mode ? 'bg-cyan-500/20 text-cyan-200' : 'text-neutral-500 hover:text-neutral-300'
+                    )}
+                  >
+                    {mode === 'price-desc' ? '价格↓' : mode === 'price-asc' ? '价格↑' : '名称'}
+                  </button>
+                ))}
+              </div>
+              <div className="max-h-[110px] overflow-y-auto">
+              {sortedImageModels.map((m) => (
                 <button
                   key={m.id}
                   onClick={() => {
@@ -1068,6 +1337,7 @@ export function ImageSettingsPanel({ node }: { node: UCanvasNode }) {
                   <span className={cn('truncate text-[11px]', model === m.id ? 'text-cyan-100' : 'text-neutral-200')}>{m.label}</span>
                 </button>
               ))}
+              </div>
             </div>
           )}
         </div>
@@ -1089,7 +1359,7 @@ export function ImageSettingsPanel({ node }: { node: UCanvasNode }) {
             <ChevronUp className={cn('h-3 w-3 shrink-0 text-neutral-500 transition-transform', showSizeList && 'rotate-180')} />
           </button>
           {showSizeList && (
-            <div className="absolute bottom-full left-0 z-50 mb-1 w-[280px] rounded-lg border border-[#1f1f1f] bg-[#121212] p-2.5 shadow-lg">
+            <div className="absolute bottom-full left-0 z-50 mb-1 w-[280px] rounded-lg border border-[#1f1f1f] bg-[#121212] p-2.5 shadow-lg" onWheel={(e) => e.stopPropagation()}>
               {/* 分辨率 */}
               <div className="mb-2 text-[10px] font-medium text-neutral-500">画质</div>
               <div className="flex gap-1">
@@ -1216,6 +1486,168 @@ export function ImageSettingsPanel({ node }: { node: UCanvasNode }) {
     : panelBody
 }
 
+// ==================== 视频全能参考上传组件 ====================
+function VideoRefUpload({ node, update }: {
+  node: UCanvasNode
+  update: (id: string, data: Partial<typeof node.data>) => void
+}) {
+  const [uploadingEnd, setUploadingEnd] = useState(false)
+  const [uploadingRef, setUploadingRef] = useState(false)
+  const [uploadingVideo, setUploadingVideo] = useState(false)
+  const [videoUrlInput, setVideoUrlInput] = useState('')
+
+  const endImage = node.data.videoEndImage
+  const refImages = node.data.videoReferenceImages ?? []
+  const refVideo = node.data.videoReferenceVideo
+
+  const handleUploadEndImage = async (file: File) => {
+    setUploadingEnd(true)
+    try {
+      const res = await uploadFile('/api/upload/image', file)
+      update(node.id, { videoEndImage: res.url })
+    } catch (e) {
+      logger.error('VideoRefUpload', '尾帧上传失败', e)
+    } finally {
+      setUploadingEnd(false)
+    }
+  }
+
+  const handleUploadRefImage = async (file: File) => {
+    setUploadingRef(true)
+    try {
+      const res = await uploadFile('/api/upload/image', file)
+      update(node.id, {
+        videoReferenceImages: [...refImages, res.url],
+      })
+    } catch (e) {
+      logger.error('VideoRefUpload', '参考图上传失败', e)
+    } finally {
+      setUploadingRef(false)
+    }
+  }
+
+  const handleUploadRefVideo = async (file: File) => {
+    setUploadingVideo(true)
+    try {
+      const res = await uploadFile('/api/upload/image', file)
+      update(node.id, { videoReferenceVideo: res.url })
+    } catch (e) {
+      logger.error('VideoRefUpload', '参考视频上传失败', e)
+    } finally {
+      setUploadingVideo(false)
+    }
+  }
+
+  const removeEndImage = () => update(node.id, { videoEndImage: undefined })
+  const removeRefImage = (idx: number) => {
+    const next = refImages.filter((_, i) => i !== idx)
+    update(node.id, { videoReferenceImages: next })
+  }
+  const removeRefVideo = () => update(node.id, { videoReferenceVideo: undefined })
+
+  const addVideoUrl = () => {
+    const u = videoUrlInput.trim()
+    if (u) {
+      update(node.id, { videoReferenceVideo: u })
+      setVideoUrlInput('')
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3 h-full min-h-[120px]">
+      {/* 尾帧图 */}
+      <div>
+        <div className="mb-1.5 flex items-center justify-between">
+          <span className="text-[11px] font-medium text-neutral-400">尾帧图</span>
+          {endImage && (
+            <button onClick={removeEndImage} className="text-[10px] text-neutral-600 hover:text-red-400">移除</button>
+          )}
+        </div>
+        {endImage ? (
+          <div className="relative h-16 w-28 overflow-hidden rounded-md border border-[#2a2a2a]">
+            <img src={endImage} alt="尾帧" className="h-full w-full object-cover" />
+          </div>
+        ) : (
+          <label className="flex h-16 w-full cursor-pointer items-center justify-center rounded-md border border-dashed border-[#2a2a2a] text-[11px] text-neutral-600 hover:border-amber-500/40 hover:text-neutral-400 transition-colors">
+            {uploadingEnd ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Upload className="mr-1.5 h-3.5 w-3.5" />上传尾帧</>}
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+              const f = e.target.files?.[0]; if (f) void handleUploadEndImage(f); e.target.value = ''
+            }} />
+          </label>
+        )}
+      </div>
+
+      {/* 多参考图 */}
+      <div>
+        <div className="mb-1.5 flex items-center justify-between">
+          <span className="text-[11px] font-medium text-neutral-400">参考图（多张）</span>
+          {refImages.length > 0 && (
+            <span className="text-[10px] text-neutral-600">{refImages.length} 张</span>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {refImages.map((url, idx) => (
+            <div key={idx} className="group relative h-14 w-14 overflow-hidden rounded-md border border-[#2a2a2a]">
+              <img src={url} alt={`参考${idx + 1}`} className="h-full w-full object-cover" />
+              <button
+                onClick={() => removeRefImage(idx)}
+                className="absolute right-0 top-0 hidden h-4 w-4 items-center justify-center bg-black/70 text-white group-hover:flex"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </div>
+          ))}
+          <label className="flex h-14 w-14 cursor-pointer items-center justify-center rounded-md border border-dashed border-[#2a2a2a] text-neutral-600 hover:border-amber-500/40 hover:text-neutral-400 transition-colors">
+            {uploadingRef ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+              const f = e.target.files?.[0]; if (f) void handleUploadRefImage(f); e.target.value = ''
+            }} />
+          </label>
+        </div>
+      </div>
+
+      {/* 参考视频 */}
+      <div>
+        <div className="mb-1.5 flex items-center justify-between">
+          <span className="text-[11px] font-medium text-neutral-400">参考视频</span>
+          {refVideo && (
+            <button onClick={removeRefVideo} className="text-[10px] text-neutral-600 hover:text-red-400">移除</button>
+          )}
+        </div>
+        {refVideo ? (
+          <div className="flex items-center gap-2 rounded-md border border-[#2a2a2a] bg-[#161616] px-2 py-1.5">
+            <Film className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+            <span className="truncate text-[11px] text-neutral-300">{refVideo.split('/').pop() || refVideo}</span>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            <label className="flex h-12 w-full cursor-pointer items-center justify-center rounded-md border border-dashed border-[#2a2a2a] text-[11px] text-neutral-600 hover:border-amber-500/40 hover:text-neutral-400 transition-colors">
+              {uploadingVideo ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Upload className="mr-1.5 h-3.5 w-3.5" />上传参考视频</>}
+              <input type="file" accept="video/*" className="hidden" onChange={(e) => {
+                const f = e.target.files?.[0]; if (f) void handleUploadRefVideo(f); e.target.value = ''
+              }} />
+            </label>
+            <div className="flex items-center gap-1">
+              <input
+                type="url"
+                value={videoUrlInput}
+                onChange={(e) => setVideoUrlInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addVideoUrl() } }}
+                placeholder="或粘贴视频 URL"
+                className="flex-1 rounded-md border border-[#1f1f1f] bg-[#161616] px-2 py-1 text-[11px] text-neutral-200 placeholder:text-neutral-600 outline-none focus:border-amber-500/40"
+              />
+              <button
+                onClick={addVideoUrl}
+                className="rounded-md border border-[#1f1f1f] bg-[#161616] px-2 py-1 text-[11px] text-neutral-400 hover:text-neutral-200"
+              >添加</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ==================== 视频节点设置面板（独立浮动） ====================
 export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
   const update = useUnifiedCanvasStore((s) => s.updateNodeData)
@@ -1231,8 +1663,28 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
   const [refTab, setRefTab] = useState<'reference' | 'mark' | 'style'>('reference')
   const [showModelList, setShowModelList] = useState(false)
   const [showSizeList, setShowSizeList] = useState(false)
+  const [showRefModeList, setShowRefModeList] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [expanded, setExpanded] = useState(false)
+  const [videoSortMode, setVideoSortMode] = useState<'price-desc' | 'price-asc' | 'name'>(
+    () => (localStorage.getItem('videoModelSort') as any) || 'price-desc'
+  )
+
+  const panelRef = useRef<HTMLDivElement | null>(null)
+
+  // 点击面板外部 → 关闭所有下拉（捕获阶段绕开 stopPropagation）
+  useEffect(() => {
+    const capture = true
+    const handleClickOutside = (e: globalThis.MouseEvent) => {
+      if (!panelRef.current) return
+      if (panelRef.current.contains(e.target as Node)) return
+      setShowModelList(false)
+      setShowSizeList(false)
+      setShowRefModeList(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside, capture)
+    return () => document.removeEventListener('mousedown', handleClickOutside, capture)
+  }, [])
 
   const model = node.data.videoModel ?? defaultVideoModel
   const currentModel = videoModelList.find(m => m.id === model)
@@ -1240,6 +1692,39 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
   const defaultDur = modelCfg?.defaultDuration || '5s'
   const defaultRes = modelCfg?.defaultResolution || '720p'
   const defaultRatio = modelCfg?.defaultRatio || '16:9'
+  const sortedVideoModels = (() => {
+    const copy = [...videoModelList]
+    if (videoSortMode === 'price-desc') copy.sort((a, b) => b.costTokens - a.costTokens)
+    else if (videoSortMode === 'price-asc') copy.sort((a, b) => a.costTokens - b.costTokens)
+    else copy.sort((a, b) => a.label.localeCompare(b.label, 'zh'))
+    return copy
+  })()
+
+  // 模型切换后自动校验参数是否有效：
+  // resolution 不在新模型支持列表 → 重置为 defaultRes
+  // duration 不在新模型支持列表 → 重置为 defaultDur
+  // ratio 不在新模型支持列表 → 重置为 defaultRatio
+  // 这防止用户从支持 720p 的模型切到只支持 480p 的模型时，旧参数被原封不动发给后端
+  useEffect(() => {
+    const data = node.data
+    const patches: Partial<Record<string, unknown>> = {}
+    if (modelCfg) {
+      if (data.videoResolution && !modelCfg.resolutions.find(r => r.id === data.videoResolution)) {
+        patches.videoResolution = modelCfg.defaultResolution
+      }
+      if (data.videoDuration && !modelCfg.durations.find(d => d.id === data.videoDuration)) {
+        patches.videoDuration = modelCfg.defaultDuration
+      }
+      if (data.videoRatio && !modelCfg.ratios.includes(data.videoRatio as string)) {
+        patches.videoRatio = modelCfg.defaultRatio
+      }
+    }
+    if (Object.keys(patches).length > 0) {
+      update(node.id, patches)
+    }
+    // 只在模型或 modelCfg 变时触发，避免无限循环
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model, modelCfg])
 
   const resolution = node.data.videoResolution ?? defaultRes
   const duration = node.data.videoDuration ?? defaultDur
@@ -1251,7 +1736,10 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
   const supportsAudio = modelCfg?.supportsAudio || false
   const supportsImg2Video = modelCfg?.supportsImg2Video ?? true
   const cur = results[0]
-  const refCount = getSourceRefs(node.id, 'ref').length
+  // getSourceRefs 返回已建立真实连线的源节点；视频节点 @-mention 和 RefIcon 浮层都用同一批数据
+  const connectedRefs = getSourceRefs(node.id, 'ref')
+  const connectedImageRefs = connectedRefs.filter((r) => r.srcType === 'image')
+  const refCount = connectedImageRefs.length
   const isBusy = status === 'running' || status === 'queued'
 
   // 视频 duration id (5s / 10s) → 秒数
@@ -1277,6 +1765,7 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
 
   const panelBody = (
     <div
+      ref={panelRef}
       className={expanded
         ? 'w-[720px] h-[550px] rounded-xl border border-[#1f1f1f] bg-[#1a1a1a] shadow-2xl flex flex-col overflow-visible'
         : 'w-[660px] rounded-xl border border-[#1f1f1f] bg-[#1a1a1a] shadow-2xl'}
@@ -1316,36 +1805,31 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
       </div>
 
       {/* 标签内容 */}
-      <div className="flex-1 px-3 py-1 overflow-y-auto">
+      <div className="flex-1 px-3 py-1 overflow-y-auto" onWheel={(e) => e.stopPropagation()}>
         {refTab === 'reference' && (
           <div className="relative h-full">
-            <textarea
+            <VideoPromptMentionInput
               value={node.data.videoPrompt ?? ''}
-              onChange={(e) => update(node.id, { videoPrompt: e.target.value })}
+              onChange={(v) => update(node.id, { videoPrompt: v })}
+              refs={connectedImageRefs}
               placeholder="描述你想生成的视频画面…"
               rows={expanded ? 16 : 4}
               className="w-full h-full resize-none rounded-lg border border-[#1f1f1f] bg-[#161616] px-2.5 pb-2.5 text-[13px] leading-6 text-neutral-100 placeholder:text-neutral-600 outline-none transition-colors focus:border-amber-500/50 min-h-[120px]"
               style={{ paddingTop: refCount > 0 ? 36 : 8 }}
+              accentColor="#fbbf24"
             />
             {/* 引用内容以小图标显示在输入框左上角 */}
-            {(() => {
-              const refs = getSourceRefs(node.id, 'ref')
-              if (refs.length === 0) return null
-              return (
-                <div className="absolute top-1.5 left-1.5 z-10 flex items-center gap-1">
-                  {refs.map((ref) => (
-                    <RefIcon key={ref.connId} refData={ref} accentColor="#f59e0b" onPreview={setPreviewImg} />
-                  ))}
-                </div>
-              )
-            })()}
+            {refCount > 0 && (
+              <div className="absolute top-1.5 left-1.5 z-10 flex items-center gap-1">
+                {connectedImageRefs.map((ref) => (
+                  <RefIcon key={ref.connId} refData={ref} accentColor="#f59e0b" onPreview={setPreviewImg} />
+                ))}
+              </div>
+            )}
           </div>
         )}
         {refTab === 'mark' && (
-          <div className="flex items-center justify-center rounded-lg border border-dashed border-[#2a2a2a] text-sm text-neutral-500 h-full min-h-[120px]">
-            <Upload className="mr-2 h-5 w-5" />
-            上传图片进行标记编辑
-          </div>
+          <VideoRefUpload node={node} update={update} />
         )}
         {refTab === 'style' && (
           <div className="flex items-center justify-center rounded-lg border border-dashed border-[#2a2a2a] text-sm text-neutral-500 h-full min-h-[120px]">
@@ -1360,7 +1844,7 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
         {/* 模型选择 */}
         <div className="relative">
           <button
-            onClick={() => { setShowModelList(v => !v); setShowSizeList(false) }}
+            onClick={() => { setShowModelList(v => !v); setShowSizeList(false); setShowRefModeList(false) }}
             className="flex h-7 items-center gap-1 rounded-md px-1.5 transition-colors hover:bg-neutral-800/60"
           >
             <Bot className="h-3.5 w-3.5 shrink-0" style={{ color: meta.color }} />
@@ -1368,8 +1852,24 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
             <ChevronUp className={cn('h-3 w-3 shrink-0 text-neutral-500 transition-transform', showModelList && 'rotate-180')} />
           </button>
           {showModelList && (
-            <div className="absolute bottom-full left-0 z-50 mb-1 max-h-[140px] w-[200px] overflow-y-auto rounded-lg border border-[#1f1f1f] bg-[#121212] p-1 shadow-lg">
-              {videoModelList.map((m) => (
+            <div className="absolute bottom-full left-0 z-50 mb-1 w-[230px] rounded-lg border border-[#1f1f1f] bg-[#121212] p-1 shadow-lg" onWheel={(e) => e.stopPropagation()}>
+              {/* 排序 tabs */}
+              <div className="mb-1 flex items-center gap-0.5 rounded-md bg-[#1a1a1a] p-0.5">
+                {(['price-desc', 'price-asc', 'name'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => { setVideoSortMode(mode); localStorage.setItem('videoModelSort', mode) }}
+                    className={cn(
+                      'flex-1 rounded px-1 py-0.5 text-[9px] font-medium transition-colors',
+                      videoSortMode === mode ? 'bg-amber-500/20 text-amber-200' : 'text-neutral-500 hover:text-neutral-300'
+                    )}
+                  >
+                    {mode === 'price-desc' ? '价格↓' : mode === 'price-asc' ? '价格↑' : '名称'}
+                  </button>
+                ))}
+              </div>
+              <div className="max-h-[110px] overflow-y-auto">
+              {sortedVideoModels.map((m) => (
                 <button
                   key={m.id}
                   onClick={() => { update(node.id, { videoModel: m.id }); setShowModelList(false) }}
@@ -1378,6 +1878,62 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
                   <Film className={cn('h-3.5 w-3.5 shrink-0', model === m.id ? 'text-amber-300' : 'text-neutral-500')} />
                   <span className={cn('truncate text-[11px]', model === m.id ? 'text-amber-100' : 'text-neutral-200')}>{m.label}</span>
                   {m.tag && <span className="rounded bg-amber-500/20 px-1 text-[8px] font-bold text-amber-300">{m.tag}</span>}
+                </button>
+              ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 分隔点 */}
+        <span className="text-neutral-700">·</span>
+
+        {/* 全能参考 */}
+        <div className="relative">
+          <button
+            onClick={() => { setShowRefModeList(v => !v); setShowModelList(false); setShowSizeList(false) }}
+            className="flex h-7 items-center gap-1 rounded-md px-1.5 transition-colors hover:bg-neutral-800/60"
+          >
+            <Layers className="h-3.5 w-3.5 shrink-0" style={{ color: meta.color }} />
+            <span className="text-[12px] text-neutral-200">
+              {{
+                omni: '全能参考',
+                text2video: '文生视频',
+                img2video: '图生视频',
+                endframe: '首尾帧',
+              }[node.data.videoRefMode ?? 'omni']}
+            </span>
+            <ChevronUp className={cn('h-3 w-3 shrink-0 text-neutral-500 transition-transform', showRefModeList && 'rotate-180')} />
+          </button>
+          {showRefModeList && (
+            <div className="absolute bottom-full left-0 z-50 mb-1 w-[150px] rounded-lg border border-[#1f1f1f] bg-[#121212] p-1 shadow-lg" onWheel={(e) => e.stopPropagation()}>
+              {([
+                { id: 'omni', label: '全能参考', desc: '自动检测参考素材' },
+                { id: 'text2video', label: '文生视频', desc: '仅用提示词生成' },
+                { id: 'img2video', label: '图生视频', desc: '首帧图片动起来' },
+                { id: 'endframe', label: '首尾帧', desc: '指定起止画面' },
+              ] as const).map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => { update(node.id, { videoRefMode: m.id }); setShowRefModeList(false) }}
+                  className={cn(
+                    'flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left',
+                    (node.data.videoRefMode ?? 'omni') === m.id ? 'bg-amber-500/15' : 'hover:bg-neutral-800/60',
+                  )}
+                >
+                  <span className={cn(
+                    'mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full',
+                    (node.data.videoRefMode ?? 'omni') === m.id ? 'bg-amber-400' : 'bg-neutral-600',
+                  )} />
+                  <div className="flex-1 min-w-0">
+                    <div className={cn(
+                      'text-[11px] font-medium',
+                      (node.data.videoRefMode ?? 'omni') === m.id ? 'text-amber-200' : 'text-neutral-200',
+                    )}>
+                      {m.label}
+                    </div>
+                    <div className="text-[9px] text-neutral-500 truncate">{m.desc}</div>
+                  </div>
                 </button>
               ))}
             </div>
@@ -1390,7 +1946,7 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
         {/* 分辨率/时长/比例 */}
         <div className="relative">
           <button
-            onClick={() => { setShowSizeList(v => !v); setShowModelList(false) }}
+            onClick={() => { setShowSizeList(v => !v); setShowModelList(false); setShowRefModeList(false) }}
             className="flex h-7 items-center gap-1 rounded-md px-1.5 transition-colors hover:bg-neutral-800/60"
           >
             <span className="font-mono text-[12px] text-neutral-200">{ratio}</span>
@@ -1401,7 +1957,7 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
             <ChevronUp className={cn('h-3 w-3 shrink-0 text-neutral-500 transition-transform', showSizeList && 'rotate-180')} />
           </button>
           {showSizeList && (
-            <div className="absolute bottom-full left-0 z-50 mb-1 w-[280px] rounded-lg border border-[#1f1f1f] bg-[#121212] p-2.5 shadow-lg">
+            <div className="absolute bottom-full left-0 z-50 mb-1 w-[280px] rounded-lg border border-[#1f1f1f] bg-[#121212] p-2.5 shadow-lg" onWheel={(e) => e.stopPropagation()}>
               {/* 分辨率 */}
               <div className="mb-2 text-[10px] font-medium text-neutral-500">画质</div>
               <div className="flex gap-1">

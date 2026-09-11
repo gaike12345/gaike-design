@@ -44,22 +44,22 @@ interface LlmResponse<T> {
 async function postJson<T>(url: string, body: unknown): Promise<LlmResponse<T>> {
   try {
     return await api.post<LlmResponse<T>>(url, body)
-  } catch (e: any) {
+  } catch (e: unknown) {
     // 403 内容审核拦截：返回带 blocked 标记的响应，便于前端显示违规提示
-    if (e.status === 403 && e.data) {
-      const errData = e.data as any
-      if (errData.blocked || errData.source === 'moderation') {
+    if ((e as { status?: number }).status === 403 && (e as { data?: unknown }).data) {
+      const errData = (e as { data?: Record<string, unknown> }).data
+      if (errData && (errData.blocked || errData.source === 'moderation')) {
         return {
           ok: false,
           source: 'moderation',
-          error: errData.error || '内容审核拦截',
+          error: (errData.error as string) || '内容审核拦截',
           blocked: true,
-          stage: errData.stage,
-          riskLevel: errData.riskLevel,
+          stage: errData.stage as 'input' | 'output',
+          riskLevel: errData.riskLevel as 'low' | 'medium' | 'high',
         } as unknown as LlmResponse<T>
       }
     }
-    return { ok: false, error: e.message || '请求失败' }
+    return { ok: false, error: (e as Error).message || '请求失败' }
   }
 }
 

@@ -11,6 +11,7 @@ import { useAuthStore } from '../store/useAuthStore'
 import logo from '../assets/logo.png'
 import { useSiteConfig, useSiteThemeVars } from '../hooks/useSiteConfig'
 import LegalModal, { type LegalType } from '../components/LegalModal'
+import ContactAdminModal from '../components/ContactAdminModal'
 
 type TabType = 'password' | 'wechat'
 
@@ -30,8 +31,6 @@ export default function LoginModal() {
   const { siteName, primaryColor } = useSiteThemeVars()
   const { get } = useSiteConfig()
 
-  const title = get('login.welcome_title', '欢迎回来 👋') as string
-  const subtitle = get('login.welcome_subtitle', `登录 ${siteName}，继续你的 AI 创作旅程`) as string
   const freeTokens = get('login.new_user_tokens', 100_000) as number
 
   // 当前 Tab
@@ -47,8 +46,12 @@ export default function LoginModal() {
   // 微信扫码
   const [qrCodeUrl, setQrCodeUrl] = useState('')
   const [sceneId, setSceneId] = useState('')
-  const [qrStatus, setQrStatus] = useState<'loading' | 'waiting' | 'scanned' | 'confirmed' | 'expired'>('loading')
+  const [qrStatus, setQrStatus] = useState<'loading' | 'waiting' | 'scanned' | 'confirmed' | 'expired' | 'error'>('loading')
+  const [qrErrorMsg, setQrErrorMsg] = useState('')
   const pollTimerRef = useRef<number | null>(null)
+
+  // ===== 左侧展示：视频节点 17（单一循环视频） =====
+  const HERO_VIDEO = '/hero-2.mp4'
 
   // 协议勾选
   const [agreeAll, setAgreeAll] = useState(false)
@@ -117,8 +120,9 @@ export default function LoginModal() {
       setQrStatus('waiting')
       // 开始轮询
       startPolling(res.sceneId)
-    } catch {
-      setQrStatus('expired')
+    } catch (e: unknown) {
+      setQrErrorMsg(e instanceof Error ? e.message : '微信登录暂时不可用')
+      setQrStatus('error')
     }
   }
 
@@ -167,12 +171,13 @@ export default function LoginModal() {
     await login(uid.trim(), password)
   }
 
-  // 注册提交
+  // 注册提交 — 暂不支持自助注册，引导联系管理员
+  const [showContactAdmin, setShowContactAdmin] = useState(false)
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
     clearError()
     if (!checkAgreement()) return
-    await register(password, nickname || '')
+    setShowContactAdmin(true)
   }
 
   // 主色派生物
@@ -188,18 +193,6 @@ export default function LoginModal() {
     { key: 'password', label: '密码登录', icon: <Lock size={14} /> },
     { key: 'wechat', label: '微信扫码', icon: <QrCode size={14} /> },
   ]
-
-  const getTabTitle = () => {
-    if (tab === 'wechat') return '微信扫码登录'
-    if (tab === 'password') return isRegister ? '创建你的账号' : title
-    return ''
-  }
-
-  const getTabSubtitle = () => {
-    if (tab === 'wechat') return '使用微信扫描二维码登录'
-    if (tab === 'password') return isRegister ? `加入 ${siteName}，开启你的 AI 创作之旅` : subtitle
-    return ''
-  }
 
   return (
     <div
@@ -221,65 +214,59 @@ export default function LoginModal() {
           <X className="h-5 w-5" />
         </button>
 
-        {/* ========== 左侧：品牌视觉区 ========== */}
+        {/* ========== 左侧：视频 + 图片混合轮播视觉区 ========== */}
         <div
           className="relative hidden w-1/2 flex-col justify-between overflow-hidden sm:flex"
-          style={{
-            background: `linear-gradient(135deg, ${primaryColor}15 0%, ${primaryColor}08 100%)`,
-          }}
+          style={{ background: `linear-gradient(135deg, ${primaryColor}15 0%, ${primaryColor}08 100%)` }}
         >
-          {/* 装饰性渐变光斑 */}
-          <div
-            className="pointer-events-none absolute -top-20 -left-16 h-64 w-64 rounded-full blur-3xl"
-            style={{ background: `${primaryColor}30` }}
-            aria-hidden
-          />
-          <div
-            className="pointer-events-none absolute -bottom-24 -right-12 h-72 w-72 rounded-full blur-3xl"
-            style={{ background: `${primaryColor}20` }}
-            aria-hidden
-          />
-
-          <div className="relative z-10 px-10 pt-10" />
-
-          {/* 中间视觉区 */}
-          <div className="relative z-10 flex flex-1 items-center justify-center px-10">
-            <div className="text-center">
-              <div
-                className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-3xl shadow-lg"
-                style={{ background: `linear-gradient(135deg, ${primaryColor}, ${shade(primaryColor, -15)})` }}
-              >
-                <img src={logo} alt={`${siteName} logo`} className="h-14 w-14" />
-              </div>
-              <h2 className="text-3xl font-bold" style={{ color: primaryColor }}>
-                {siteName}
-              </h2>
-              <p className="mt-3 text-sm text-neutral-500">AI 漫剧创作平台</p>
-            </div>
+          {/* 媒体层：仅展示视频节点 17（hero-2.mp4） */}
+          <div className="absolute inset-0">
+            <video
+              className="absolute inset-0 h-full w-full object-cover"
+              src={HERO_VIDEO}
+              autoPlay
+              loop
+              muted
+              playsInline
+              preload="auto"
+            />
           </div>
 
-          {/* 底部标语 */}
-          <div className="relative z-10 px-10 pb-10">
-            <p className="text-xs text-neutral-400">让每一个创意都被看见</p>
+          {/* 渐变遮罩：半透明让 Logo 更清晰 */}
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{ background: 'rgba(0,0,0,0.35)' }}
+            aria-hidden
+          />
+
+          {/* Logo + 书法字图片 */}
+          <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-3">
+            <img src={logo} alt={`${siteName} logo`} className="h-14 w-14 drop-shadow-xl opacity-90" />
+            <img
+              src="/brush-subtitle.png"
+              alt="一个人的独立漫剧工作室"
+              className="w-[42%] max-w-[180px] drop-shadow-[0_2px_12px_rgba(0,0,0,0.85)]"
+            />
           </div>
         </div>
 
         {/* ========== 右侧：表单区 ========== */}
         <div className="flex w-full flex-col sm:w-1/2">
           <div className="flex flex-1 flex-col overflow-hidden px-8 py-6 sm:px-10">
-            {/* 移动端 Logo */}
-            <div className="mb-4 flex items-center justify-center gap-2 sm:hidden">
-              <img src={logo} alt={`${siteName} logo`} className="h-7 w-7" />
-              <span className="text-base font-bold" style={{ color: primaryColor }}>{siteName}</span>
+            {/* 品牌 Logo 区 */}
+            <div className="mb-5 flex items-center gap-3">
+              <img src={logo} alt={`${siteName} logo`} className="h-10 w-10" />
+              <div>
+                <div className="text-lg font-bold leading-tight text-neutral-900">{siteName}</div>
+                <div className="text-[11px] text-neutral-500">AI 漫剧创作平台</div>
+              </div>
             </div>
 
-            {/* 欢迎标题 */}
-            <div className="mb-4 text-center sm:text-left">
-              <h1 className="text-xl font-bold text-neutral-900">{getTabTitle()}</h1>
-              <p className="mt-1 text-xs text-neutral-500">{getTabSubtitle()}</p>
-              {tab === 'password' && isRegister && (
+            {/* 注册赠送提示（仅注册模式显示） */}
+            {tab === 'password' && isRegister && (
+              <div className="mb-4 text-center sm:text-left">
                 <p
-                  className="mt-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
+                  className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
                   style={{
                     backgroundColor: `${primaryColor}10`,
                     color: primaryColor,
@@ -288,8 +275,8 @@ export default function LoginModal() {
                 >
                   🎁 注册即赠送 {freeTokens.toLocaleString()} 积分
                 </p>
-              )}
-            </div>
+              </div>
+            )}
 
             {/* Tab 切换 */}
             <div className="mb-4 flex items-center gap-1 rounded-lg bg-neutral-100 p-1">
@@ -442,6 +429,16 @@ export default function LoginModal() {
                         </button>
                       </div>
                     )}
+                    {qrStatus === 'error' && (
+                      <div className="absolute inset-3 flex flex-col items-center justify-center rounded-lg bg-white/90 backdrop-blur-sm">
+                        <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-amber-100">
+                          <svg className="h-6 w-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                        </div>
+                        <p className="text-sm font-medium text-neutral-700 text-center px-4">{qrErrorMsg}</p>
+                      </div>
+                    )}
                   </div>
                   <p className="text-xs text-neutral-500">
                     打开微信扫一扫，关注公众号后自动登录
@@ -492,6 +489,15 @@ export default function LoginModal() {
         type={legalOpen ?? 'terms'}
         open={legalOpen !== null}
         onClose={() => setLegalOpen(null)}
+      />
+
+      {/* 注册暂未开放 — 引导联系管理员 */}
+      <ContactAdminModal
+        open={showContactAdmin}
+        onClose={() => setShowContactAdmin(false)}
+        title="注册功能暂未开放"
+        description="目前暂不支持自助注册，请联系管理员为您开通账号。"
+        tone="blue"
       />
     </div>
   )

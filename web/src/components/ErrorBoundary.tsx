@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import logger from '../utils/logger'
 
 interface Props {
   children: ReactNode
@@ -40,8 +41,8 @@ export class ErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, info: ErrorInfo): void {
     // 开发环境打印详细错误
     if (import.meta.env.DEV) {
-      console.error('[ErrorBoundary] 组件渲染出错:', error)
-      console.error('[ErrorBoundary] 组件栈:', info.componentStack)
+      logger.error('ErrorBoundary', '组件渲染出错:', error)
+      logger.error('ErrorBoundary', '组件栈:', info.componentStack)
     }
     this.setState({ componentStack: info.componentStack })
     this.props.onError?.(error, info)

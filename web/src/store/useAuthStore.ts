@@ -55,6 +55,10 @@ function doRedirect(path: string | null) {
   window.location.href = path
 }
 
+// fetchMe in-flight 去重：App.tsx 和 AuthGuard 可能同时调 fetchMe
+// 用模块级 Promise 缓存避免重复请求
+let _fetchMeInFlight: Promise<void> | null = null
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   loading: false,
@@ -140,13 +144,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   fetchMe: async () => {
     if (!getToken()) return
-    try {
-      const res = await api.get<{ user: AuthUser }>('/api/auth/me')
-      set({ user: res.user })
-    } catch {
-      clearToken()
-      set({ user: null })
-    }
+    // 去重：已有 in-flight 请求就直接返回它
+    if (_fetchMeInFlight) return _fetchMeInFlight
+    _fetchMeInFlight = (async () => {
+      try {
+        const res = await api.get<{ user: AuthUser }>('/api/auth/me')
+        set({ user: res.user })
+      } catch {
+        clearToken()
+        set({ user: null })
+      } finally {
+        _fetchMeInFlight = null
+      }
+    })()
+    return _fetchMeInFlight
   },
 
   setUser: (partialUser) => {

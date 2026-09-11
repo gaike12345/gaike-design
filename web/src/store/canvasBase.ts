@@ -111,6 +111,10 @@ export interface UnifiedNodeData {
   videoRatio?: string
   videoAudio?: boolean
   videoErrorMsg?: string  // 节点级错误消息
+  videoEndImage?: string   // 尾帧图 URL
+  videoReferenceImages?: string[]  // 多参考图 URL 列表
+  videoReferenceVideo?: string     // 参考视频 URL
+  videoRefMode?: 'omni' | 'text2video' | 'img2video' | 'endframe'  // 参考模式：全能参考/文生/图生/首尾帧
   // audio
   audioText?: string
   audioVoice?: string
@@ -175,15 +179,15 @@ export const UNODE_PORTS: Record<UnifiedNodeType, { inputs: UPort[]; outputs: UP
 }
 
 export const UNODE_SIZE: Record<UnifiedNodeType, { width: number; height: number }> = {
-  image: { width: 440, height: 248 },
+  image: { width: 320, height: 181 },  // 与视频节点一致；预览比例固定 16:9，真实效果通过全屏预览看
   video: { width: 320, height: 181 },
   audio: { width: 300, height: 126 },
 }
 
 export const UNODE_LABELS: Record<UnifiedNodeType, string> = {
-  image: '图片',
-  video: '视频',
-  audio: '音频',
+  image: '图',
+  video: '视',
+  audio: '音',
 }
 
 export const GRID_SIZE = 24

@@ -52,10 +52,22 @@ export async function apiFetch<T>(
     body: options.body ? JSON.stringify(options.body) : undefined,
   })
 
-  // 401 → 清除 token，让路由守卫跳转登录
+  // 401 → 分两种情况：
+  // 1. 如果这是登录请求本身（/api/auth/login），直接使用后端返回的错误信息
+  // 2. 其他请求（需要认证的API），清除 token 提示登录过期
   if (res.status === 401) {
-    clearToken()
-    throw new Error('登录已过期，请重新登录')
+    const data = await res.json()
+    if (url.includes('/api/auth/')) {
+      // 登录请求本身失败（UID/密码错），使用后端真实错误
+      const err = new Error(data.error || `HTTP ${res.status}`) as Error & { status?: number; data?: unknown }
+      err.status = res.status
+      err.data = data
+      throw err
+    } else {
+      // 其他API请求认证失败，清除旧 token 提示过期
+      clearToken()
+      throw new Error('登录已过期，请重新登录')
+    }
   }
 
   // 402 → 积分不足，弹出充值引导弹窗

@@ -136,7 +136,7 @@ const WORKS: WorkSeed[] = [
     cover:COVER('language%20learning%20audio%20cover%2C%20open%20classic%20literature%20book%20with%20coffee%20cup%20next%20to%20it%2C%20soft%20warm%20desk%20light%2C%20english%20calligraphy%20style%20letters%20floating'),
     authorKey:'lily', likesCount:822, commentCount:74, createdAt:'2026-08-11T06:40:00Z'},
   { id:'static-video-01', type:'video', subtype:'AI 短片', title:'赛博都市·夜景漫游',
-    content:'全片 2 分 45 秒，AI 辅助生成的赛博都市夜景漫游短片。\nMankTV 全流程工作流演示：剧本生成 → 分镜 → 图像一致性 → 视频生成 → 音效配乐一键完成，发布 3 天 120w+ 播放。',
+    content:'全片 2 分 45 秒，AI 辅助生成的赛博都市夜景漫游短片。\nMan TV 全流程工作流演示：剧本生成 → 分镜 → 图像一致性 → 视频生成 → 音效配乐一键完成，发布 3 天 120w+ 播放。',
     cover:COVER('AI%20short%20film%20cover%20cyberpunk%20city%20night%20tour%2C%20cinematic%20wide%20shot%20of%20neon%20skyline%20with%20flying%20vehicles%2C%20Blade%20Runner%20aesthetic%2C%20ultra%20detailed%20render'),
     authorKey:'vision', likesCount:3102, commentCount:611, createdAt:'2026-08-21T12:08:00Z'},
   { id:'static-video-02', type:'video', subtype:'国风动画', title:'古风舞剑·水墨动画',
@@ -206,7 +206,7 @@ async function main() {
   ])
 
   // 1) 创建 3 个基准登录账号 + 20 位作者
-  //    🔴 超级管理员（唯一） admin@manktv.com / password123 / 昵称：MankTV 运营
+  //    🔴 超级管理员（唯一） admin@manktv.com / password123 / 昵称：Man TV 运营
   //    🟠 管理员           moderator@manktv.com / password123 / 昵称：审核员
   //    🟢 普通用户         demo@manktv.com / password123 / 昵称：演示用户
   console.log('  👤 创建基准账号 + 20 位作者...')
@@ -218,7 +218,7 @@ async function main() {
     data: { uid: await generateNextUid(), email: 'moderator@manktv.com', password: PASSWORD_HASH, nickname: '审核员', role: 'admin', bio: '社区内容审核账号。密码：password123' },
   })
   const adminUser = await prisma.user.create({
-    data: { uid: await generateNextUid(), email: UNIQUE_SUPERADMIN_EMAIL, password: PASSWORD_HASH, nickname: 'MankTV 运营', role: 'superadmin', bio: '系统唯一超级管理员（系统锁死，降级/提权到其它邮箱均会被服务端回滚）。密码：password123' },
+    data: { uid: await generateNextUid(), email: UNIQUE_SUPERADMIN_EMAIL, password: PASSWORD_HASH, nickname: 'Man TV 运营', role: 'superadmin', bio: '系统唯一超级管理员（系统锁死，降级/提权到其它邮箱均会被服务端回滚）。密码：password123' },
   })
 
   // 启动期幂等纠偏：若 DB 已有其它 superadmin（迁移遗留），一律降为 admin → 保证全局只有 1 个。

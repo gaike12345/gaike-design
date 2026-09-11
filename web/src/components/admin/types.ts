@@ -242,6 +242,18 @@ export interface PageModuleDef {
   subtitle: string  // 进入该页的副标题，说明这是哪个页面 / 功能区
   route: string     // 提示对应哪个页面路由
   sections: PageSectionDef[]  // 页面内可视化 section 卡片列表
+  children?: PageModuleChildDef[]  // 二级子模块（如创作画布 → 图像/视频）
+}
+
+export interface PageModuleChildDef {
+  key: string       // 完整 key，如 'canvas.image'
+  shortKey: string  // 短 key，如 'image'
+  label: string
+  icon: IconComponent
+  accent: string
+  subtitle: string
+  route: string
+  filterType?: string  // 传给 ModelsByType 的 typeFilter
 }
 
 // 站点配置模块（旧结构，保留兼容）

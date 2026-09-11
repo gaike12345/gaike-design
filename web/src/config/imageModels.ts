@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../services/api'
+import logger from '../utils/logger'
 
 export type ImageAspectRatio = '1:1'
 
@@ -113,7 +114,7 @@ export async function loadImageModels(force = false): Promise<boolean> {
       // 空列表：保持兜底
       loadAttempted = true
     } catch (e) {
-      console.warn('[imageModels] 加载失败，使用本地兜底模型', e)
+      logger.warn('imageModels', '加载失败，使用本地兜底模型', e)
       loadAttempted = true
     }
   })()

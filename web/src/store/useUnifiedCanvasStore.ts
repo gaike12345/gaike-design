@@ -1,4 +1,4 @@
-﻿// 统一创作画布 - 状态管理（合并图像+视频+音频）
+// 统一创作画布 - 状态管理（合并图像+视频+音频）
 //
 // 对标 LibTV：3 大基础节点 + 输出节点
 // 节点类型：image / video / audio
@@ -8,6 +8,7 @@
 
 import { create } from 'zustand'
 import { api } from '../services/api'
+import logger from '../utils/logger'
 import { buildImageUrl, buildRetryUrl, generateViaBackend, img2imgViaBackend } from '../services/imageApi'
 import { getImageModel, validateRatio, validateResolution } from '../config/imageModels'
 import { useQuotaStore } from './useQuotaStore'
@@ -237,14 +238,28 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       snapEnabled = (dataOrSnap as boolean) ?? true
     }
     const id = uid(type)
-    const count = (nodeTypeCounters[type] ?? 0) + 1
-    nodeTypeCounters[type] = count
+    // 动态计算序号：取当前画布上同类型节点 __label 中的最大数字 + 1
+    // 如果没有任何同类型节点 → 1（即使 counters 里残留了旧值）
+    const existing = get().nodes.filter((n) => n.type === type)
+    let nextCount = 1
+    if (existing.length > 0) {
+      let max = 0
+      for (const n of existing) {
+        const m = (n.data.__label || '').match(/(\d+)$/)
+        if (m) {
+          const num = parseInt(m[1], 10)
+          if (num > max) max = num
+        }
+      }
+      nextCount = max + 1
+    }
+    nodeTypeCounters[type] = nextCount
     const posX = snapEnabled ? snapToGrid(position.x) : position.x
     const posY = snapEnabled ? snapToGrid(position.y) : position.y
     const node: UCanvasNode = {
       id, type,
       position: { x: posX, y: posY },
-      data: { ...(dataOverride ?? defaultNodeData(type)), __label: `${UNODE_LABELS[type]}节点 ${count}` },
+      data: { ...(dataOverride ?? defaultNodeData(type)), __label: `${UNODE_LABELS[type]}${nextCount}` },
     }
     set((s) => ({ nodes: [...s.nodes, node], selectedNodeId: id }))
     return id
@@ -458,34 +473,46 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     const node = state.nodes.find((n) => n.id === nodeId)
     if (!node || node.type !== 'video' || isBusy(node.data.videoStatus)) return
 
-    // 从 ref 端口读取图生视频源节点（可选，遍历所有 ref 连接，取首个有效图片）
+    // ===== 全能参考：遍历所有 ref 连接，收集所有可用的图片作为参考 =====
     const refConns = state.connections.filter((c) => c.target.nodeId === nodeId && c.target.portId === 'ref')
-    let imageUrl: string | undefined
-    if (refConns.length > 0) {
-      for (const conn of refConns) {
-        const src = state.nodes.find((n) => n.id === conn.source.nodeId)
-        if (!src) continue
-        // 类型校验：只有 image 节点能提供图片作为图生视频依据
-        if (src.type !== 'image') continue
-        const imgs = src.data.imageResults?.filter((r) => r.status === 'done')
-        if (imgs?.[0]?.url) {
-          imageUrl = imgs[0].url
-          break
-        }
-      }
-      // 用户连了 ref 但没有任何 image 源产出可用图片 → 阻止静默文生视频
-      if (!imageUrl) {
-        get().updateNodeData(nodeId, { videoStatus: 'error' })
-        return
+
+    // 收集所有参考图（来自所有 image/video 源节点的所有 done 结果）
+    const allRefImages: string[] = [] // originalUrl 列表
+    for (const conn of refConns) {
+      const src = state.nodes.find((n) => n.id === conn.source.nodeId)
+      if (!src) continue
+      // 类型校验：只有 image 节点能提供图片作为参考
+      if (src.type !== 'image') continue
+      const imgs = src.data.imageResults?.filter((r) => r.status === 'done')
+      for (const img of imgs) {
+        if (img.originalUrl) allRefImages.push(img.originalUrl)
       }
     }
 
-    const prompt = node.data.videoPrompt || 'AI 生成视频'
+    // 首张图 → imageUrl（图生视频主参考）
+    // 所有图 → referenceImages（全能参考多图输入）
+    const imageUrl = allRefImages[0]
+    const collectedRefImages = allRefImages.length > 1 ? allRefImages.slice(1) : undefined
+
+    // 用户连了 ref 但没有任何 image 源产出可用图片 → 阻止静默文生视频
+    if (refConns.length > 0 && !imageUrl) {
+      get().updateNodeData(nodeId, { videoStatus: 'error', videoErrorMsg: '参考图缺少原始地址，请重新生成源节点的图片后再试' })
+      return
+    }
+
+    // 剥离 @-mention 标签（@图1 @图2 等）——这些是 UI 可视化标记，
+    // 真实图片引用已通过 imageUrl / referenceImages 字段传递，
+    // 残留的 @图N 标签会被视频模型当成无意义噪音，干扰内容理解
+    const rawPrompt = node.data.videoPrompt || 'AI 生成视频'
+    const prompt = rawPrompt.replace(/@图\d+\s*/g, '').trim() || 'AI 生成视频'
     const isImg2Video = !!imageUrl
     const model = node.data.videoModel || 'seedance-pro'
     const resolution = node.data.videoResolution
     const ratio = node.data.videoRatio
     const audio = node.data.videoAudio ?? false
+    const endImage = node.data.videoEndImage
+    const referenceImages = node.data.videoReferenceImages
+    const referenceVideo = node.data.videoReferenceVideo
 
     // duration id (5s / 10s) → 秒数
     const durId = node.data.videoDuration || '5s'
@@ -496,9 +523,19 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
 
     try {
       const endpoint = isImg2Video ? '/api/video/img2video' : '/api/video/text2video'
+      const extraParams: Record<string, unknown> = {}
+      if (endImage) extraParams.endImage = endImage
+      // 合并：用户手动设置的参考图 + 从连接节点自动收集的参考图
+      const mergedRefImages = [
+        ...(node.data.videoReferenceImages ?? []),
+        ...(collectedRefImages ?? []),
+      ]
+      if (mergedRefImages.length > 0) extraParams.referenceImages = mergedRefImages
+      if (referenceVideo) extraParams.referenceVideo = referenceVideo
+
       const body = isImg2Video
-        ? { imageUrl, prompt, model, duration, resolution, ratio, audio }
-        : { prompt, model, duration, resolution, ratio, audio }
+        ? { imageUrl, prompt, model, duration, resolution, ratio, audio, ...extraParams }
+        : { prompt, model, duration, resolution, ratio, audio, ...extraParams }
       const res = await api.post<{ taskId: string; status: string; placeholder?: boolean }>(endpoint, body)
 
       const result: VideoResult = {
@@ -542,8 +579,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     } catch (e) {
       // 轮询失败不立即标记为 error，可能是临时网络问题
       // 连续失败由 stopPoll 的超时机制处理
-      // eslint-disable-next-line no-console
-      console.warn('[Canvas] 视频任务轮询失败:', node.data.videoTaskId, e)
+      logger.warn('Canvas', '视频任务轮询失败:', node.data.videoTaskId, e)
     }
   },
 
@@ -566,8 +602,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       void useQuotaStore.getState().refreshQuota({ force: true })
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : '取消失败'
-      // eslint-disable-next-line no-console
-      console.warn('[Canvas] 取消视频生成失败:', errMsg)
+      logger.warn('Canvas', '取消视频生成失败:', errMsg)
     }
   },
 
@@ -662,9 +697,9 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     const audioId = uid('audio')
 
     const nodes: UCanvasNode[] = [
-      { id: imageId, type: 'image', position: { x: 80, y: 150 }, data: { imageResults: [], imageStatus: 'idle', __label: '图片节点 1' } },
-      { id: videoId, type: 'video', position: { x: 580, y: 150 }, data: { videoStatus: 'idle', videoPrompt: '', videoModel: 'seedance', videoResolution: '1080p', videoDuration: '5s', videoRatio: '16:9', __label: '视频节点 1' } },
-      { id: audioId, type: 'audio', position: { x: 580, y: 500 }, data: { audioText: '', audioVoice: 'nova', audioStatus: 'idle', __label: '音频节点 1' } },
+      { id: imageId, type: 'image', position: { x: 80, y: 150 }, data: { imageResults: [], imageStatus: 'idle', __label: '图1' } },
+      { id: videoId, type: 'video', position: { x: 580, y: 150 }, data: { videoStatus: 'idle', videoPrompt: '', videoModel: 'seedance', videoResolution: '1080p', videoDuration: '5s', videoRatio: '16:9', __label: '视1' } },
+      { id: audioId, type: 'audio', position: { x: 580, y: 500 }, data: { audioText: '', audioVoice: 'nova', audioStatus: 'idle', __label: '音1' } },
     ]
 
     const connections: UConnection[] = [
@@ -687,10 +722,10 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       const payload = {
         nodes: nodes.map((n) => ({
           ...n,
-          // 清理临时状态字段
+          // 清理临时运行态字段（生成状态/任务ID），__label 序号持久保留
           data: Object.fromEntries(
             Object.entries(n.data).filter(([k]) =>
-              !['imageStatus', 'videoStatus', 'audioStatus', 'videoTaskId', '__label'].includes(k),
+              !['imageStatus', 'videoStatus', 'audioStatus', 'videoTaskId'].includes(k),
             ),
           ),
         })),
@@ -702,8 +737,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
     } catch (e) {
       // localStorage 保存失败（可能是配额超限或隐私模式），不影响核心功能
-      // eslint-disable-next-line no-console
-      console.warn('[Canvas] 本地保存失败:', e)
+      logger.warn('Canvas', '本地保存失败:', e)
     }
   },
 
@@ -714,18 +748,38 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       const payload = JSON.parse(raw) as StoredCanvasState
       if (!payload.nodes || !Array.isArray(payload.nodes)) return false
 
-      // 恢复节点状态为 idle
+      // 恢复节点状态为 idle；对历史缺失 __label 的节点做一次性迁移补齐序号
+      // 先扫描已有 __label 算每种类型的 max，再给缺失的分配 max+1、max+2…
+      const counters: Record<string, number> = {}
+      // ① 第一遍：统计已有 __label 的节点中每种类型的最大序号
+      for (const n of payload.nodes) {
+        const lbl = (n.data as Record<string, unknown>)?.__label as string | undefined
+        if (typeof lbl === 'string') {
+          const m = lbl.match(/(\d+)$/)
+          if (m) {
+            const num = parseInt(m[1], 10)
+            const cur = counters[n.type] ?? 0
+            if (num > cur) counters[n.type] = num
+          }
+        }
+      }
+      // ② 第二遍：缺失 __label 的按 max+1 补齐（递增避免冲突）
       const nodes = payload.nodes
         .filter(isStoredNode)
         .map((n) => {
           const statusKey = `${n.type}Status`
-          return {
-            ...n,
-            data: { ...n.data, [statusKey]: 'idle' },
-          } as UCanvasNode
+          const hasLabel = typeof (n.data as Record<string, unknown>)?.__label === 'string'
+          let labeledData = { ...n.data, [statusKey]: 'idle' }
+          if (!hasLabel) {
+            const next = (counters[n.type] ?? 0) + 1
+            counters[n.type] = next
+            labeledData.__label = `${UNODE_LABELS[n.type]}${next}`
+          }
+          return { ...n, data: labeledData } as UCanvasNode
         })
 
-      nodeTypeCounters = payload.counters ?? {}
+      nodeTypeCounters = counters
+
       set({
         nodes,
         connections: payload.connections ?? [],

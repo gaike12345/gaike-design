@@ -5,35 +5,37 @@ import helmet from 'helmet'
 import compression from 'compression'
 import path from 'path'
 
-import { errorHandler, notFound } from './middleware/error'
-import { authRequired } from './middleware/auth'
-import { requestId } from './middleware/request-id'
-import logger from './lib/logger'
-import { setupGracefulShutdown, isShuttingDownStatus } from './lib/graceful-shutdown'
-import { getRedis, isRedisReady } from './lib/redis'
-import prisma from './lib/prisma'
-import { sseHandler } from './lib/sse'
-import { startWorker, stopWorker, getWorkerStats } from './lib/taskWorker'
-import authRoutes from './routes/auth'
-import projectRoutes from './routes/projects'
-import llmRoutes from './routes/llm'
-import imageRoutes from './routes/image'
-import audioRoutes from './routes/audio'
-import videoRoutes from './routes/video'
-import communityRoutes from './routes/community'
-import uploadRoutes from './routes/upload'
-import billingRoutes from './routes/billing'
-import modelsRoutes from './routes/models'
-import adminRoutes from './routes/admin'
-import adminModerationRoutes from './routes/adminModeration'
-import featuresRoutes from './routes/features'
-import userRoutes from './routes/user'
-import supportRoutes from './routes/support'
-import canvasRoutes from './routes/canvas'
-import siteRoutes from './routes/site'
-import comicRoutes from './routes/comic'
-import { preloadModelCosts } from './lib/modelCost'
-import { refundStalePendingTasks } from './lib/tokenService'
+import { errorHandler, notFound } from './mank-infra/middleware/error'
+import { authRequired } from './mank-infra/middleware/auth'
+import { requestId } from './mank-infra/middleware/request-id'
+import logger from './mank-infra/logging/logger'
+import { setupGracefulShutdown, isShuttingDownStatus } from './mank-infra/server/graceful-shutdown'
+import { getRedis, isRedisReady } from './mank-infra/cache/redis'
+import prisma from './mank-infra/database/prisma'
+import { sseHandler } from './mank-infra/server/sse'
+import { startWorker, stopWorker, getWorkerStats } from './mank-core/generation/taskWorker'
+import authRoutes from './mank-core/auth/auth.route'
+import projectRoutes from './mank-core/projects/projects.route'
+import llmRoutes from './mank-core/llm/llm.route'
+import imageRoutes from './mank-core/image/image.route'
+import audioRoutes from './mank-core/audio/audio.route'
+import videoRoutes from './mank-core/video/video.route'
+import communityRoutes from './mank-core/community/community.route'
+import uploadRoutes from './mank-core/upload/upload.route'
+import billingRoutes from './mank-core/billing/billing.route'
+import modelsRoutes from './mank-core/models/models.route'
+import adminRoutes from './mank-core/admin/admin.route'
+import adminModerationRoutes from './mank-core/admin/adminModeration.route'
+import featuresRoutes from './mank-core/site/features.route'
+import userRoutes from './mank-core/user/user.route'
+import supportRoutes from './mank-core/support/support.route'
+import canvasRoutes from './mank-core/canvas/canvas.route'
+import siteRoutes from './mank-core/site/site.route'
+import comicRoutes from './mank-core/comic/comic.route'
+import { preloadModelCosts } from './mank-core/billing/modelCost'
+import { refundStalePendingTasks } from './mank-core/billing/tokenService'
+import { syncPollinationsPricing, runMissedRunCheck, getNextMonday3AM } from './mank-core/billing/pollinationsSync'
+import { setupSwagger } from './mank-infra/server/swagger'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '3000', 10)
@@ -220,9 +222,9 @@ a.card,a:visited.card{color:inherit;text-decoration:none}
   <div class="section-title">👤 演示账号（仅开发模式可见，登录接口用）</div>
   <div class="info-grid">
     <div class="info"><label>普通用户邮箱</label><value>demo@manktv.com</value></div>
-    <div class="info"><label>普通用户密码</label><value>password123</value></div>
+    <div class="info"><label>普通用户密码</label><value>••••••（见 prisma/seed.ts）</value></div>
     <div class="info"><label>超级管理员邮箱</label><value>admin@manktv.com</value></div>
-    <div class="info"><label>超级管理员密码</label><value>password123</value></div>
+    <div class="info"><label>超级管理员密码</label><value>••••••（见 prisma/seed.ts）</value></div>
   </div>
   ` : ''}
 
@@ -277,8 +279,8 @@ app.get('/api/health/ready', async (_req, res) => {
     try {
       await redis.ping()
       checks.redis = { ok: true, latencyMs: Date.now() - redisStart }
-    } catch (e: any) {
-      checks.redis = { ok: false, error: e.message }
+    } catch (e: unknown) {
+      checks.redis = { ok: false, error: (e as Error).message }
       allOk = false
     }
   } else {
@@ -301,7 +303,7 @@ app.get('/api/health/ready', async (_req, res) => {
   res.status(statusCode).json({
     ok: allOk,
     status: allOk ? 'ready' : 'degraded',
-    service: 'Mank TV API',
+    service: 'Man TV API',
     time: new Date().toISOString(),
     checks,
     worker: workerStats,
@@ -311,13 +313,16 @@ app.get('/api/health/ready', async (_req, res) => {
 // 兼容旧健康检查端点（等价于 liveness）
 app.get('/api/health', (_req, res) => {
   if (isShuttingDownStatus()) {
-    return res.status(503).json({ ok: false, service: 'Mank TV API', time: new Date().toISOString(), status: 'shutting_down' })
+    return res.status(503).json({ ok: false, service: 'Man TV API', time: new Date().toISOString(), status: 'shutting_down' })
   }
-  res.json({ ok: true, service: 'Mank TV API', time: new Date().toISOString() })
+  res.json({ ok: true, service: 'Man TV API', time: new Date().toISOString() })
 })
 
 // SSE 实时推送（任务状态等）
 app.get('/api/stream/tasks', authRequired, sseHandler)
+
+// Swagger API 文档（/api/docs）
+setupSwagger(app)
 
 // 路由注册
 app.use('/api/auth', authRoutes)
@@ -349,6 +354,35 @@ const server = app.listen(PORT, () => {
   // 启动任务队列 Worker（后台消费异步任务）
   startWorker()
 
+  // ==================== POLLINATIONS 定价同步 ====================
+  // 漏跑检测：启动时检查是否需要立即补跑
+  runMissedRunCheck().catch((e) => {
+    logger.error('Pollinations 漏跑检测失败', { error: e instanceof Error ? e.message : String(e) })
+  })
+
+  // 定时同步：每周一凌晨 03:00 (Asia/Shanghai) 自动执行
+  // 实现方式：计算下一个触发点，用 setTimeout 到点后执行并递归重置
+  // 比 cron 更轻量，进程内无额外依赖
+  function schedulePollinationsSync() {
+    const nextTs = getNextMonday3AM()
+    const delay = nextTs - Date.now()
+    logger.info('Pollinations 定价同步定时任务已注册', {
+      nextRun: new Date(nextTs).toLocaleString('zh-CN'),
+      delayMs: delay,
+    })
+    setTimeout(async () => {
+      try {
+        await syncPollinationsPricing('cron')
+      } catch (e) {
+        logger.error('Pollinations 定时同步失败', { error: e instanceof Error ? e.message : String(e) })
+      } finally {
+        // 到点执行后重置下一个周期
+        schedulePollinationsSync()
+      }
+    }, delay)
+  }
+  schedulePollinationsSync()
+
   // 定时任务：每 5 分钟扫描一次超时未完成的任务，自动退还积分
   // 修复进程崩溃、回调丢失等异常情况
   const STALE_TASK_MAX_AGE_MINUTES = 30 // 超过 30 分钟的 pending 任务视为超时
@@ -366,10 +400,8 @@ const server = app.listen(PORT, () => {
     env: process.env.NODE_ENV || 'development',
   })
   if (!IS_PROD) {
-    console.log(`\n  🪙  积分制度已启用 · 模型成本缓存已初始化 (TTL 30s, 管理端修改即 global invalidate)`)
-    console.log(`  🚀 Mank TV API 服务已启动`)
-    console.log(`  ➜  Local:   http://localhost:${PORT}`)
-    console.log(`  ➜  Health:  http://localhost:${PORT}/api/health\n`)
+    logger.info('积分制度已启用', { ttl: '30s', invalidate: 'global' })
+    logger.info('Man TV API 服务已启动', { port: PORT, env: process.env.NODE_ENV || 'development' })
   }
 
   // 启用优雅停机

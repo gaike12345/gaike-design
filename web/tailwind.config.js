@@ -4,7 +4,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        // 主强调色：蓝靛系，对标 MankTV 视觉（白色 + 浅蓝色）
+        // 主强调色：蓝靛系，对标 Man TV 视觉（白色 + 浅蓝色）
         brand: {
           50: '#EFF6FF',
           100: '#DBEAFE',

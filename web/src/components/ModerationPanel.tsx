@@ -1,5 +1,5 @@
 // 内容审核监控面板（管理后台）
-// 双审核违规记录 + 风险用户管理 + 风险操作
+// 双审核违规记录 + 风险用户管理 + 风险操作 + 审核配置
 // 数据来自 /api/admin/moderation/*
 
 import { useState, useEffect, useCallback, type ComponentType, type SVGProps } from 'react'
@@ -7,9 +7,10 @@ import {
   Shield, AlertTriangle, ShieldAlert, ShieldCheck, Users,
   FileWarning, Activity, Filter, ChevronLeft, ChevronRight,
   CheckCircle2, Ban, Unlock, Loader2, X,
-  Settings, Save, Plus, Trash2, Server, ListFilter,
+  Settings, Server,
 } from 'lucide-react'
 import { getToken } from '../services/api'
+import logger from '../utils/logger'
 import { cn } from '../lib/utils'
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement> & { size?: number | string }>
@@ -55,12 +56,9 @@ interface RiskUser {
 
 interface ModConfig {
   enabled: boolean
-  level: 'loose' | 'standard' | 'strict'
-  mode: 'local' | 'provider'  // local=本地敏感词兜底；provider=服务商API已接入
+  mode: 'demo' | 'provider'  // demo=未配置服务商API；provider=服务商API已接入
   provider: string
   hasApiKey: boolean
-  sensitiveWords: Record<string, string[]>
-  wordCounts: Record<string, number>
 }
 
 interface Stats {
@@ -76,15 +74,6 @@ interface Stats {
 const RISK_LABELS = ['正常', '警告', '限制', '封禁']
 const RISK_COLORS = ['text-emerald-600', 'text-amber-600', 'text-orange-600', 'text-red-600']
 const RISK_BG = ['bg-emerald-50', 'bg-amber-50', 'bg-orange-50', 'bg-red-50']
-
-// 敏感词类别中文标签 + 风险色 chip
-const CATEGORY_LABEL: Record<string, string> = {
-  political: '政治', violence: '暴恐', porn: '色情', gambling: '赌博', drug: '毒品', insult: '侮辱',
-}
-const CATEGORY_CHIP: Record<string, string> = {
-  political: 'bg-red-50 text-red-700', violence: 'bg-red-50 text-red-700', porn: 'bg-red-50 text-red-700',
-  gambling: 'bg-orange-50 text-orange-700', drug: 'bg-red-50 text-red-700', insult: 'bg-orange-50 text-orange-700',
-}
 
 async function apiGet<T>(url: string): Promise<T> {
   const headers: Record<string, string> = {}
@@ -121,12 +110,9 @@ export default function ModerationPanel() {
   const [riskModal, setRiskModal] = useState<RiskUser | null>(null)
   const [riskForm, setRiskForm] = useState({ riskLevel: 1, note: '' })
   const [operating, setOperating] = useState(false)
-  // 审核配置
   const [modConfig, setModConfig] = useState<ModConfig | null>(null)
-  const [editWords, setEditWords] = useState<Record<string, string[]>>({})  // 敏感词库编辑草稿
-  const [newWord, setNewWord] = useState<Record<string, string>>({})  // 各类别新增词输入
   const [savingCfg, setSavingCfg] = useState(false)
-  const [confirmModal, setConfirmModal] = useState<null | { type: 'enabled' | 'level'; value: boolean | string; label: string }>(null)
+  const [confirmModal, setConfirmModal] = useState<null | { value: boolean; label: string }>(null)
 
   const pageSize = 20
 
@@ -135,8 +121,7 @@ export default function ModerationPanel() {
       const r = await apiGet<{ ok: boolean; stats: Stats }>('/api/admin/moderation/stats')
       if (r.ok && r.stats) setStats(r.stats)
     } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('[Moderation] 加载统计失败:', e)
+      logger.error('Moderation', '加载统计失败:', e)
     }
   }, [])
 
@@ -152,8 +137,7 @@ export default function ModerationPanel() {
       )
       if (r.ok) setLogs({ items: r.items || [], total: r.total || 0 })
     } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('[Moderation] 加载违规记录失败:', e)
+      logger.error('Moderation', '加载违规记录失败:', e)
     } finally { setLoading(false) }
   }, [page, filter])
 
@@ -166,8 +150,7 @@ export default function ModerationPanel() {
       )
       if (r.ok) setUsers({ items: r.items || [], total: r.total || 0 })
     } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('[Moderation] 加载风险用户失败:', e)
+      logger.error('Moderation', '加载风险用户失败:', e)
     } finally { setLoading(false) }
   }, [page])
 
@@ -176,14 +159,9 @@ export default function ModerationPanel() {
       const r = await apiGet<{ ok: boolean; config: ModConfig }>('/api/admin/moderation/config')
       if (r.ok && r.config) {
         setModConfig(r.config)
-        setEditWords(r.config.sensitiveWords || {})
-        const nw: Record<string, string> = {}
-        for (const k of Object.keys(r.config.sensitiveWords || {})) nw[k] = ''
-        setNewWord(nw)
       }
     } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('[Moderation] 加载审核配置失败:', e)
+      logger.error('Moderation', '加载审核配置失败:', e)
     }
   }, [])
 
@@ -194,49 +172,21 @@ export default function ModerationPanel() {
     else loadConfig()
   }, [tab, loadLogs, loadUsers, loadConfig])
 
-  // ====== 审核配置操作 ======
-  // 高风险变更（关闭审核、严格度调整）需二次确认弹窗，列出受影响项
   const requestToggleEnabled = () => {
     if (!modConfig) return
     const next = !modConfig.enabled
-    setConfirmModal({ type: 'enabled', value: next, label: `${next ? '开启' : '关闭'}内容审核总开关` })
+    setConfirmModal({ value: next, label: `${next ? '开启' : '关闭'}内容审核总开关` })
   }
-  const requestChangeLevel = (level: 'loose' | 'standard' | 'strict') => {
-    if (!modConfig || level === modConfig.level) return
-    const labelMap = { loose: '宽松（仅拦截高风险违法违规）', standard: '标准', strict: '严格（面向未成年人）' }
-    setConfirmModal({ type: 'level', value: level, label: `严格度 → ${labelMap[level]}` })
-  }
+
   const confirmChange = async () => {
     if (!confirmModal) return
     setSavingCfg(true)
     try {
-      const body = confirmModal.type === 'enabled' ? { enabled: confirmModal.value } : { level: confirmModal.value }
-      await apiPut<{ ok: boolean }>('/api/admin/moderation/config', body)
+      await apiPut<{ ok: boolean }>('/api/admin/moderation/config', { enabled: confirmModal.value })
       setConfirmModal(null)
       await loadConfig()
     } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('[Moderation] 保存配置失败:', e)
-    } finally { setSavingCfg(false) }
-  }
-  // 敏感词库编辑（本地草稿，保存时整体提交）
-  const addWord = (cat: string) => {
-    const w = (newWord[cat] || '').trim()
-    if (!w) return
-    setEditWords((prev) => ({ ...prev, [cat]: [...(prev[cat] || []), w] }))
-    setNewWord((prev) => ({ ...prev, [cat]: '' }))
-  }
-  const removeWord = (cat: string, idx: number) => {
-    setEditWords((prev) => ({ ...prev, [cat]: (prev[cat] || []).filter((_, i) => i !== idx) }))
-  }
-  const saveWords = async () => {
-    setSavingCfg(true)
-    try {
-      const r = await apiPut<{ ok: boolean }>('/api/admin/moderation/sensitive-words', { words: editWords })
-      if (r.ok) await loadConfig()
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('[Moderation] 保存敏感词失败:', e)
+      logger.error('Moderation', '保存配置失败:', e)
     } finally { setSavingCfg(false) }
   }
 
@@ -254,8 +204,7 @@ export default function ModerationPanel() {
       loadUsers()
       loadStats()
     } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('[Moderation] 风险操作失败:', e)
+      logger.error('Moderation', '风险操作失败:', e)
     } finally { setOperating(false) }
   }
 
@@ -264,8 +213,7 @@ export default function ModerationPanel() {
       await apiPost(`/api/admin/moderation/logs/${id}/handle`, {})
       loadLogs()
     } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('[Moderation] 标记已处理失败:', e)
+      logger.error('Moderation', '标记已处理失败:', e)
     }
   }
 
@@ -297,7 +245,7 @@ export default function ModerationPanel() {
       <div className="flex gap-1 border-b border-ink-200">
         <TabBtn active={tab === 'logs'} onClick={() => { setTab('logs'); setPage(1) }} icon={FileWarning} label="违规记录" count={logs.total} />
         <TabBtn active={tab === 'users'} onClick={() => { setTab('users'); setPage(1) }} icon={Users} label="风险用户" count={users.total} />
-        <TabBtn active={tab === 'config'} onClick={() => setTab('config')} icon={Settings} label="审核配置" count={modConfig ? Object.values(modConfig.wordCounts).reduce((a, b) => a + b, 0) : 0} />
+        <TabBtn active={tab === 'config'} onClick={() => setTab('config')} icon={Settings} label="审核配置" />
       </div>
 
       {/* 违规记录列表 */}
@@ -464,18 +412,18 @@ export default function ModerationPanel() {
             <div className="flex items-center gap-2">
               <Server className="h-4 w-4 text-rose-500" />
               <span className="text-sm font-semibold text-ink-800">审核模式</span>
-              <span className={cn('chip', modConfig.mode === 'local' ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700')}>
-                {modConfig.mode === 'local' ? '本地敏感词模式（未配置服务商API）' : `服务商模式（${modConfig.provider}）`}
+              <span className={cn('chip', modConfig.mode === 'demo' ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700')}>
+                {modConfig.mode === 'demo' ? 'Demo 模式（未配置服务商API）' : `服务商模式（${modConfig.provider}）`}
               </span>
             </div>
             <p className="text-xs text-ink-500">
-              {modConfig.mode === 'local'
-                ? '当前启用本地敏感词扫描，已可拦截违法违规内容（输入+输出双审核）。配置 MODERATION_API_KEY 环境变量后可接入阿里云/智谱等内容安全服务商进行深度审核。'
-                : `已接入服务商 ${modConfig.provider}，本地敏感词兜底 + 服务商 API 双重审核。`}
+              {modConfig.mode === 'demo'
+                ? '当前未配置审核服务商 API Key，所有 AI 生成内容将跳过审核。配置 MODERATION_API_KEY 环境变量后可接入阿里云/智谱等内容安全服务商进行输入+输出双审核。'
+                : `已接入服务商 ${modConfig.provider}，输入+输出双审核已启用。`}
             </p>
           </div>
 
-          {/* 总开关 + 严格度 */}
+          {/* 总开关 */}
           <div className="card p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -490,83 +438,11 @@ export default function ModerationPanel() {
             {!modConfig.enabled && (
               <p className="text-xs text-red-600">审核已关闭，所有 AI 生成接口将跳过输入/输出审核。仅审核服务故障时应急使用，请尽快重新开启。</p>
             )}
-            <div className="border-t border-ink-100 pt-3">
-              <div className="flex items-center gap-2 mb-2">
-                <ShieldAlert className="h-4 w-4 text-rose-500" />
-                <span className="text-sm font-semibold text-ink-800">审核严格度</span>
-              </div>
-              <div className="flex gap-2">
-                {(['loose', 'standard', 'strict'] as const).map((lv) => (
-                  <button key={lv} onClick={() => requestChangeLevel(lv)}
-                    className={cn('px-3 py-1.5 text-xs rounded-lg border', modConfig.level === lv ? 'border-rose-500 bg-rose-50 text-rose-600' : 'border-ink-200 text-ink-600 hover:border-ink-300')}>
-                    {lv === 'loose' ? '宽松' : lv === 'standard' ? '标准' : '严格'}
-                  </button>
-                ))}
-              </div>
-              <p className="text-xs text-ink-400 mt-1">
-                {modConfig.level === 'loose' ? '仅拦截政治/暴恐/色情/毒品等高风险类'
-                  : modConfig.level === 'standard' ? '额外拦截赌博/侮辱类（默认，全 6 类）'
-                  : '全类别拦截 + 英文大小写不敏感（面向未成年人）'}
-              </p>
-            </div>
-          </div>
-
-          {/* 敏感词库可视化编辑 */}
-          <div className="card p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ListFilter className="h-4 w-4 text-rose-500" />
-                <span className="text-sm font-semibold text-ink-800">敏感词库</span>
-                <span className="text-xs text-ink-400">共 {Object.values(editWords).reduce((a, b) => a + b.length, 0)} 词</span>
-              </div>
-              <button onClick={saveWords} disabled={savingCfg}
-                className="inline-flex items-center gap-1 rounded-lg bg-rose-600 px-3 py-1.5 text-xs text-white hover:bg-rose-700 disabled:opacity-50">
-                {savingCfg ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                保存词库
-              </button>
-            </div>
-            <p className="text-xs text-ink-400">按类别增删敏感词，保存后即时生效（走 siteConfig 缓存，约 1 分钟内全站刷新）。未点保存前为本地草稿，不影响线上审核。</p>
-            <div className="space-y-3">
-              {Object.keys(editWords).sort().map((cat) => (
-                <div key={cat} className="rounded-lg border border-ink-200 p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-semibold text-ink-700">
-                      {CATEGORY_LABEL[cat] || cat} <span className="text-ink-400">({editWords[cat].length})</span>
-                    </span>
-                    <span className={cn('chip text-[10px]', CATEGORY_CHIP[cat] || 'bg-ink-100 text-ink-500')}>
-                      {(CATEGORY_LABEL[cat] || cat)}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {editWords[cat].map((w, i) => (
-                      <span key={`${w}-${i}`} className="inline-flex items-center gap-1 rounded bg-ink-100 px-2 py-0.5 text-xs text-ink-700">
-                        {w}
-                        <button onClick={() => removeWord(cat, i)} className="text-ink-400 hover:text-red-500">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                  <div className="flex gap-1.5 mt-2">
-                    <input
-                      value={newWord[cat] || ''}
-                      onChange={(e) => setNewWord((p) => ({ ...p, [cat]: e.target.value }))}
-                      onKeyDown={(e) => { if (e.key === 'Enter') addWord(cat) }}
-                      placeholder="添加敏感词，回车确认"
-                      className="input flex-1 !py-1 text-xs"
-                    />
-                    <button onClick={() => addWord(cat)} className="rounded-lg bg-ink-100 px-2 py-1 text-xs text-ink-600 hover:bg-ink-200">
-                      <Plus className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
       )}
 
-      {/* 配置变更二次确认弹窗（高风险变更） */}
+      {/* 配置变更二次确认弹窗 */}
       {confirmModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="card w-full max-w-md p-5 space-y-3">
@@ -576,11 +452,9 @@ export default function ModerationPanel() {
             </div>
             <p className="text-sm text-ink-700">{confirmModal.label}</p>
             <div className="rounded-lg bg-amber-50 p-3 text-xs text-amber-700">
-              {confirmModal.type === 'enabled' && !confirmModal.value
+              {confirmModal.value === false
                 ? '关闭审核后，所有 AI 生成接口将跳过输入/输出审核，违规内容将不再被拦截。请仅在审核服务故障时使用，并尽快重新开启。'
-                : confirmModal.type === 'level'
-                  ? '严格度变更将影响所有 AI 生成接口的审核范围，立即生效。'
-                  : '配置变更将立即生效。'}
+                : '配置变更将立即生效。'}
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setConfirmModal(null)} className="rounded-lg border border-ink-200 px-3 py-1.5 text-xs text-ink-600 hover:bg-ink-50">取消</button>
@@ -612,13 +486,13 @@ function StatCard({ icon: Icon, label, value, sub, color }: { icon: IconComponen
   )
 }
 
-function TabBtn({ active, onClick, icon: Icon, label, count }: { active: boolean; onClick: () => void; icon: IconComponent; label: string; count: number }) {
+function TabBtn({ active, onClick, icon: Icon, label, count }: { active: boolean; onClick: () => void; icon: IconComponent; label: string; count?: number }) {
   return (
     <button onClick={onClick} className={cn('flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 -mb-px',
       active ? 'border-rose-500 text-rose-600' : 'border-transparent text-ink-500 hover:text-ink-700')}>
       <Icon className="h-3.5 w-3.5" />
       {label}
-      <span className="chip bg-ink-100 text-ink-600">{count}</span>
+      {count !== undefined && <span className="chip bg-ink-100 text-ink-600">{count}</span>}
     </button>
   )
 }

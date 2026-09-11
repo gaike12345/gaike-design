@@ -1,4 +1,5 @@
 import { api } from './api'
+import logger from '../utils/logger'
 
 export type EstimateKind =
   | 'image'
@@ -63,7 +64,7 @@ export async function estimateCost(
     return tokens
   } catch (e) {
     // 出错不阻塞用户，返回 0（按钮不显示 cost 也不阻止点击）
-    console.warn('[costEstimate] failed', kind, params, e)
+    logger.warn('costEstimate', 'failed', kind, params, e)
     return 0
   }
 }

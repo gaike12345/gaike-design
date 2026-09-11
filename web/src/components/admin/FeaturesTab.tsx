@@ -52,16 +52,18 @@ import {
 } from 'lucide-react'
 
 import ModerationPanel from '../ModerationPanel'
-import { WorksTab } from './WorksTab'
+import { CommunityManageTab } from './CommunityManageTab'
 import { ModelsByType } from './ModelsTab'
-import { CommentsTab } from './CommentsTab'
+import { VideoModelCompare } from './VideoModelCompare'
+import { LlmPricingCompare } from './LlmPricingCompare'
+import { ImageModelCompare } from './ImageModelCompare'
+import { AudioModelCompare } from './AudioModelCompare'
 
 import {
   useSiteConfig,
   putSiteBatch,
   getSiteAudit,
   rollbackSiteAudit,
-  writeSiteDraft,
   clearSiteDraft,
   makeAccent,
   type SiteItemMeta,
@@ -78,10 +80,6 @@ import type {
 
 // =============== 站点配置分组定义 ===============
 const SITE_GROUPS: SiteGroupDef[] = [
-  { key: 'brand',           label: '品牌外观',       icon: Sparkles, accent: 'blue',    radius: 'Navbar / Footer / 登录页 / 全站强调色' },
-  { key: 'login',           label: '登录与注册',     icon: LogIn,    accent: 'indigo',  radius: '登录页欢迎文案、新用户注册额度', highRisk: true },
-  { key: 'hero',            label: '首页 Hero',      icon: Rocket,   accent: 'cyan',    radius: '首页大标题、按钮、背景渐变、推荐作品' },
-  { key: 'landing',         label: '四大板块 Landing', icon: Layers, accent: 'fuchsia', radius: '/novel /canvas /audio /community 顶部标题与强调色' },
   { key: 'pricing',         label: '套餐定价',       icon: DollarSign, accent: 'emerald', radius: '/pricing 页面 Pro/企业版 展示与积分', highRisk: true },
   { key: 'rate-limit',      label: '限流阈值',       icon: Shield,   accent: 'violet',  radius: '全平台 AI 接口限流（实时生效）', highRisk: true, sensitive: true },
   { key: 'safety',          label: '安全与公告',     icon: ShieldAlert, accent: 'rose', radius: '内容审核严格度、全站公告横幅', sensitive: true },
@@ -97,166 +95,36 @@ const LANDING_LABELS: Record<string, { title: string; icon: IconComponent; accen
 }
 
 // =============== 页面模块定义（PAGE_MODULES） ===============
-// 每个模块是一个产品「页面级」独立设置；点击进入后，按 UI 区域/控件 拆成多个可视化 section 卡片。
+// 保留完整的 6 大模块 + works/moderation 虚拟项（侧边栏任务栏不变）
+// 仅 system 模块保留 5 项配置 section + 各板块模型管理
 export const PAGE_MODULES: PageModuleDef[] = [
-  // —— 首页（/）：整合品牌外观（影响全站展示部分）+ 首页 Hero，按 UI 区域分卡片 ——
-  {
-    key: 'home', label: '首页', icon: Rocket, accent: 'cyan',
-    subtitle: '平台首页（/）：品牌展示、首屏 Hero、导航栏与页脚样式设置',
-    route: '/',
-    sections: [
-      {
-        key: 'home-navbar-brand', title: 'Navbar 品牌栏', icon: LayoutGrid,
-        description: '顶部导航栏显示的品牌 Logo、站点名称、副标题',
-        highlight: '页面最顶部：左侧 Logo 区域',
-        sources: [
-          { group: 'brand', keyMatch: /^brand\.(logo|site_name|site_subtitle)$/ },
-        ],
-        cols: 2,
-        preview: 'navbar-brand',
-      },
-      {
-        key: 'home-hero-core', title: 'Hero 首屏核心文案与 CTA', icon: Sparkles,
-        description: '首页最大的标题 / 副标题 / 两个主按钮（立即体验、了解更多）',
-        highlight: '页面首屏（大文字+主色渐变背景）',
-        accent: 'cyan',
-        sources: [{ group: 'hero', keyMatch: /^hero\.(title|subtitle|cta_)/ }],
-        cols: 1,
-        preview: 'hero-core',
-      },
-      {
-        key: 'home-hero-visual', title: 'Hero 视觉背景', icon: Palette,
-        description: '首屏背景渐变色（起始色、中间色、结束色）、可直接在左侧预览颜色',
-        highlight: '首屏背景渐变',
-        accent: 'fuchsia',
-        sources: [{ group: 'hero', keyMatch: /^hero\.bg_/ }],
-        cols: 2,
-        preview: 'hero-visual',
-      },
-      {
-        key: 'home-hero-recommend', title: 'Hero 推荐作品展示', icon: TrendingUp,
-        description: '首页首屏下方 / 推荐区的作品数量、排序方式',
-        highlight: '首屏推荐作品区',
-        accent: 'indigo',
-        sources: [{ group: 'hero', keyMatch: /^hero\.recommend_/ }],
-        cols: 2,
-        preview: 'hero-recommend',
-      },
-      {
-        key: 'home-color-system', title: '全站颜色系统（主色/强调色）', icon: Palette,
-        description: '品牌主色、Hero 强调色、所有按钮/Tab/强调色使用',
-        highlight: '全站生效（Navbar 按钮、Hero CTA 主色、登录页强调色等）',
-        accent: 'blue',
-        badges: [],
-        sources: [{ group: 'brand', keyMatch: /^brand\.(primary_color|hero_accent|.*color|.*accent)$/ }],
-        cols: 2,
-        preview: 'color-system',
-      },
-      {
-        key: 'home-footer', title: 'Footer 页脚版权与说明', icon: Copyright,
-        description: '页脚版权文案、备案/第三方说明',
-        highlight: '页面最底部 Footer 区域',
-        sources: [{ group: 'brand', keyMatch: /^brand\.footer_/ }],
-        cols: 2,
-        preview: 'footer',
-      },
-    ],
-  },
-  // —— 小说写作 Landing（/novel） ——
   {
     key: 'novel', label: '小说写作', icon: BookOpen, accent: 'indigo',
-    subtitle: '小说创作页面（/novel）：介绍区文案、强调色、控件开关',
+    subtitle: '小说创作页面（/novel）',
     route: '/novel',
-    sections: [
-      {
-        key: 'novel-landing-core', title: '顶部介绍区（标题/副标题/强调色）', icon: Rocket,
-        description: '/novel 首屏 Hero 文案与强调色',
-        highlight: '页面首屏 Hero',
-        sources: [{ group: 'landing-novel' }],
-        cols: 2,
-        preview: 'landing-hero',
-      },
-    ],
+    sections: [],
   },
-  // —— 创作画布 Landing（/canvas） ——
   {
-    key: 'canvas', label: '创作画布', icon: Layers, accent: 'cyan',
-    subtitle: 'AI 创作画布（/canvas）：顶部介绍区文案与颜色',
+    key: 'canvas', label: '创作画布', icon: Layers, accent: 'indigo',
+    subtitle: 'AI 创作画布（/canvas）',
     route: '/canvas',
-    sections: [
-      {
-        key: 'canvas-landing-core', title: '顶部介绍区（标题/副标题/强调色）', icon: Rocket,
-        description: '/canvas 首屏 Hero 文案与强调色',
-        highlight: '页面首屏 Hero',
-        sources: [{ group: 'landing-canvas' }],
-        cols: 2,
-        preview: 'landing-hero',
-      },
+    sections: [],
+    children: [
+      { key: 'canvas.image',  shortKey: 'image',  label: '图像生成', icon: Image,  accent: 'cyan',   subtitle: 'AI 图像生成', route: '/canvas', filterType: 'image' },
+      { key: 'canvas.video',  shortKey: 'video',  label: '视频生成', icon: Video, accent: 'violet', subtitle: 'AI 视频生成', route: '/canvas', filterType: 'video' },
     ],
   },
-  // —— 音频创作 Landing（/audio） ——
   {
     key: 'audio', label: '音频创作', icon: Music4, accent: 'pink',
-    subtitle: 'AI 音频创作（/audio）：顶部介绍区文案与颜色',
+    subtitle: 'AI 音频创作（/audio）',
     route: '/audio',
-    sections: [
-      {
-        key: 'audio-landing-core', title: '顶部介绍区（标题/副标题/强调色）', icon: Rocket,
-        description: '/audio 首屏 Hero 文案与强调色',
-        highlight: '页面首屏 Hero',
-        sources: [{ group: 'landing-audio' }],
-        cols: 2,
-        preview: 'landing-hero',
-      },
-    ],
+    sections: [],
   },
-  // —— 创作者社区 Landing（/community） ——
-  {
-    key: 'community', label: '社区', icon: UsersRound, accent: 'emerald',
-    subtitle: '创作者社区（/community）：顶部介绍区文案与颜色',
-    route: '/community',
-    sections: [
-      {
-        key: 'community-landing-core', title: '顶部介绍区（标题/副标题/强调色）', icon: Rocket,
-        description: '/community 首屏 Hero 文案与强调色',
-        highlight: '页面首屏 Hero',
-        sources: [{ group: 'landing-community' }],
-        cols: 2,
-        preview: 'landing-hero',
-      },
-    ],
-  },
-  // —— 系统设置（非页面模块：登录/定价/限流/安全） ——
   {
     key: 'system', label: '系统设置', icon: Settings2, accent: 'violet',
-    subtitle: '账号、套餐、接口限流、内容审核、全站公告',
+    subtitle: '套餐定价、AI 接口限流',
     route: '全站系统层',
     sections: [
-      {
-        key: 'sys-login-copy', title: '登录页欢迎文案', icon: LogIn,
-        description: '登录 / 注册页顶部大标题与副标题',
-        highlight: '/login 页面首屏文案',
-        sources: [{ group: 'login', keyMatch: /^login\.welcome_/ }],
-        cols: 2,
-        preview: 'login-hero',
-      },
-      {
-        key: 'sys-login-bonus', title: '新用户注册权益', icon: Gift,
-        description: '新用户注册即赠的积分额度（调整只影响此后新注册用户）',
-        highlight: '注册成功后自动发放',
-        badges: ['highRisk'],
-        sources: [{ group: 'login', keyMatch: /^login\.new_user_/ }],
-        cols: 2,
-        preview: 'login-bonus',
-      },
-      {
-        key: 'sys-pricing-toggle', title: '套餐展示开关', icon: DollarSign,
-        description: '是否在 /pricing 页面展示免费版 / Pro / 企业版卡片',
-        highlight: '/pricing 定价页顶部卡片区',
-        sources: [{ group: 'pricing', keyMatch: /^pricing\.show_/ }],
-        cols: 1,
-        preview: 'pricing-toggle',
-      },
       {
         key: 'sys-pricing-plans', title: '套餐权益与价格数值', icon: CreditCard,
         description: 'Pro/企业版 每月价格、附赠积分、折扣、显示价格版本',
@@ -275,31 +143,6 @@ export const PAGE_MODULES: PageModuleDef[] = [
         cols: 2,
         preview: 'ratelimit',
       },
-      {
-        key: 'sys-moderation', title: '内容审核严格度', icon: ShieldCheck,
-        description: '审核服务的严格等级（松/标准/严）、违规文本替换规则',
-        highlight: '全站所有用户生成内容、评论、简介的审核规则',
-        badges: ['sensitive'],
-        sources: [{ group: 'safety', keyMatch: /^safety\.moderation_/ }],
-        cols: 2,
-        preview: 'moderation',
-      },
-      {
-        key: 'sys-announcement', title: '全站公告横幅', icon: Bell,
-        description: '登录后每个页面顶部显示的公告横幅',
-        highlight: '全站所有页面顶部（Navbar 下方小横幅）',
-        sources: [{ group: 'safety', keyMatch: /^safety\.announcement_?/ }],
-        cols: 2,
-        preview: 'announcement',
-      },
-      {
-        key: 'sys-legal', title: '《用户协议》《隐私协议》正文', icon: FileText,
-        description: '登录/注册页协议弹窗的完整文本（Markdown 格式：# 一级标题、## 章节标题、- 列表项、空行分段）。修改后保存立即生效，前端弹窗自动读取最新内容。',
-        highlight: '/login 注册页点击《用户协议》《隐私协议》链接时弹出的内容',
-        accent: 'amber',
-        sources: [{ group: 'legal' }],
-        cols: 1,
-      },
     ],
   },
 ]
@@ -308,21 +151,7 @@ export const PAGE_MODULES: PageModuleDef[] = [
 // 每条 item 的 key 按前缀归入一个 subgroup；左侧子目录与右侧视觉段一一对应
 interface SubgroupRule { prefix: RegExp | ((k: string, g: string) => boolean); label: string }
 const SUBGROUP_RULES: Record<string, SubgroupRule[]> = {
-  brand: [
-    { prefix: /^brand\.(site_|footer_)/, label: '品牌文字（站点名/副标题/版权）' },
-    { prefix: /^brand\.(primary_color|hero_accent|.*color|.*accent)$/, label: '颜色系统（主色/强调色）' },
-  ],
-  login: [
-    { prefix: /^login\.welcome_/, label: '欢迎文案（登录页标题）' },
-    { prefix: /^login\.new_user_/, label: '新客权益（注册即赠积分）' },
-  ],
-  hero: [
-    { prefix: /^hero\.(title|subtitle|cta_)/, label: '核心标题（大标题+CTA 按钮）' },
-    { prefix: /^hero\.(bg_)/, label: '视觉背景（渐变色）' },
-    { prefix: /^hero\.(recommend_)/, label: '推荐作品（数量/排序）' },
-  ],
   pricing: [
-    { prefix: /^pricing\.show_/, label: '套餐卡片开关' },
     { prefix: /^pricing\.(pro_|business_|prices_)/, label: '权益与价格数值' },
   ],
   safety: [
@@ -1168,43 +997,6 @@ function PreviewLoginBonus({ values, items }: { values: Record<string, unknown>;
   )
 }
 
-// —— 10. 套餐展示开关（3 张卡片显隐可视化） ——
-function PreviewPricingToggle({ values, items }: { values: Record<string, unknown>; items: Array<{item: SiteItemMeta; group: string}> }) {
-  const plans = [
-    { key: 'free', label: '免费版', itemKey: 'pricing.show_free', defaultVal: true, color: '#64748b' },
-    { key: 'pro', label: 'Pro', itemKey: 'pricing.show_pro', defaultVal: true, color: '#6366f1' },
-    { key: 'biz', label: '企业版', itemKey: 'pricing.show_business', defaultVal: false, color: '#0f172a' },
-  ]
-  return (
-    <div className="grid grid-cols-3 gap-2">
-      {plans.map(p => {
-        const show = Boolean(pickVal(values, items, p.itemKey, p.defaultVal))
-        return (
-          <div
-            key={p.key}
-            className={`relative rounded-lg overflow-hidden border ${show ? 'border-neutral-200' : 'border-dashed border-neutral-300 bg-neutral-50'}`}
-          >
-            <div className="h-1 w-full" style={{ backgroundColor: p.color }}></div>
-            <div className="px-2 py-3 text-center">
-              <div className={`text-[11px] font-bold ${show ? 'text-neutral-800' : 'text-neutral-400 line-through'}`}>
-                {p.label}
-              </div>
-              <div className={`mt-1 text-[10px] ${show ? 'text-emerald-600' : 'text-neutral-400'}`}>
-                {show ? '✓ 展示' : '✕ 已隐藏'}
-              </div>
-            </div>
-            {!show && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <EyeOff className="h-5 w-5 text-neutral-300" />
-              </div>
-            )}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
 // —— 11. 套餐权益与价格（Pro/企业版 两卡并排数字/积分实时预览） ——
 function PreviewPricingPlans({ values, items }: { values: Record<string, unknown>; items: Array<{item: SiteItemMeta; group: string}> }) {
   const proPrice = Number(pickVal(values, items, 'pricing.pro_price_monthly', 39) ?? 39)
@@ -1365,57 +1157,6 @@ function PreviewRateLimit({ values, items }: { values: Record<string, unknown>; 
   )
 }
 
-// —— 14. 内容审核严格度（松 / 标准 / 严 三档小徽章预览 + 违规替换文字 sample） ——
-function PreviewModeration({ values, items }: { values: Record<string, unknown>; items: Array<{item: SiteItemMeta; group: string}> }) {
-  const levelRaw = (
-    pickVal(values, items, 'safety.moderation_level', null) ??
-    pickVal(values, items, 'safety.moderation_strictness', null) ??
-    'standard'
-  )
-  const level = String(levelRaw)
-  const labelMap: Record<string, { label: string; color: string; desc: string }> = {
-    loose:    { label: '宽松',  color: '#10b981', desc: '允许大部分内容，违规仅过滤极端关键词' },
-    standard: { label: '标准',  color: '#6366f1', desc: '社区正常审核：违规提示 + 中度敏感内容打码' },
-    strict:   { label: '严格',  color: '#dc2626', desc: '审核严苛，命中即拒绝发布' },
-  }
-  const info = labelMap[level] ?? labelMap.standard
-  const replace = String(
-    pickVal(values, items, 'safety.moderation_replacement', null) ??
-    pickVal(values, items, 'safety.moderation_mask_text', '「该内容不符合社区规范」') ??
-    '「该内容不符合社区规范」'
-  )
-  return (
-    <div className="flex flex-col gap-3 md:flex-row md:items-stretch">
-      <div className="rounded-xl border border-neutral-200 overflow-hidden shadow-sm flex-1" style={{ borderTopColor: info.color }}>
-        <div className="h-1.5 w-full" style={{ backgroundColor: info.color }}></div>
-        <div className="px-3 py-3">
-          <div className="text-[10px] text-neutral-500">内容审核严格度</div>
-          <div className="mt-1 flex items-center gap-2">
-            <span className="rounded-md px-2 py-1 text-[11px] font-bold text-white"
-              style={{ backgroundColor: info.color }}
-            >{info.label}</span>
-            <span className="text-[11px] text-neutral-500">level = <span className="font-mono">{level}</span></span>
-          </div>
-          <p className="mt-2 text-[11px] text-neutral-600 leading-relaxed">{info.desc}</p>
-        </div>
-      </div>
-      <div className="rounded-xl border border-neutral-200 bg-white shadow-sm flex-1">
-        <div className="px-3 py-2 border-b border-neutral-100 text-[10px] text-neutral-500 flex items-center gap-1">
-          <FileText className="h-3 w-3" /> 违规内容预览（示例评论）
-        </div>
-        <div className="px-3 py-2 text-[11px] space-y-2">
-          <div className="rounded-md bg-neutral-50 px-2.5 py-1.5 ring-1 ring-neutral-200">
-            <div className="text-[10px] text-neutral-400 line-through decoration-red-300 decoration-2">
-              "一些不合适的示例文本"
-            </div>
-            <div className="mt-1 text-[11px] font-medium text-neutral-800">→ 替换为：<span className="font-semibold text-red-600">{replace}</span></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // —— 预览画布 wrapper（SectionCard 内部统一的 bg/边框/说明）——
 function PreviewCanvas({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -1444,11 +1185,9 @@ function SectionMiniPreview({ row, values }: { row: SectionWithItems; values: Re
     case 'landing-hero': return <PreviewCanvas title={`${moduleLabel} 首屏 Hero`}><PreviewLandingHero values={values} items={items} moduleLabel={moduleLabel} accent={section.accent ?? moduleAccent} /></PreviewCanvas>
     case 'login-hero': return <PreviewCanvas title="/login 欢迎区"><PreviewLoginHero values={values} items={items} /></PreviewCanvas>
     case 'login-bonus': return <PreviewCanvas title="注册成功自动发放"><PreviewLoginBonus values={values} items={items} /></PreviewCanvas>
-    case 'pricing-toggle': return <PreviewCanvas title="/pricing 卡片显示开关"><PreviewPricingToggle values={values} items={items} /></PreviewCanvas>
     case 'pricing-plans': return <PreviewCanvas title="/pricing 套餐卡片数值"><PreviewPricingPlans values={values} items={items} /></PreviewCanvas>
     case 'announcement': return <PreviewCanvas title="全站顶部公告横幅"><PreviewAnnouncement values={values} items={items} /></PreviewCanvas>
     case 'ratelimit': return <PreviewCanvas title="单用户调用上限（仪表盘）"><PreviewRateLimit values={values} items={items} /></PreviewCanvas>
-    case 'moderation': return <PreviewCanvas title="审核等级 + 违规替换"><PreviewModeration values={values} items={items} /></PreviewCanvas>
     default: return null
   }
 }
@@ -1741,13 +1480,11 @@ export function FeaturesTab({
   onError,
   activeGroup,
   onChangeActiveGroup,
-  onRequestDraftPreview,
 }: {
   role?: Role
   onError: (e: string) => void
   activeGroup: string
   onChangeActiveGroup: (g: string) => void
-  onRequestDraftPreview?: (path: string) => void
 }) {
   const { data, reload } = useSiteConfig()
 
@@ -1886,9 +1623,24 @@ export function FeaturesTab({
     }
   }, [reload, onError])
 
-  // ===== 按 activeGroup 筛选可见的页面模块（6 大模块：home/novel/canvas/audio/community/system） =====
+  // ===== 按 activeGroup 筛选可见的页面模块 =====
+  // activeGroup 可能是顶级 key（如 'novel'），也可能是子模块 key（如 'canvas.image'、'announcement'）
   const visibleModules: PageModuleDef[] = useMemo(() => {
-    return PAGE_MODULES.filter(m => m.key === activeGroup)
+    // announcement → 只渲染 system 模块里的 announcement section
+    if (activeGroup === 'announcement') {
+      return PAGE_MODULES
+        .filter(m => m.key === 'system')
+        .map(m => ({ ...m, sections: m.sections.filter(s => s.key === 'sys-announcement') }))
+    }
+    const topKey = activeGroup.includes('.') ? activeGroup.split('.')[0] : activeGroup
+    return PAGE_MODULES.filter(m => m.key === topKey)
+  }, [activeGroup])
+
+  // 切换 activeGroup 时重置页面滚动位置
+  // 根因：不同 group 内容高度差异大（works 很矮，system 很高），
+  // 浏览器会把旧 scrollY clamp 到新 group 的 maxScroll，视觉上就是"页面跳了"
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
   }, [activeGroup])
 
   // 总配置项数量 & 待保存（按 sectionItems 聚合，与左栏子导航显示一致）
@@ -1904,9 +1656,9 @@ export function FeaturesTab({
 
   return (
     <div className="space-y-5 pb-28">
-      {/* —— 「作品管理」特殊分支：直接渲染 WorksTab，不走站点配置 SectionCards —— */}
+      {/* —— 「社区管理」特殊分支：直接渲染 CommunityManageTab —— */}
       {activeGroup === 'works' ? (
-        <WorksTab role={role} onError={onError} />
+        <CommunityManageTab role={role} onError={onError} />
       ) : activeGroup === 'moderation' ? (
         <ModerationPanel />
       ) : (
@@ -1950,37 +1702,6 @@ export function FeaturesTab({
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               {saving ? '保存中…' : '保存修改'}
             </button>
-            <span className="mx-1 h-4 w-px bg-neutral-200" />
-            {/* 保存前草稿预览 */}
-            <button
-              onClick={() => {
-                if (dirtyKeys.size === 0) return
-                const overrides: Record<string, any> = {}
-                for (const k of Array.from(dirtyKeys)) overrides[k] = values[k]
-                writeSiteDraft(overrides)
-                // 根据当前页面模块选择预览路径：系统设置等"全站生效"预览首页即可
-                const pathByGroup: Record<string, string> = {
-                  all: '/',
-                  home: '/',
-                  novel: '/novel',
-                  canvas: '/canvas',
-                  audio: '/audio',
-                  community: '/community',
-                  system: '/',
-                }
-                onRequestDraftPreview?.(pathByGroup[activeGroup] ?? '/')
-              }}
-              disabled={dirtyCount === 0 || !onRequestDraftPreview}
-              className={
-                dirtyCount > 0
-                  ? '!px-3 !py-1.5 text-sm text-white inline-flex items-center gap-1.5 rounded-md bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 shadow-sm ring-1 ring-indigo-200/60'
-                  : 'btn-outline !px-3 !py-1.5 text-sm disabled:opacity-50'
-              }
-              title="保存前草稿预览（打开前端预览页面，即时显示你尚未保存的修改）"
-            >
-              <Eye className="h-4 w-4" />
-              {dirtyCount > 0 ? `草稿预览 ${dirtyCount} 项` : '草稿预览'}
-            </button>
             <button
               onClick={() => setAuditOpen(true)}
               className="btn-outline !px-3 !py-1.5 text-sm"
@@ -2014,67 +1735,77 @@ export function FeaturesTab({
               const row = sectionItems.get(`${m.key}::${sec.key}`)
               if (row) rows.push(row)
             }
+            // 对 novel/canvas/audio 这类只有模型管理、没有配置项的板块，跳过空占位
+            if (rows.length === 0) return null
             return (
               <div key={m.key} className="space-y-4" id={`mod-${m.key}`}>
-                {rows.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-neutral-200 bg-white/60 py-20 text-center text-neutral-400">
-                    该页面模块下暂无配置项（后续可扩展对应设置）
-                  </div>
-                ) : (
-                  rows.map((row) => (
-                    <SectionCard
-                      key={`${row.moduleKey}::${row.section.key}`}
-                      row={row}
-                      values={values}
-                      originalValues={originalValues}
-                      dirtyKeys={dirtyKeys}
-                      onValueChange={onValueChange}
-                      onRevertKey={onRevertKey}
-                    />
-                  ))
-                )}
+                {rows.map((row) => (
+                  <SectionCard
+                    key={`${row.moduleKey}::${row.section.key}`}
+                    row={row}
+                    values={values}
+                    originalValues={originalValues}
+                    dirtyKeys={dirtyKeys}
+                    onValueChange={onValueChange}
+                    onRevertKey={onRevertKey}
+                  />
+                ))}
               </div>
             )
           })}
           {/* 模型管理：按当前板块过滤渲染 */}
           {activeGroup === 'novel' && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Cpu className="h-4 w-4 text-indigo-500" />
-                <h3 className="text-sm font-bold text-neutral-800">小说写作模型管理</h3>
+            <div className="space-y-4">
+              <LlmPricingCompare />
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Cpu className="h-4 w-4 text-amber-500" />
+                  <h3 className="text-sm font-bold text-neutral-800">小说写作模型管理</h3>
+                </div>
+                <ModelsByType typeFilter={['novel']} onError={onError} />
               </div>
-              <ModelsByType typeFilter={['novel']} onError={onError} />
             </div>
           )}
-          {activeGroup === 'canvas' && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Cpu className="h-4 w-4 text-cyan-500" />
-                <h3 className="text-sm font-bold text-neutral-800">创作画布模型管理</h3>
+          {activeGroup === 'canvas.image' && (
+            <div className="space-y-4">
+              <ImageModelCompare />
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Cpu className="h-4 w-4 text-cyan-500" />
+                  <h3 className="text-sm font-bold text-neutral-800">图像生成模型管理</h3>
+                </div>
+                <ModelsByType typeFilter={['image']} onError={onError} />
               </div>
-              <ModelsByType typeFilter={['image', 'video']} onError={onError} />
+            </div>
+          )}
+          {activeGroup === 'canvas.video' && (
+            <div className="space-y-4">
+              <VideoModelCompare />
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Cpu className="h-4 w-4 text-violet-500" />
+                  <h3 className="text-sm font-bold text-neutral-800">视频生成模型管理</h3>
+                </div>
+                <ModelsByType typeFilter={['video']} onError={onError} />
+              </div>
             </div>
           )}
           {activeGroup === 'audio' && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Cpu className="h-4 w-4 text-pink-500" />
-                <h3 className="text-sm font-bold text-neutral-800">音频创作模型管理</h3>
+            <div className="space-y-4">
+              <AudioModelCompare />
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Cpu className="h-4 w-4 text-pink-500" />
+                  <h3 className="text-sm font-bold text-neutral-800">音频创作模型管理</h3>
+                </div>
+                <ModelsByType typeFilter={['audio']} onError={onError} />
               </div>
-              <ModelsByType typeFilter={['audio']} onError={onError} />
             </div>
           )}
-          {/* 评论管理：移入社区板块 */}
-          {activeGroup === 'community' && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <MessageSquare className="h-4 w-4 text-rose-500" />
-                <h3 className="text-sm font-bold text-neutral-800">评论管理</h3>
-              </div>
-              <CommentsTab onError={onError} />
-            </div>
-          )}
-          {visibleModules.length === 0 && activeGroup !== 'works' && (
+          {/* 兜底空态：仅当既没有配置项也没有模型管理时展示 */}
+          {visibleModules.every(m => m.sections.length === 0)
+            && !['novel', 'canvas', 'canvas.image', 'canvas.video', 'audio', 'system', 'announcement', 'works', 'moderation'].includes(activeGroup)
+            && (
             <div className="rounded-2xl border border-dashed border-neutral-200 bg-white/60 py-20 text-center text-neutral-400">
               该模块下暂无配置
             </div>
@@ -2139,11 +1870,13 @@ export function FeaturesSideNav({
   onChangeActiveGroup: (g: string) => void
 }) {
   const { data, dirtyKeys } = useFeaturesNav()
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({ canvas: true })
 
   const navItems = useMemo(() => {
     const sectionMap = collectSectionItems(data.groups)
     const modules: Array<{
-      key: string; label: string; icon: IconComponent; accent: string; count: number; dirty: number
+      key: string; label: string; icon: IconComponent; accent: string;
+      count: number; dirty: number; children?: PageModuleDef['children']
     }> = PAGE_MODULES.map(m => {
       let count = 0
       let dirty = 0
@@ -2153,12 +1886,10 @@ export function FeaturesSideNav({
         count += row.items.length
         for (const { item } of row.items) if (dirtyKeys?.has(item.key)) dirty++
       }
-      return { key: m.key, label: m.label, icon: m.icon, accent: m.accent, count, dirty }
+      return { key: m.key, label: m.label, icon: m.icon, accent: m.accent, count, dirty, children: m.children }
     })
     return [
       ...modules,
-      { key: 'works', label: '作品管理', icon: Palette, accent: 'cyan', count: 0, dirty: 0 },
-      { key: 'moderation', label: '内容审核', icon: Shield, accent: 'rose', count: 0, dirty: 0 },
     ]
   }, [data.groups, dirtyKeys])
 
@@ -2173,33 +1904,84 @@ export function FeaturesSideNav({
     rose: 'bg-rose-50 text-rose-700', pink: 'bg-pink-50 text-pink-700', slate: 'bg-slate-50 text-slate-700',
   }
 
+  const toggleExpand = (key: string) => {
+    setExpanded(prev => ({ ...prev, [key]: !prev[key] }))
+  }
+
   if (navItems.length === 0) return null
 
   return (
     <ul className="space-y-0.5 py-0.5">
       {navItems.map((g) => {
         const Icon = g.icon
-        const selected = activeGroup === g.key
+        const isChildActive = g.children?.some(c => activeGroup === c.key)
+        const isActive = activeGroup === g.key || isChildActive
+        const hasChildren = !!g.children?.length
+        const isOpen = expanded[g.key] ?? false
+
         const baseCls =
           'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs font-medium transition'
-        const stateCls = selected
+        const stateCls = isActive
           ? (accentSelBg[g.accent] ?? accentSelBg.slate)
           : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900'
+
         return (
           <li key={g.key}>
-            <button
-              onClick={() => onChangeActiveGroup(g.key)}
-              className={`${baseCls} ${stateCls}`}
-              title={g.label}
-            >
-              <Icon className={`h-3.5 w-3.5 shrink-0 ${selected ? '' : (accentText[g.accent] ?? 'text-neutral-500')}`} />
-              <span className="truncate flex-1">{g.label}</span>
-              {g.dirty > 0 ? (
-                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">
-                  {g.dirty}
-                </span>
-              ) : null}
-            </button>
+            <div className="flex items-center">
+              <button
+                onClick={() => {
+                  if (hasChildren) {
+                    // 首次展开时自动选中第一个子项
+                    if (!isOpen && activeGroup !== g.children![0].key) {
+                      onChangeActiveGroup(g.children![0].key)
+                    }
+                    toggleExpand(g.key)
+                  } else {
+                    onChangeActiveGroup(g.key)
+                  }
+                }}
+                className={`flex-1 ${baseCls} ${stateCls}`}
+                title={g.label}
+              >
+                <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? '' : (accentText[g.accent] ?? 'text-neutral-500')}`} />
+                <span className="truncate flex-1">{g.label}</span>
+                {g.dirty > 0 ? (
+                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">
+                    {g.dirty}
+                  </span>
+                ) : null}
+                {hasChildren && (
+                  <ChevronRight
+                    className={`h-3 w-3 shrink-0 text-neutral-400 transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                  />
+                )}
+              </button>
+            </div>
+
+            {hasChildren && isOpen && (
+              <ul className="ml-4 mt-0.5 space-y-0.5 border-l border-neutral-200 pl-2">
+                {g.children!.map((c) => {
+                  const ChildIcon = c.icon
+                  const childActive = activeGroup === c.key
+                  const childCls =
+                    'flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[11px] font-medium transition'
+                  const childState = childActive
+                    ? (accentSelBg[c.accent] ?? accentSelBg.slate)
+                    : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800'
+                  return (
+                    <li key={c.key}>
+                      <button
+                        onClick={() => onChangeActiveGroup(c.key)}
+                        className={`${childCls} ${childState}`}
+                      >
+                        <ChildIcon className={`h-3 w-3 shrink-0 ${childActive ? '' : (accentText[c.accent] ?? 'text-neutral-400')}`} />
+                        <span className="truncate flex-1">{c.label}</span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
           </li>
         )
       })}

@@ -1,11 +1,12 @@
-/**
+﻿/**
  * 视频模型配置 — 从后端 API 动态加载（带本地兜底）
  *
- *  对应后端：server/src/lib/videoModels.ts
+ *  对应后端：server/src/mank-core/video/videoModels.ts
  */
 
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../services/api'
+import logger from '../utils/logger'
 
 export interface VideoDurationConfig {
   id: string
@@ -40,16 +41,138 @@ export interface VideoModelConfig {
 }
 
 // ========== 兜底模型（API 加载前/失败时使用）==========
-// 与 server/prisma/seed.ts 中的视频模型配置保持一致
+// 与 server/src/mank-core/video/videoModels.ts 中的兜底配置保持一致
+// 所有模型参数严格对齐 Pollinations API /image/models 返回的字段
+// https://gen.pollinations.ai/image/models (category=video)
 
 const FALLBACK_MODELS: VideoModelConfig[] = [
   {
+    id: 'seedance-pro',
+    name: 'seedance-pro',
+    label: 'Seedance 1.0 Pro',
+    description: '稳定通用，480p/720p/1080p，性价比首选',
+    tag: '推荐·性价比',
+    costTokens: 250,
+    config: {
+      durations: [
+        { id: '2s', label: '2秒', value: 2 },
+        { id: '5s', label: '5秒', value: 5 },
+        { id: '10s', label: '10秒', value: 10 },
+      ],
+      defaultDuration: '5s',
+      resolutions: [
+        { id: '480p', label: '480p', multiplier: 0.6 },
+        { id: '720p', label: '720p', multiplier: 1.0 },
+        { id: '1080p', label: '1080p', multiplier: 2.4 },
+      ],
+      defaultResolution: '720p',
+      ratios: ['16:9', '9:16'],
+      defaultRatio: '16:9',
+      supportsImg2Video: true,
+      supportsAudio: false,
+      baseCostPerSecond: 50,
+    },
+  },
+  {
+    id: 'seedance-2.0',
+    name: 'seedance-2.0',
+    label: 'Seedance 2.0',
+    description: '720p 高质量，原生同步音频，支持多参考图/视频/音频',
+    tag: '全能·多参考',
+    costTokens: 1800,
+    config: {
+      durations: [
+        { id: '5s', label: '5秒', value: 5 },
+        { id: '10s', label: '10秒', value: 10 },
+        { id: '15s', label: '15秒', value: 15 },
+      ],
+      defaultDuration: '5s',
+      resolutions: [{ id: '720p', label: '720p', multiplier: 1.0 }],
+      defaultResolution: '720p',
+      ratios: ['16:9', '9:16'],
+      defaultRatio: '16:9',
+      supportsImg2Video: true,
+      supportsAudio: true,
+      baseCostPerSecond: 360,
+    },
+  },
+  {
+    id: 'seedance-2.5',
+    name: 'seedance-2.5',
+    label: 'Seedance 2.5',
+    description: '精确4秒电影感，480p/720p，全能参考媒体+同步音频',
+    tag: '最新·精准',
+    costTokens: 822,
+    config: {
+      durations: [{ id: '4s', label: '4秒', value: 4 }],
+      defaultDuration: '4s',
+      resolutions: [
+        { id: '480p', label: '480p', multiplier: 0.5 },
+        { id: '720p', label: '720p', multiplier: 1.13 },
+      ],
+      defaultResolution: '480p',
+      ratios: ['16:9', '9:16'],
+      defaultRatio: '16:9',
+      supportsImg2Video: true,
+      supportsAudio: true,
+      baseCostPerSecond: 206,
+    },
+  },
+  {
+    id: 'seedance-2.0-mini',
+    name: 'seedance-2.0-mini',
+    label: 'Seedance 2.0 Mini',
+    description: '低成本 480p/720p，4-10秒，首尾帧+同步音频',
+    tag: '低成本·音频',
+    costTokens: 900,
+    config: {
+      durations: [
+        { id: '4s', label: '4秒', value: 4 },
+        { id: '5s', label: '5秒', value: 5 },
+        { id: '10s', label: '10秒', value: 10 },
+      ],
+      defaultDuration: '5s',
+      resolutions: [
+        { id: '480p', label: '480p', multiplier: 0.4 },
+        { id: '720p', label: '720p', multiplier: 1.0 },
+      ],
+      defaultResolution: '720p',
+      ratios: ['16:9', '9:16'],
+      defaultRatio: '16:9',
+      supportsImg2Video: true,
+      supportsAudio: true,
+      baseCostPerSecond: 180,
+    },
+  },
+  {
+    id: 'seedance-2.0-fast',
+    name: 'seedance-2.0-fast',
+    label: 'Seedance 2.0 Fast',
+    description: '快速 480p，4-5秒，首尾帧+同步音频',
+    tag: '快速·体验',
+    costTokens: 700,
+    config: {
+      durations: [
+        { id: '4s', label: '4秒', value: 4 },
+        { id: '5s', label: '5秒', value: 5 },
+      ],
+      defaultDuration: '5s',
+      resolutions: [{ id: '480p', label: '480p', multiplier: 1.0 }],
+      defaultResolution: '480p',
+      ratios: ['16:9', '9:16'],
+      defaultRatio: '16:9',
+      supportsImg2Video: true,
+      supportsAudio: true,
+      baseCostPerSecond: 140,
+    },
+  },
+  {
     id: 'wan-fast',
     name: 'wan-fast',
-    label: 'Wan 快速版',
-    description: '入门体验，480p 5秒，快速预览',
-    tag: '体验',
-    costTokens: 75,
+    label: 'Wan 2.2 Fast',
+    description: '超便宜，仅480p，固定5秒，首尾帧，无音频',
+    tag: '超便宜·体验',
+    costTokens: 100,
     config: {
       durations: [{ id: '5s', label: '5秒', value: 5 }],
       defaultDuration: '5s',
@@ -59,16 +182,65 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       defaultRatio: '16:9',
       supportsImg2Video: true,
       supportsAudio: false,
-      baseCostPerSecond: 15,
+      baseCostPerSecond: 20,
+    },
+  },
+  {
+    id: 'wan-pro',
+    name: 'wan-pro',
+    label: 'Wan 2.7 Pro',
+    description: '720p/1080p，2-15秒，首尾帧+参考图/参考视频+同步音频',
+    tag: '全能·多参考',
+    costTokens: 1000,
+    config: {
+      durations: [
+        { id: '5s', label: '5秒', value: 5 },
+        { id: '10s', label: '10秒', value: 10 },
+        { id: '15s', label: '15秒', value: 15 },
+      ],
+      defaultDuration: '5s',
+      resolutions: [
+        { id: '720p', label: '720p', multiplier: 1.0 },
+        { id: '1080p', label: '1080p', multiplier: 1.5 },
+      ],
+      defaultResolution: '720p',
+      ratios: ['16:9', '9:16'],
+      defaultRatio: '16:9',
+      supportsImg2Video: true,
+      supportsAudio: true,
+      baseCostPerSecond: 200,
+    },
+  },
+  {
+    id: 'wan-3.0',
+    name: 'wan-3.0',
+    label: 'Wan 3.0',
+    description: '480p/720p/1080p，精确5秒，全能参考图/视频/音频+同步音频',
+    tag: '最新·全能',
+    costTokens: 680,
+    config: {
+      durations: [{ id: '5s', label: '5秒', value: 5 }],
+      defaultDuration: '5s',
+      resolutions: [
+        { id: '480p', label: '480p', multiplier: 0.49 },
+        { id: '720p', label: '720p', multiplier: 1.0 },
+        { id: '1080p', label: '1080p', multiplier: 2.0 },
+      ],
+      defaultResolution: '480p',
+      ratios: ['16:9', '9:16'],
+      defaultRatio: '16:9',
+      supportsImg2Video: true,
+      supportsAudio: true,
+      baseCostPerSecond: 136,
     },
   },
   {
     id: 'p-video',
     name: 'p-video',
-    label: 'Pruna Video',
-    description: '便宜好用，720p/1080p',
-    tag: '性价比',
-    costTokens: 150,
+    label: 'Pruna p-video',
+    description: '极便宜，720p/1080p，1-10秒，仅首帧图，无音频',
+    tag: '极便宜',
+    costTokens: 200,
     config: {
       durations: [
         { id: '5s', label: '5秒', value: 5 },
@@ -77,72 +249,23 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       defaultDuration: '5s',
       resolutions: [
         { id: '720p', label: '720p', multiplier: 1.0 },
-        { id: '1080p', label: '1080p', multiplier: 1.0 },
+        { id: '1080p', label: '1080p', multiplier: 2.0 },
       ],
       defaultResolution: '720p',
       ratios: ['16:9', '9:16'],
       defaultRatio: '16:9',
       supportsImg2Video: true,
       supportsAudio: false,
-      baseCostPerSecond: 30,
-    },
-  },
-  {
-    id: 'seedance-pro',
-    name: 'seedance-pro',
-    label: 'Seedance Pro',
-    description: '稳定通用，480p/720p/1080p',
-    tag: '推荐',
-    costTokens: 180,
-    config: {
-      durations: [
-        { id: '5s', label: '5秒', value: 5 },
-        { id: '10s', label: '10秒', value: 10 },
-      ],
-      defaultDuration: '5s',
-      resolutions: [
-        { id: '480p', label: '480p', multiplier: 1.0 },
-        { id: '720p', label: '720p', multiplier: 1.0 },
-        { id: '1080p', label: '1080p', multiplier: 1.0 },
-      ],
-      defaultResolution: '720p',
-      ratios: ['16:9', '9:16'],
-      defaultRatio: '16:9',
-      supportsImg2Video: true,
-      supportsAudio: false,
-      baseCostPerSecond: 36,
-    },
-  },
-  {
-    id: 'minimax-h3',
-    name: 'minimax-h3',
-    label: 'MiniMax H3',
-    description: '自带立体声，480p/768p/2K',
-    tag: '带音频',
-    costTokens: 360,
-    config: {
-      durations: [{ id: '5s', label: '5秒', value: 5 }],
-      defaultDuration: '5s',
-      resolutions: [
-        { id: '480p', label: '480p', multiplier: 1.0 },
-        { id: '768p', label: '768p', multiplier: 1.0 },
-        { id: '2k', label: '2K', multiplier: 1.0 },
-      ],
-      defaultResolution: '480p',
-      ratios: ['16:9', '9:16'],
-      defaultRatio: '16:9',
-      supportsImg2Video: false,
-      supportsAudio: true,
-      baseCostPerSecond: 72,
+      baseCostPerSecond: 40,
     },
   },
   {
     id: 'veo',
     name: 'veo',
     label: 'Veo 3.1 Fast',
-    description: 'Google出品，720p/1080p，支持音频',
+    description: 'Google 出品，720p/1080p，仅4/6/8秒，首尾帧+可选音频',
     tag: '高质量',
-    costTokens: 460,
+    costTokens: 640,
     config: {
       durations: [
         { id: '4s', label: '4秒', value: 4 },
@@ -152,119 +275,61 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       defaultDuration: '4s',
       resolutions: [
         { id: '720p', label: '720p', multiplier: 1.0 },
-        { id: '1080p', label: '1080p', multiplier: 1.0 },
+        { id: '1080p', label: '1080p', multiplier: 1.25 },
       ],
       defaultResolution: '720p',
       ratios: ['16:9', '9:16'],
       defaultRatio: '16:9',
       supportsImg2Video: true,
       supportsAudio: true,
-      baseCostPerSecond: 115,
+      baseCostPerSecond: 160,
     },
   },
   {
-    id: 'wan-pro',
-    name: 'wan-pro',
-    label: 'Wan Pro',
-    description: '高质量全能，支持参考图/视频/音频',
-    tag: '专业',
-    costTokens: 720,
+    id: 'minimax-h3',
+    name: 'minimax-h3',
+    label: 'MiniMax H3',
+    description: '立体声同步音频，480p/768p/2K，精确5秒，纯文生视频',
+    tag: '立体声·纯文生',
+    costTokens: 500,
     config: {
-      durations: [
-        { id: '5s', label: '5秒', value: 5 },
-        { id: '10s', label: '10秒', value: 10 },
-        { id: '15s', label: '15秒', value: 15 },
-      ],
+      durations: [{ id: '5s', label: '5秒', value: 5 }],
       defaultDuration: '5s',
       resolutions: [
-        { id: '720p', label: '720p', multiplier: 1.0 },
-        { id: '1080p', label: '1080p', multiplier: 1.0 },
+        { id: '480p', label: '480p', multiplier: 1.0 },
+        { id: '768p', label: '768p', multiplier: 1.2 },
+        { id: '2k', label: '2K', multiplier: 2.6 },
       ],
+      defaultResolution: '480p',
+      ratios: ['16:9', '9:16'],
+      defaultRatio: '16:9',
+      supportsImg2Video: false,
+      supportsAudio: true,
+      baseCostPerSecond: 100,
+    },
+  },
+  {
+    id: 'nova-reel',
+    name: 'nova-reel',
+    label: 'Nova Reel',
+    description: 'Amazon 长视频，固定720p，6-120秒（6秒步长），仅首帧图',
+    tag: '长视频',
+    costTokens: 960,
+    config: {
+      durations: [
+        { id: '6s', label: '6秒', value: 6 },
+        { id: '12s', label: '12秒', value: 12 },
+        { id: '30s', label: '30秒', value: 30 },
+        { id: '60s', label: '60秒', value: 60 },
+      ],
+      defaultDuration: '6s',
+      resolutions: [{ id: '720p', label: '720p', multiplier: 1.0 }],
       defaultResolution: '720p',
       ratios: ['16:9', '9:16'],
       defaultRatio: '16:9',
       supportsImg2Video: true,
-      supportsAudio: true,
-      baseCostPerSecond: 144,
-    },
-  },
-  {
-    id: 'kling-v3-turbo',
-    name: 'kling-v3-turbo',
-    label: '可灵 Turbo',
-    description: '性价比首选，720p/1080p，自带音频',
-    tag: '国产·快',
-    costTokens: 80,
-    config: {
-      durations: [
-        { id: '5s', label: '5秒', value: 5 },
-        { id: '10s', label: '10秒', value: 10 },
-      ],
-      defaultDuration: '5s',
-      resolutions: [
-        { id: '720p', label: '720p', multiplier: 1.0 },
-        { id: '1080p', label: '1080p', multiplier: 1.5 },
-      ],
-      defaultResolution: '720p',
-      ratios: ['16:9', '9:16', '1:1'],
-      defaultRatio: '16:9',
-      supportsImg2Video: true,
-      supportsAudio: true,
+      supportsAudio: false,
       baseCostPerSecond: 16,
-    },
-  },
-  {
-    id: 'kling-v3',
-    name: 'kling-v3',
-    label: '可灵 V3',
-    description: '标准画质，720p/1080p/4K，首尾帧',
-    tag: '国产·推荐',
-    costTokens: 120,
-    config: {
-      durations: [
-        { id: '5s', label: '5秒', value: 5 },
-        { id: '10s', label: '10秒', value: 10 },
-        { id: '15s', label: '15秒', value: 15 },
-      ],
-      defaultDuration: '5s',
-      resolutions: [
-        { id: '720p', label: '720p', multiplier: 1.0 },
-        { id: '1080p', label: '1080p', multiplier: 1.5 },
-        { id: '4k', label: '4K', multiplier: 3.0 },
-      ],
-      defaultResolution: '720p',
-      ratios: ['16:9', '9:16', '1:1'],
-      defaultRatio: '16:9',
-      supportsImg2Video: true,
-      supportsAudio: true,
-      baseCostPerSecond: 24,
-    },
-  },
-  {
-    id: 'kling-v3-omni',
-    name: 'kling-v3-omni',
-    label: '可灵 Omni',
-    description: '全能版，参考图/参考视频/视频编辑',
-    tag: '国产·专业',
-    costTokens: 200,
-    config: {
-      durations: [
-        { id: '5s', label: '5秒', value: 5 },
-        { id: '10s', label: '10秒', value: 10 },
-        { id: '15s', label: '15秒', value: 15 },
-      ],
-      defaultDuration: '5s',
-      resolutions: [
-        { id: '720p', label: '720p', multiplier: 1.0 },
-        { id: '1080p', label: '1080p', multiplier: 1.5 },
-        { id: '4k', label: '4K', multiplier: 3.0 },
-      ],
-      defaultResolution: '720p',
-      ratios: ['16:9', '9:16', '1:1'],
-      defaultRatio: '16:9',
-      supportsImg2Video: true,
-      supportsAudio: true,
-      baseCostPerSecond: 40,
     },
   },
 ]
@@ -296,7 +361,7 @@ export async function loadVideoModels(force = false): Promise<boolean> {
       }
       loadAttempted = true
     } catch (e) {
-      console.warn('[videoModels] 加载失败，使用本地兜底模型', e)
+      logger.warn('videoModels', '加载失败，使用本地兜底模型', e)
       loadAttempted = true
     }
   })()

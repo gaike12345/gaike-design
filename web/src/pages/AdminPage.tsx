@@ -1,32 +1,85 @@
 // Man TV 管理后台
 //
 // 仅 admin 角色可访问；非 admin 渲染「无权访问」。
-// 本文件只包含：主组件 + 侧边导航 + 前端预览 Tab
+// 本文件只包含：主组件 + 侧边导航
 // 各业务模块已拆分到 components/admin/ 目录下。
 
 import { useCallback, useEffect, useState } from 'react'
 import {
-  BarChart3, Users, Activity, CreditCard, Settings2, Eye,
-  ShieldAlert, ChevronDown, ChevronRight, X,
+  BarChart3, Users, Activity, Settings2, Megaphone,
+  ShieldAlert, ChevronDown, ChevronRight, X, Loader2,
 } from 'lucide-react'
 import Navbar from '../components/layout/Navbar'
 import Footer from '../components/layout/Footer'
 import { api } from '../services/api'
 import { useAuthStore } from '../store/useAuthStore'
+import { getToken } from '../services/api'
 
 // 业务模块
 import { OverviewTab } from '../components/admin/OverviewTab'
 import { UsersTab } from '../components/admin/UsersTab'
-import { WorksTab } from '../components/admin/WorksTab'
-import { CommentsTab } from '../components/admin/CommentsTab'
 import { PaymentsTab } from '../components/admin/PaymentsTab'
-import { GenerationsTab } from '../components/admin/GenerationsTab'
+import { GenerationsStatsView, GenerationLogsTable } from '../components/admin/GenerationsTab'
 import { FeaturesTab, FeaturesSideNav } from '../components/admin/FeaturesTab'
-import { PreviewTab } from '../components/admin/PreviewTab'
 import type { Stats } from '../components/admin/types'
+
+// ===== 用户管理子导航 =====
+type UsersItem = 'list' | 'logs' | 'payments'
+const USERS_NAV_ITEMS: Array<{ key: UsersItem; label: string; color: string }> = [
+  { key: 'list', label: '用户列表', color: 'indigo' },
+  { key: 'logs', label: '生成记录', color: 'indigo' },
+  { key: 'payments', label: '充值订单', color: 'indigo' },
+]
+
+function UsersSideNav({
+  activeItem,
+  onChangeActiveItem,
+}: {
+  activeItem: UsersItem
+  onChangeActiveItem: (k: UsersItem) => void
+}) {
+  return (
+    <ul className="space-y-0.5 py-0.5">
+      {USERS_NAV_ITEMS.map((it) => {
+        const selected = activeItem === it.key
+        return (
+          <li key={it.key}>
+            <button
+              onClick={() => onChangeActiveItem(it.key)}
+              className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs font-medium transition ${
+                selected
+                  ? 'bg-indigo-50 text-indigo-700'
+                  : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900'
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${selected ? 'bg-indigo-500' : 'bg-neutral-300'}`} />
+              <span className="truncate">{it.label}</span>
+            </button>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
 
 export default function AdminPage() {
   const user = useAuthStore((s) => s.user)
+
+  // 有 token 但 user 还没加载好 → 等待，不要误判为无权
+  if (getToken() && !user) {
+    return (
+      <div className="min-h-screen bg-white">
+        <Navbar />
+        <main className="container-page py-20">
+          <div className="mx-auto flex max-w-md flex-col items-center justify-center rounded-2xl border border-neutral-200 bg-neutral-50/60 py-16 text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-violet-600" />
+            <p className="mt-4 text-sm text-neutral-600">正在加载您的权限信息...</p>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    )
+  }
 
   // 权限校验：非 admin 直接拦截
   if (!user || (user.role !== 'admin' && user.role !== 'superadmin')) {
@@ -54,17 +107,18 @@ export default function AdminPage() {
 function AdminContent({ currentUserId }: { currentUserId: string }) {
   const role = useAuthStore((s) => s.user?.role)
   const TABS = [
-    { key: 'overview' as const, label: '运营总览', icon: BarChart3, color: 'violet' },
-    { key: 'users' as const, label: '用户管理', icon: Users, color: 'indigo' },
-    { key: 'generations' as const, label: 'AI 调用', icon: Activity, color: 'violet' },
-    { key: 'payments' as const, label: '充值订单', icon: CreditCard, color: 'emerald' },
-    { key: 'features' as const, label: '板块功能', icon: Settings2, color: 'blue' },
-    { key: 'preview' as const, label: '前端预览', icon: Eye, color: 'slate' },
+    { key: 'overview' as const,    label: '运营总览', icon: BarChart3,   color: 'violet' },
+    { key: 'users' as const,       label: '用户管理', icon: Users,       color: 'indigo' },
+    { key: 'generations' as const, label: 'AI 调用',  icon: Activity,    color: 'violet' },
+    { key: 'features' as const,    label: '板块功能', icon: Settings2,   color: 'blue' },
+    { key: 'system' as const,      label: '系统设置', icon: Settings2,   color: 'emerald' },
+    { key: 'moderation' as const,  label: '内容审核', icon: ShieldAlert, color: 'rose' },
+    { key: 'announcement' as const,label: '全站公告', icon: Megaphone,   color: 'amber' },
   ]
-  // 超级管理员：6 tab 全开；管理员：用户 / 预览
+  // 超级管理员：5 tab 全开；管理员：仅用户
   const superTabs: readonly typeof TABS[number][] = TABS
   const adminTabs = TABS.filter(t =>
-    t.key === 'users' || t.key === 'preview'
+    t.key === 'users'
   )
   const tabs = role === 'superadmin' ? superTabs : adminTabs
   const [activeTab, setActiveTab] = useState<typeof TABS[number]['key']>('overview')
@@ -75,34 +129,36 @@ function AdminContent({ currentUserId }: { currentUserId: string }) {
     }
   }, [tabs, activeTab])
 
-  // 板块功能：activeGroup 由左侧子导航 + FeaturesTab 顶部 pill 双向驱动
-  const [featuresActiveGroup, setFeaturesActiveGroup] = useState<string>('home')
-  // 板块功能子导航栏可收缩
-  const [featuresNavCollapsed, setFeaturesNavCollapsed] = useState<boolean>(false)
-  // 保存前草稿预览：给 PreviewTab 用的 URL
-  const [previewInitialUrl, setPreviewInitialUrl] = useState<string | undefined>(undefined)
+  // 切 tab 时重置页面滚动位置
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+  }, [activeTab])
 
-  const openDraftPreview = useCallback((path: string) => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5176'
-    const sep = path.includes('?') ? '&' : '?'
-    const draftUrl = `${origin}${path}${sep}draft=1`
-    setPreviewInitialUrl(draftUrl)
-    setActiveTab('preview')
-  }, [])
-  const onPreviewInitialApplied = useCallback(() => {
-    setPreviewInitialUrl(undefined)
-  }, [])
+  // ==== 子导航状态 ====
+  // 用户管理
+  const [usersActiveItem, setUsersActiveItem] = useState<UsersItem>('list')
+  const [usersNavCollapsed, setUsersNavCollapsed] = useState<boolean>(false)
+  // 板块功能
+  const [featuresActiveGroup, setFeaturesActiveGroup] = useState<string>('novel')
+  const [featuresNavCollapsed, setFeaturesNavCollapsed] = useState<boolean>(false)
+
+  // 切子导航项也重置滚动
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+  }, [usersActiveItem, featuresActiveGroup])
 
   const [stats, setStats] = useState<Stats | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null)
 
   const loadStats = useCallback(async () => {
     if (role !== 'superadmin') return
     setStatsLoading(true)
     try {
-      const res = await api.get<{ stats: Stats }>('/api/admin/stats')
-      setStats(res.stats)
+      const res = await api.get<Stats>('/api/admin/stats')
+      setStats(res)
+      setLastRefreshedAt(new Date())
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -110,9 +166,21 @@ function AdminContent({ currentUserId }: { currentUserId: string }) {
     }
   }, [role])
 
+  // 进入 overview tab 时立即拉取一次（含首次挂载，因为 activeTab 初值为 'overview'）
   useEffect(() => {
+    if (activeTab !== 'overview' || role !== 'superadmin') return
     loadStats()
-  }, [loadStats])
+  }, [activeTab, role, loadStats])
+
+  // 自动轮询：仅在 overview tab 激活时，每 60s 刷新一次
+  useEffect(() => {
+    if (role !== 'superadmin') return
+    if (activeTab !== 'overview') return
+    const id = setInterval(() => {
+      loadStats()
+    }, 60_000)
+    return () => clearInterval(id)
+  }, [role, activeTab, loadStats])
 
   // 侧边栏选中态配色
   const sidebarColorMap: Record<string, string> = {
@@ -122,8 +190,10 @@ function AdminContent({ currentUserId }: { currentUserId: string }) {
     pink:    'border-l-pink-600    bg-pink-50    text-pink-700',
     fuchsia: 'border-l-fuchsia-600 bg-fuchsia-50 text-fuchsia-700',
     emerald: 'border-l-emerald-600 bg-emerald-50 text-emerald-700',
+    rose:    'border-l-rose-600    bg-rose-50    text-rose-700',
     blue:    'border-l-blue-600    bg-blue-50    text-blue-700',
     slate:   'border-l-slate-600   bg-slate-50   text-slate-700',
+    amber:   'border-l-amber-600   bg-amber-50   text-amber-700',
   }
 
   return (
@@ -143,20 +213,23 @@ function AdminContent({ currentUserId }: { currentUserId: string }) {
             </div>
           </div>
 
-          {/* Tab 垂直列表（features tab 激活时嵌入子导航） */}
+          {/* Tab 垂直列表 */}
           <nav className="flex-1 space-y-0.5 overflow-y-auto pr-1">
             {tabs.map((t) => {
               const Icon = t.icon
               const active = activeTab === t.key
               const accent = sidebarColorMap[t.color] || sidebarColorMap.violet
+              const isUsers = t.key === 'users'
               const isFeatures = t.key === 'features'
-              const showChevron = isFeatures && active
+              // users 和 features 都有子导航，都显示 chevron
+              const hasChildren = isUsers || isFeatures
+              const showChevron = hasChildren && active
               return (
                 <div key={t.key} className="space-y-0.5">
-                  <div className="flex items-center">
+                  <div className="relative">
                     <button
                       onClick={() => setActiveTab(t.key)}
-                      className={`flex flex-1 items-center gap-2.5 border-l-[3px] px-3 py-2.5 text-sm font-medium transition ${
+                      className={`flex w-full items-center gap-2.5 border-l-[3px] pr-10 pl-3 py-2.5 text-sm font-medium transition ${
                         active
                           ? accent
                           : 'border-l-transparent text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900'
@@ -165,22 +238,45 @@ function AdminContent({ currentUserId }: { currentUserId: string }) {
                       <Icon className="h-4 w-4 shrink-0" />
                       <span className="truncate">{t.label}</span>
                     </button>
-                    {showChevron && (
+                    {/* Chevron 按钮：始终占位（absolute），激活时可见 */}
+                    {hasChildren && (
                       <button
                         type="button"
-                        aria-label={featuresNavCollapsed ? '展开子导航栏' : '收缩子导航栏'}
-                        title={featuresNavCollapsed ? '展开子导航栏' : '收缩子导航栏'}
-                        onClick={(e) => { e.stopPropagation(); setFeaturesNavCollapsed(v => !v) }}
-                        className={`mr-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition
-                          hover:bg-white/70 hover:text-neutral-900 active ${active ? 'text-neutral-700' : 'text-neutral-500'}`}
+                        aria-label={
+                          (isUsers ? usersNavCollapsed : featuresNavCollapsed)
+                            ? '展开子导航栏' : '收缩子导航栏'
+                        }
+                        title={
+                          (isUsers ? usersNavCollapsed : featuresNavCollapsed)
+                            ? '展开子导航栏' : '收缩子导航栏'
+                        }
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (isUsers) setUsersNavCollapsed(v => !v)
+                          else setFeaturesNavCollapsed(v => !v)
+                        }}
+                        className={`absolute right-1 top-1/2 -translate-y-1/2 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition
+                          ${showChevron
+                            ? 'opacity-100 pointer-events-auto hover:bg-white/70 hover:text-neutral-900 active text-neutral-700'
+                            : 'opacity-0 pointer-events-none'
+                          }`}
                       >
-                        {featuresNavCollapsed
+                        {(isUsers ? usersNavCollapsed : featuresNavCollapsed)
                           ? <ChevronRight className="h-4 w-4" />
                           : <ChevronDown className="h-4 w-4" />}
                       </button>
                     )}
                   </div>
-                  {/* 『板块功能』子导航 */}
+                  {/* 用户管理子导航 */}
+                  {isUsers && activeTab === 'users' && !usersNavCollapsed && (
+                    <div className="pl-3">
+                      <UsersSideNav
+                        activeItem={usersActiveItem}
+                        onChangeActiveItem={setUsersActiveItem}
+                      />
+                    </div>
+                  )}
+                  {/* 板块功能子导航 */}
                   {isFeatures && activeTab === 'features' && !featuresNavCollapsed && (
                     <div className="pl-3">
                       <FeaturesSideNav
@@ -262,23 +358,65 @@ function AdminContent({ currentUserId }: { currentUserId: string }) {
           )}
 
           {/* Tab 内容 */}
-          {activeTab === 'overview' && <OverviewTab stats={stats} loading={statsLoading} onRefresh={loadStats} />}
-          {activeTab === 'users' && <UsersTab currentUserId={currentUserId} role={role} onError={setError} />}
-          {activeTab === 'generations' && <GenerationsTab onError={setError} />}
-          {activeTab === 'payments' && <PaymentsTab onError={setError} />}
+          {activeTab === 'overview' && (
+            <OverviewTab
+              stats={stats}
+              loading={statsLoading}
+              onRefresh={loadStats}
+              lastRefreshedAt={lastRefreshedAt}
+            />
+          )}
+
+          {/* 用户管理 — 根据子导航项切换 */}
+          {activeTab === 'users' && usersActiveItem === 'list' && (
+            <UsersTab currentUserId={currentUserId} role={role} onError={setError} />
+          )}
+          {activeTab === 'users' && usersActiveItem === 'logs' && (
+            <GenerationLogsTable onError={setError} />
+          )}
+          {activeTab === 'users' && usersActiveItem === 'payments' && (
+            <PaymentsTab onError={setError} />
+          )}
+
+          {/* AI 调用 — 仅统计概览（生成记录已移到用户管理子导航） */}
+          {activeTab === 'generations' && <GenerationsStatsView onError={setError} />}
+
           {activeTab === 'features' && (
             <FeaturesTab
               role={role}
               onError={setError}
               activeGroup={featuresActiveGroup}
               onChangeActiveGroup={setFeaturesActiveGroup}
-              onRequestDraftPreview={openDraftPreview}
             />
           )}
-          {activeTab === 'preview' && (
-            <PreviewTab
-              initialUrl={previewInitialUrl}
-              onInitialUrlApplied={onPreviewInitialApplied}
+
+          {/* 系统设置（套餐定价 + 限流阈值） */}
+          {activeTab === 'system' && (
+            <FeaturesTab
+              role={role}
+              onError={setError}
+              activeGroup="system"
+              onChangeActiveGroup={() => {}}
+            />
+          )}
+
+          {/* 内容审核 */}
+          {activeTab === 'moderation' && (
+            <FeaturesTab
+              role={role}
+              onError={setError}
+              activeGroup="moderation"
+              onChangeActiveGroup={() => {}}
+            />
+          )}
+
+          {/* 全站公告 */}
+          {activeTab === 'announcement' && (
+            <FeaturesTab
+              role={role}
+              onError={setError}
+              activeGroup="announcement"
+              onChangeActiveGroup={() => {}}
             />
           )}
         </main>

@@ -439,6 +439,9 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
 
   return (
     <div>
+      {/* Pollinations 官方定价同步面板 */}
+      <PollinationsSyncPanel />
+
       {/* 工具栏 */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <button onClick={() => setProviderModalOpen(true)} className="btn-primary !px-3 !py-1.5 text-sm">

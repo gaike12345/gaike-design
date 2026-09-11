@@ -1,4 +1,4 @@
-// Prisma Schema — Mank TV 后端数据模型
+// Prisma Schema — Man TV 后端数据模型
 
 generator client {
   provider = "prisma-client-js"
@@ -48,6 +48,9 @@ model User {
   payments        PaymentOrder[]
   subscriptions   Subscription[]
   moderationLogs  ModerationLog[]
+
+  @@index([role])
+  @@index([enabled, riskLevel])
 }
 
 // ==================== 小说项目 ====================
@@ -127,16 +130,19 @@ model Comment {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([workId])
 }
 
 model Like {
-  id     String @id @default(cuid())
-  workId String
-  work   Work   @relation(fields: [workId], references: [id], onDelete: Cascade)
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String   @id @default(cuid())
+  workId    String
+  work      Work     @relation(fields: [workId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([workId, userId])
   @@index([workId])
@@ -151,6 +157,7 @@ model Subscription {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   expiresAt DateTime?
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
 }
@@ -210,6 +217,7 @@ model GenerationLog {
   status      String   @default("success") // success | failed | pending
   errorMsg    String?
   createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([userId])
   @@index([type])
@@ -220,6 +228,7 @@ model GenerationLog {
 
 // ==================== 内容审核记录（双审核） ====================
 // 追加不可改：仅 create + read，无 update/delete 路由（防抵赖）
+// 后台"已处理"标记独立到 ModerationLogHandle 子表，主表保持纯 append
 model ModerationLog {
   id          String   @id @default(cuid())
   userId      String
@@ -233,12 +242,34 @@ model ModerationLog {
   categories  String?  // JSON: 命中的违规分类列表
   provider    String   // local | aliyun | zhipu  审核服务商
   placeholder Boolean  @default(false)  // true = demo 模式占位审核（无 API key）
-  handled     Boolean  @default(false)  // 后台是否已处理（标记已查看/已处置）
   createdAt   DateTime @default(now())
+
+  // 反向关系：处置记录（一条审核日志可有多条处置记录，append-only 留痕）
+  handles     ModerationLogHandle[]
 
   @@index([userId])
   @@index([result])
   @@index([riskLevel])
+  @@index([createdAt])
+}
+
+// ==================== 审核日志处置记录（append-only） ====================
+// 与 ModerationLog 解耦，主表 append-only 不可改，处置标记独立到这里
+// 一条审核日志可有多条处置记录，支持多次处置留痕（防抵赖）
+model ModerationLogHandle {
+  id          String   @id @default(cuid())
+  logId       String
+  log         ModerationLog @relation(fields: [logId], references: [id], onDelete: Cascade)
+  // 处置类型：marked_viewed | marked_handled | dismissed | escalated
+  action      String
+  // 处置人（管理员 ID）
+  handlerId   String
+  // 处置备注（rejected/banned 时必填，参考后台管理规范 13.2）
+  note        String?
+  createdAt   DateTime @default(now())
+
+  @@index([logId])
+  @@index([handlerId])
   @@index([createdAt])
 }
 
@@ -324,14 +355,15 @@ model PaymentOrder {
   id          String   @id @default(cuid())
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  amount      Float    // 充值金额
+  amount      Int      // 充值金额（分）
   tokens      Int      // 购买的 token 数
   planId      String?  // 关联的订阅计划
   status      String   @default("pending") // pending | paid | failed | refunded
   payMethod   String?  // alipay | wechat | card
   tradeNo     String?  // 第三方交易号
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
   paidAt      DateTime?
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([status])
@@ -385,8 +417,32 @@ model SiteConfigAuditLog {
   operator  String?  // user id
   action    String   // CREATE | UPDATE | ROLLBACK
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([group])
   @@index([key])
   @@index([createdAt])
+  @@index([operator])
+}
+// ==================== Pollinations 官方定价同步日志 ====================
+// 每周自动从 https://gen.pollinations.ai/v1/models 拉取官方定价
+// 同步 AIModel 的 costTokens（汇率: 1 pollen = 1000 积分）
+model PollinationsSyncLog {
+  id             String   @id @default(cuid())
+  trigger        String   // cron | manual | catchup
+  status         String   // success | failed | partial
+  startedAt      DateTime
+  endedAt        DateTime?
+  pollenFxRate   Float    // 汇率：1 pollen = ? 积分（默认 1000）
+  modelsChecked  Int      // 检查的模型总数
+  modelsUpdated  Int      // 实际更新的模型数
+  modelsAdded    Int      // 新增的模型数
+  modelsRemoved  Int      // 下架的模型数
+  diffJson       String?  // JSON: [{modelId, oldCost, newCost, change}]
+  errorMessage   String?
+  createdAt      DateTime @default(now())
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([trigger])
 }

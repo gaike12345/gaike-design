@@ -1,6 +1,6 @@
-# AI漫剧圈（MankTV）Code Wiki 文档
+# AI漫剧圈（Man TV）Code Wiki 文档
 
-> **项目代号**：AI漫剧圈 / MankTV  
+> **项目代号**：AI漫剧圈 / Man TV  
 > **文档版本**：v1.0  
 > **最后更新**：2026-08-26  
 > **技术栈**：React 19 + TypeScript + Vite + Express + Prisma + SQLite  
@@ -32,7 +32,7 @@
 
 ### 1.1 项目定位
 
-**AI漫剧圈（MankTV）** 是一个面向创作者、商业客户及终端用户的 **端到端 AI 图文创作与发布平台**。提供从文案生成、图像生成、图文排版到一键发布/导出的全链路 AIGC 工作流，重点服务于漫画、条漫、短剧脚本、绘本、海报、社媒配图等图文场景。
+**AI漫剧圈（Man TV）** 是一个面向创作者、商业客户及终端用户的 **端到端 AI 图文创作与发布平台**。提供从文案生成、图像生成、图文排版到一键发布/导出的全链路 AIGC 工作流，重点服务于漫画、条漫、短剧脚本、绘本、海报、社媒配图等图文场景。
 
 ### 1.2 核心业务目标
 
@@ -660,7 +660,7 @@ npm run dev              # 开发启动 → http://localhost:5176
 ```bash
 # 后端健康检查
 curl http://localhost:3000/api/health
-# → {"ok":true,"service":"Mank TV API",...}
+# → {"ok":true,"service":"Man TV API",...}
 
 # 前端浏览器访问：http://localhost:5176
 # 使用下面演示账号登录测试

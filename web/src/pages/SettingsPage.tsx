@@ -34,6 +34,7 @@ import Navbar from '../components/layout/Navbar'
 import Footer from '../components/layout/Footer'
 import { api } from '../services/api'
 import { useAuthStore } from '../store/useAuthStore'
+import logger from '../utils/logger'
 import LegalModal, { type LegalType } from '../components/LegalModal'
 
 // 业务模块
@@ -107,8 +108,7 @@ export default function SettingsPage() {
     api.get<{ total: number; used: number; remaining: number }>('/api/user/quota')
       .then((r) => setQuota(r))
       .catch((e) => {
-        // eslint-disable-next-line no-console
-        console.warn('[Settings] 加载积分失败:', e)
+        logger.warn('Settings', '加载积分失败:', e)
       })
   }, [])
 
