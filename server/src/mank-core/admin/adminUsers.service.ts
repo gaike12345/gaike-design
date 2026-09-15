@@ -159,17 +159,27 @@ export interface CreateUserDTO {
   operatorId: string
   operatorEmail: string | null
   operatorRole: string
-  email: string
+  uid: number
   password: string
   nickname?: string
   role?: string
 }
 
 export async function createUser(dto: CreateUserDTO) {
-  const { operatorId, operatorEmail, operatorRole, email, password, nickname, role } = dto
-  logger.info('SERVICE_CREATE_USER_ENTRY', { operatorId, email, nickname, role })
-  const existing = await prisma.user.findUnique({ where: { email } })
-  if (existing) throw new ConflictError('该邮箱已注册')
+  const { operatorId, operatorEmail, operatorRole, uid, password, nickname, role } = dto
+  logger.info('SERVICE_CREATE_USER_ENTRY', { operatorId, uid, nickname, role })
+
+  // 校验 UID 正整数
+  if (!Number.isInteger(uid) || uid <= 0) {
+    throw new BusinessError('UID 必须为正整数')
+  }
+
+  // 校验 UID 唯一性
+  const existingUid = await prisma.user.findUnique({ where: { uid } })
+  if (existingUid) throw new ConflictError('该 UID 已被使用')
+
+  // 生成占位 email（schema 要求 email 唯一且非空）
+  const email = `uid_${uid}@local.manktv`
 
   let targetRole = (role && typeof role === 'string') ? role : 'user'
   if (targetRole === 'superadmin') {
@@ -186,12 +196,11 @@ export async function createUser(dto: CreateUserDTO) {
   }
 
   const hashedPassword = await bcrypt.hash(password, 10)
-  const uid = await generateNextUid()
   const newUser = await prisma.$transaction(async (tx) => {
     const u = await tx.user.create({
       data: {
         uid, email, password: hashedPassword,
-        nickname: nickname || email.split('@')[0],
+        nickname: nickname || `用户${uid}`,
         role: targetRole,
       },
       select: { id: true, uid: true, email: true, nickname: true, avatar: true, bio: true, role: true, createdAt: true },
@@ -231,22 +240,18 @@ export async function rechargeUser(targetId: string, amount: number, operatorId:
     })
   }
 
+  // addTokens 内部在同一事务内原子更新 remainingTokens + totalTokens，保证余额恒等式
   const addResult = await addTokens({
     userId: targetId, amount, type: 'admin_adjust',
     relatedType: 'admin', relatedId: operatorId,
     reason: `管理员充值，操作人: ${operatorEmail || operatorId}`,
   })
 
-  const updated = await prisma.userQuota.update({
-    where: { userId: targetId },
-    data: { totalTokens: { increment: amount } },
-  })
-
   await prisma.paymentOrder.create({
     data: { userId: targetId, amount: 0, tokens: amount, payMethod: 'admin_recharge', status: 'completed' },
   })
 
-  const result = { ok: true, newTotal: updated.totalTokens, newRemaining: addResult.remaining, added: amount }
+  const result = { ok: true, newTotal: addResult.total, newRemaining: addResult.remaining, added: amount }
   logger.info('SERVICE_RECHARGE_USER_EXIT', { targetId, amount, newTotal: result.newTotal })
   return result
 }

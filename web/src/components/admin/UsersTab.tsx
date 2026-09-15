@@ -130,7 +130,7 @@ export function UsersTab({ currentUserId, role, onError }: { currentUserId: stri
   )
 
   // 新建用户
-  const handleCreateUser = async (data: { email: string; password: string; nickname?: string; role: Role }) => {
+  const handleCreateUser = async (data: { uid: number; password: string; nickname?: string; role: Role }) => {
     setCreatingUser(true)
     try {
       const newUser = await api.post<AdminUser>('/api/admin/users', data)
@@ -717,10 +717,12 @@ export function CreateUserDialog({
 }: {
   operatorRole?: Role
   creating: boolean
-  onCreate: (data: { email: string; password: string; nickname?: string; role: Role }) => void
+  onCreate: (data: { uid: number; password: string; nickname?: string; role: Role }) => void
   onClose: () => void
 }) {
-  const [email, setEmail] = useState('')
+  const [uidMode, setUidMode] = useState<'default' | 'manual'>('default')
+  const [defaultUid, setDefaultUid] = useState<number | null>(null)
+  const [uid, setUid] = useState('')
   const [password, setPassword] = useState('')
   const [nickname, setNickname] = useState('')
   const [role, setRole] = useState<Role>('user')
@@ -729,21 +731,39 @@ export function CreateUserDialog({
   const canCreateAdmin = operatorRole === 'superadmin'
   const roleOptions: Role[] = canCreateAdmin ? ['user', 'admin'] : ['user']
 
+  // 打开弹窗时获取下一个可用 UID
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await api.get<{ uid: number }>('/api/admin/users/next-uid')
+        setDefaultUid(res.uid)
+      } catch {
+        // 忽略，手动模式仍可用
+      }
+    })()
+  }, [])
+
   const handleSubmit = () => {
     setError('')
-    if (!email.trim()) {
-      setError('请输入邮箱')
-      return
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setError('邮箱格式不正确')
-      return
+    let uidNum: number
+    if (uidMode === 'default') {
+      uidNum = defaultUid ?? 0
+      if (uidNum <= 0) {
+        setError('正在获取默认 UID，请稍候')
+        return
+      }
+    } else {
+      uidNum = Number(uid)
+      if (!uid.trim() || !Number.isInteger(uidNum) || uidNum <= 0) {
+        setError('请输入有效的 UID（正整数）')
+        return
+      }
     }
     if (!password || password.length < 6) {
       setError('密码至少 6 位')
       return
     }
-    onCreate({ email: email.trim(), password, nickname: nickname.trim() || undefined, role })
+    onCreate({ uid: uidNum, password, nickname: nickname.trim() || undefined, role })
   }
 
   return (
@@ -768,16 +788,43 @@ export function CreateUserDialog({
         <div className="space-y-4">
           <div>
             <label className="mb-1 block text-sm font-medium text-neutral-700">
-              邮箱 <span className="text-rose-500">*</span>
+              UID <span className="text-rose-500">*</span>
             </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="input"
-              placeholder="user@example.com"
-              autoFocus
-            />
+            <div className="flex gap-2 mb-2">
+              <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                <input
+                  type="radio"
+                  checked={uidMode === 'default'}
+                  onChange={() => setUidMode('default')}
+                  className="accent-indigo-600"
+                />
+                <span className="text-neutral-700">默认（系统自动+1）</span>
+              </label>
+              <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                <input
+                  type="radio"
+                  checked={uidMode === 'manual'}
+                  onChange={() => setUidMode('manual')}
+                  className="accent-indigo-600"
+                />
+                <span className="text-neutral-700">手动填写</span>
+              </label>
+            </div>
+            {uidMode === 'default' ? (
+              <div className="input flex items-center bg-neutral-50 text-neutral-700">
+                {defaultUid != null ? defaultUid : '获取中...'}
+                <span className="ml-2 text-[11px] text-neutral-400">（现有最大 UID + 1）</span>
+              </div>
+            ) : (
+              <input
+                type="number"
+                value={uid}
+                onChange={(e) => setUid(e.target.value)}
+                className="input"
+                placeholder="请输入 UID（正整数）"
+                autoFocus
+              />
+            )}
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-neutral-700">
@@ -799,7 +846,7 @@ export function CreateUserDialog({
               value={nickname}
               onChange={(e) => setNickname(e.target.value)}
               className="input"
-              placeholder="留空则用邮箱前缀"
+              placeholder="留空则用 用户+UID"
             />
           </div>
           <div>

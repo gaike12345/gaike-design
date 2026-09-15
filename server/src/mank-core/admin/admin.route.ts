@@ -5,6 +5,7 @@ import {
   listUsers, getUserDetail, updateUserRole, createUser, rechargeUser,
   setUserEnabled, updateUserInfo, updateUserPlan, deleteUser,
 } from './adminUsers.service'
+import { generateNextUid } from '../auth/uidGenerator'
 import {
   listWorks, setWorkHidden, deleteWork,
   listComments, deleteComment,
@@ -131,6 +132,31 @@ router.get('/users/:id', async (req, res, next) => {
 
 /**
  * @openapi
+ * /admin/users/next-uid:
+ *   get:
+ *     tags: [后台管理-用户]
+ *     summary: 获取下一个可用 UID
+ *     description: 返回当前最大 UID + 1，用于新建用户时显示默认 UID
+ *     security: [{ BearerAuth: [] }]
+ *     responses:
+ *       200:
+ *         description: 下一个可用 UID
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 uid: { type: integer }
+ */
+router.get('/users/next-uid', requireAdminOrAbove, async (_req, res, next) => {
+  try {
+    const uid = await generateNextUid()
+    res.json({ uid })
+  } catch (e) { handleAdminError(e, res, next) }
+})
+
+/**
+ * @openapi
  * /admin/users:
  *   post:
  *     tags: [后台管理-用户]
@@ -143,9 +169,9 @@ router.get('/users/:id', async (req, res, next) => {
  *         application/json:
  *           schema:
  *             type: object
- *             required: [email, password]
+ *             required: [uid, password]
  *             properties:
- *               email: { type: string, format: email }
+ *               uid: { type: integer, description: 用户 UID（正整数，全局唯一） }
  *               password: { type: string }
  *               nickname: { type: string }
  *               role: { type: string, enum: [user, admin, superadmin] }
@@ -172,13 +198,13 @@ router.get('/users/:id', async (req, res, next) => {
  *             schema: { $ref: '#/components/schemas/Error' }
  */
 router.post('/users', async (req, res, next) => {
-  logger.info('CTRL_ADMIN_USER_CREATE', { email: req.body.email, nickname: req.body.nickname, role: req.body.role })
+  logger.info('CTRL_ADMIN_USER_CREATE', { uid: req.body.uid, nickname: req.body.nickname, role: req.body.role })
   try {
-    const { email, password, nickname, role } = req.body
+    const { uid, password, nickname, role } = req.body
     const operator = req.user!
     const user = await createUser({
       operatorId: operator.userId, operatorEmail: operator.email ?? null, operatorRole: operator.role,
-      email, password, nickname, role,
+      uid: Number(uid), password, nickname, role,
     })
     res.json(user)
   } catch (e) { handleAdminError(e, res, next) }
