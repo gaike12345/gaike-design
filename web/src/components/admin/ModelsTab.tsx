@@ -38,6 +38,7 @@ import {
   PROVIDER_TYPE_OPTIONS,
 } from './common'
 import { api } from '../../services/api'
+import { refreshImageModels } from '../../config/imageModels'
 
 // ===== 模型行（板块分组视图/供应商分组视图 共用），用于去冗余渲染 =====
 export function ModelRow({
@@ -300,12 +301,14 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
           { id: '9:16', label: '9:16', w: 720, h: 1280 },
         ],
         resolutions: [
-          { id: 'standard', label: '标准', quality: '高清画质', desc: '推荐', multiplier: 1.0 },
-          { id: 'quality', label: '高清', quality: '超清画质', desc: '更精细', multiplier: 1.3 },
+          { id: '1k', label: '1K', quality: '1024px', desc: '标准清晰度', multiplier: 1.0 },
+          { id: '2k', label: '2K', quality: '2048px', desc: '高清细节', multiplier: 2.0 },
+          { id: '4k', label: '4K', quality: '4096px', desc: '极致超清', multiplier: 4.0 },
         ],
         defaultRatio: '1:1',
-        defaultResolution: 'standard',
+        defaultResolution: '1k',
         maxBatch: 4,
+        widthMultiple: 8,
         features: { negativePrompt: true, seed: true, enhance: false },
       }, null, 2))
     } else if (val === 'video') {
@@ -361,6 +364,8 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
       setTimeout(() => setCostToast((cur) => (cur && cur.id === model.id ? null : cur)), 3500)
       // 刷新本地 models 缓存为新值
       setModels((prev) => prev.map((m) => (m.id === model.id ? { ...m, costTokens: nextVal } : m)))
+      // 同步刷新图片模型前端缓存（仅 image 类型变更有意义，video 走自身配置）
+      if (model.type === 'image') void refreshImageModels()
     } catch (e) {
       onError((e as Error).message)
     } finally {
@@ -422,10 +427,14 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
         setModelModalOpen(false)
         resetModelForm()
         await reload()
+        // 新增的若是图片模型，刷新前端图片模型缓存
+        if (mType.trim() === 'image') void refreshImageModels()
       } else if (passwordPrompt.type === 'delete' && passwordPrompt.modelId) {
         setDeletingModelId(passwordPrompt.modelId)
         await api.delWithBody(`/api/models/${passwordPrompt.modelId}`, { password: confirmPassword })
         setModels((prev) => prev.filter((m) => m.id !== passwordPrompt.modelId))
+        // 删除模型后刷新前端图片模型缓存（无论类型，确保列表一致性）
+        void refreshImageModels()
       }
       setPasswordPrompt(null)
       setConfirmPassword('')
@@ -865,13 +874,14 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
                           { id: '21:9', label: '21:9', w: 1408, h: 608 },
                         ],
                         resolutions: [
-                          { id: 'speed', label: '快速', quality: '标准画质', desc: '速度快', multiplier: 0.7 },
-                          { id: 'standard', label: '标准', quality: '高清画质', desc: '推荐', multiplier: 1.0 },
-                          { id: 'quality', label: '高清', quality: '超清画质', desc: '更精细', multiplier: 1.3 },
+                          { id: '1k', label: '1K', quality: '1024px', desc: '标准清晰度', multiplier: 1.0 },
+                          { id: '2k', label: '2K', quality: '2048px', desc: '高清细节', multiplier: 2.0 },
+                          { id: '4k', label: '4K', quality: '4096px', desc: '极致超清', multiplier: 4.0 },
                         ],
                         defaultRatio: '1:1',
-                        defaultResolution: 'standard',
+                        defaultResolution: '1k',
                         maxBatch: 4,
+                        widthMultiple: 16,
                         features: { negativePrompt: true, seed: true, enhance: true },
                       }, null, 2))}
                       className="btn-ghost !py-1 !px-2.5 text-xs"
@@ -887,11 +897,12 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
                           { id: '9:16', label: '9:16', w: 720, h: 1280 },
                         ],
                         resolutions: [
-                          { id: 'standard', label: '标准', quality: '快速出图', desc: '秒级生成', multiplier: 1.0 },
+                          { id: '1k', label: '1K', quality: '1024px', desc: '标准清晰度', multiplier: 1.0 },
                         ],
                         defaultRatio: '1:1',
-                        defaultResolution: 'standard',
+                        defaultResolution: '1k',
                         maxBatch: 2,
+                        widthMultiple: 8,
                         features: { negativePrompt: false, seed: true, enhance: false },
                       }, null, 2))}
                       className="btn-ghost !py-1 !px-2.5 text-xs"
@@ -1051,12 +1062,14 @@ export function ModelsByType({ onError, typeFilter }: { onError: (e: string) => 
             { id: '9:16', label: '9:16', w: 720, h: 1280 },
           ],
           resolutions: [
-            { id: 'standard', label: '标准', quality: '高清画质', desc: '推荐', multiplier: 1.0 },
-            { id: 'quality', label: '高清', quality: '超清画质', desc: '更精细', multiplier: 1.3 },
+            { id: '1k', label: '1K', quality: '1024px', desc: '标准清晰度', multiplier: 1.0 },
+            { id: '2k', label: '2K', quality: '2048px', desc: '高清细节', multiplier: 2.0 },
+            { id: '4k', label: '4K', quality: '4096px', desc: '极致超清', multiplier: 4.0 },
           ],
           defaultRatio: '1:1',
-          defaultResolution: 'standard',
+          defaultResolution: '1k',
           maxBatch: 4,
+          widthMultiple: 8,
           features: { negativePrompt: true, seed: true, enhance: false },
         }, null, 2))
       } else if (t === 'video') {
@@ -1094,11 +1107,13 @@ export function ModelsByType({ onError, typeFilter }: { onError: (e: string) => 
             { id: '9:16', label: '9:16', w: 720, h: 1280 },
           ],
           resolutions: [
-            { id: 'standard', label: '标准', quality: '高清画质', desc: '推荐', multiplier: 1.0 },
+            { id: '1k', label: '1K', quality: '1024px', desc: '标准清晰度', multiplier: 1.0 },
+            { id: '2k', label: '2K', quality: '2048px', desc: '高清细节', multiplier: 2.0 },
           ],
           defaultRatio: '1:1',
-          defaultResolution: 'standard',
+          defaultResolution: '1k',
           maxBatch: 4,
+          widthMultiple: 8,
           features: { negativePrompt: true, seed: true, enhance: false },
         }, null, 2))
       } else if (t === 'video') {
@@ -1139,6 +1154,8 @@ export function ModelsByType({ onError, typeFilter }: { onError: (e: string) => 
       })
       setTimeout(() => setCostToast((cur) => (cur && cur.id === model.id ? null : cur)), 3500)
       setModels((prev) => prev.map((m) => (m.id === model.id ? { ...m, costTokens: nextVal } : m)))
+      // 同步刷新图片模型前端缓存（仅 image 类型变更有意义）
+      if (model.type === 'image') void refreshImageModels()
     } catch (e) {
       onError((e as Error).message)
     } finally {
@@ -1178,10 +1195,14 @@ export function ModelsByType({ onError, typeFilter }: { onError: (e: string) => 
         setModelModalOpen(false)
         resetModelForm()
         await reload()
+        // 新增的若是图片模型，刷新前端图片模型缓存
+        if (modelType === 'image') void refreshImageModels()
       } else if (passwordPrompt.type === 'delete' && passwordPrompt.modelId) {
         setDeletingModelId(passwordPrompt.modelId)
         await api.delWithBody(`/api/models/${passwordPrompt.modelId}`, { password: confirmPassword })
         setModels((prev) => prev.filter((m) => m.id !== passwordPrompt.modelId))
+        // 删除模型后刷新前端图片模型缓存（无论类型，确保列表一致性）
+        void refreshImageModels()
       }
       setPasswordPrompt(null)
       setConfirmPassword('')

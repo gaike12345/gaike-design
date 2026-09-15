@@ -49,6 +49,8 @@ export interface ImageModelConfig {
   maxBatch: number
   features: ImageModelFeatures
   costTokens: number
+  /** 像素对齐倍数（8 或 16）。flux.2 系列要求 16 */
+  widthMultiple?: number
 }
 
 // ============== 内置兜底模型（API 加载前 / 失败时使用） ==============
@@ -59,7 +61,7 @@ const SDXL_RATIOS: ImageRatioConfig[] = [
 ]
 
 const SDXL_RESOLUTIONS: ImageResolutionConfig[] = [
-  { id: 'standard', label: '标准', quality: '清晰画质', desc: '推荐' },
+  { id: '1k', label: '1K', quality: '1024px', desc: '标准清晰度', multiplier: 1.0 },
 ]
 
 const FALLBACK_MODELS: Record<string, ImageModelConfig> = {
@@ -70,7 +72,7 @@ const FALLBACK_MODELS: Record<string, ImageModelConfig> = {
     ratios: SDXL_RATIOS,
     resolutions: SDXL_RESOLUTIONS,
     defaultRatio: '1:1',
-    defaultResolution: 'standard',
+    defaultResolution: '1k',
     maxBatch: 4,
     features: { negativePrompt: true, seed: true, enhance: false },
     costTokens: 20,
@@ -86,6 +88,8 @@ let loadedModels: Record<string, ImageModelConfig> | null = null
 let loadedDefault: string = DEFAULT_IMAGE_MODEL
 let loadingPromise: Promise<void> | null = null
 let loadAttempted = false
+// 缓存版本号：管理后台修改模型后 +1，useImageModels hook 据此判断是否需要刷新
+let cacheVersion = 0
 
 /**
  * 从后端 API 加载图片模型配置（带缓存，重复调用安全）
@@ -122,6 +126,20 @@ export async function loadImageModels(force = false): Promise<boolean> {
   await loadingPromise
   loadingPromise = null
   return loadedModels !== null
+}
+
+/**
+ * 强制刷新图片模型缓存（管理后台修改模型后调用）
+ * 递增 cacheVersion，使所有 useImageModels hook 在下一次渲染时重新拉取
+ */
+export async function refreshImageModels(): Promise<void> {
+  cacheVersion++
+  await loadImageModels(true)
+}
+
+/** 获取当前缓存版本号（hook 用于判断是否需要刷新） */
+export function getImageModelsCacheVersion(): number {
+  return cacheVersion
 }
 
 /** 是否已从后端加载过（不管成功失败） */
@@ -184,12 +202,13 @@ export function validateResolution(modelId: string | undefined, resId: string): 
 
 /**
  * 加载并返回图片模型列表的 React Hook
- * 在组件首次挂载时触发加载，返回模型列表 + 默认模型 + 加载状态
+ * 在组件首次挂载时触发加载；当 cacheVersion 变化（管理后台修改模型）时自动重新拉取
  */
 export function useImageModels() {
   const [models, setModels] = useState<ImageModelConfig[]>(() => listImageModels())
   const [defaultModel, setDefaultModel] = useState<string>(() => getDefaultImageModel())
   const [loading, setLoading] = useState(!loadAttempted)
+  const [loadedVersion, setLoadedVersion] = useState(() => getImageModelsCacheVersion())
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -197,20 +216,24 @@ export function useImageModels() {
       await loadImageModels(true)
       setModels(listImageModels())
       setDefaultModel(getDefaultImageModel())
+      setLoadedVersion(getImageModelsCacheVersion())
     } finally {
       setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    if (!loadAttempted) {
+    // 首次加载 或 缓存版本号变化（管理后台修改了模型）→ 重新拉取
+    if (!loadAttempted || loadedVersion !== getImageModelsCacheVersion()) {
+      setLoading(true)
       loadImageModels().then(() => {
         setModels(listImageModels())
         setDefaultModel(getDefaultImageModel())
+        setLoadedVersion(getImageModelsCacheVersion())
         setLoading(false)
       })
     }
-  }, [])
+  }, [loadedVersion])
 
   return { models, defaultModel, loading, refresh }
 }

@@ -1,22 +1,22 @@
 /**
  * Pollinations 图片生成适配器
  *
- *  文档：https://image.pollinations.ai/
- *  接口：GET https://image.pollinations.ai/prompt/{prompt}?model=xxx&width=xxx&height=xxx&seed=xxx
- *  特点：同步返回，直接返回图片二进制（URL 即图片地址）
+ *  文档：https://gen.pollinations.ai/docs#tag/image
+ *  接口：GET https://gen.pollinations.ai/image/{prompt}?model=xxx&width=xxx&height=xxx&seed=xxx
+ *  特点：同步返回，302 重定向到图片二进制（URL 经代理转发给前端）
+ *  认证：Authorization: Bearer {POLLINATIONS_API_KEY}（由 image.route.ts proxy 注入）
  */
 
 import type { ImageProvider, ImageGenerateParams, ImageResult } from './types'
 import logger from '../../../mank-infra/logging/logger'
 
-const POLLINATIONS_BASE = 'https://image.pollinations.ai'
+const POLLINATIONS_BASE = 'https://gen.pollinations.ai'
 const API_KEY = process.env.POLLINATIONS_API_KEY || ''
 
 export const pollinationsProvider: ImageProvider = {
   id: 'pollinations',
 
   isAvailable() {
-    // Pollinations 没有 Key 也能用（有速率限制，返回 placeholder 标记）
     return true
   },
 
@@ -31,13 +31,13 @@ export const pollinationsProvider: ImageProvider = {
     searchParams.set('seed', String(s))
     searchParams.set('nologo', 'true')
     searchParams.set('safe', 'true')
-    if (API_KEY) searchParams.set('key', API_KEY)
+    searchParams.set('private', 'false')
     if (negativePrompt) searchParams.set('negative', negativePrompt)
     if (extra?.enhance) searchParams.set('enhance', 'true')
 
-    const url = `${POLLINATIONS_BASE}/prompt/${encodeURIComponent(prompt)}?${searchParams.toString()}`
+    const url = `${POLLINATIONS_BASE}/image/${encodeURIComponent(prompt)}?${searchParams.toString()}`
 
-    logger.debug(`[Pollinations] textToImage model=${model} size=${width}x${height} seed=${s}`)
+    logger.info(`[Pollinations] textToImage model=${model} size=${width}x${height} seed=${s} hasKey=${!!API_KEY}`)
 
     return {
       url,
@@ -50,7 +50,7 @@ export const pollinationsProvider: ImageProvider = {
   },
 
   async imageToImage(params: ImageGenerateParams & { refImage: string }): Promise<ImageResult> {
-    const { prompt, model, width, height, seed, refImage } = params
+    const { prompt, model, width, height, seed, refImage, negativePrompt } = params
     const s = seed ?? Math.floor(Math.random() * 1000000)
 
     const searchParams = new URLSearchParams()
@@ -60,12 +60,13 @@ export const pollinationsProvider: ImageProvider = {
     searchParams.set('seed', String(s))
     searchParams.set('nologo', 'true')
     searchParams.set('safe', 'true')
-    searchParams.set('image', refImage) // Pollinations 图生图参数
-    if (API_KEY) searchParams.set('key', API_KEY)
+    searchParams.set('private', 'false')
+    searchParams.set('image', refImage)
+    if (negativePrompt) searchParams.set('negative', negativePrompt)
 
-    const url = `${POLLINATIONS_BASE}/prompt/${encodeURIComponent(prompt)}?${searchParams.toString()}`
+    const url = `${POLLINATIONS_BASE}/image/${encodeURIComponent(prompt)}?${searchParams.toString()}`
 
-    logger.debug(`[Pollinations] imageToImage model=${model} size=${width}x${height}`)
+    logger.info(`[Pollinations] imageToImage model=${model} size=${width}x${height} hasKey=${!!API_KEY}`)
 
     return {
       url,

@@ -1,12 +1,11 @@
 // 图像生成 API 服务层
 //
-// 当前 provider：Pollinations.ai
-// 端点：https://image.pollinations.ai/prompt/{encoded_prompt}?width=&height=&seed=&nologo=true&model=flux
+// 当前 provider：Pollinations.ai (gen.pollinations.ai)
+// 端点：https://gen.pollinations.ai/image/{encoded_prompt}?width=&height=&seed=&nologo=true&model=xxx
 //
 // 选型说明：
-// - 浏览器直链可用、无需 API Key、免费、返回真实 AI 生成图片
-// - 适合 MVP / 开发联调阶段
-// - 生产环境建议切换为国内合规 provider（智谱/通义万相/即梦等），需后端代理隐藏密钥
+// - 生产环境统一通过后端 /api/image/generate 代理（隐藏 Key、限流、记录用量）
+// - buildImageUrl 直链模式仅用于本地调试，需配置 POLLINATIONS_API_KEY 才能正常出图
 //
 // 抽象层设计：仅修改本文件即可切换 provider，调用方（store）无需改动
 //

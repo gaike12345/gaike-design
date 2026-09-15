@@ -72,6 +72,7 @@ function formatRelativeTime(iso: string): string {
 }
 
 import { api } from '../../services/api'
+import { refreshImageModels } from '../../config/imageModels'
 
 export function PollinationsSyncPanel() {
   const [status, setStatus] = useState<SyncStatus | null>(null)
@@ -112,6 +113,8 @@ export function PollinationsSyncPanel() {
       const data = await res.json()
       setSyncResult(data)
       await fetchStatus()
+      // Pollinations 同步会批量更新图片模型的 costTokens，刷新前端缓存使图片节点立即生效
+      void refreshImageModels()
     } catch (e: any) {
       setError(e.message || '同步请求失败')
     } finally {

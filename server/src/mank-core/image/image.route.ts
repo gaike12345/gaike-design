@@ -5,6 +5,7 @@ import { upload, validateUploadedFiles } from '../../mank-infra/middleware/uploa
 import { imageLimiter } from '../../mank-infra/middleware/rate-limit'
 import { moderateUpload, cleanupUploadedFile, moderateImageUrl, recordViolation, checkInputModeration } from '../../mank-core/moderation/moderation'
 import { atomicRefundQuota } from '../generation/generation'
+import { refundByTxId } from '../billing/tokenService'
 import {
   calcImageSize,
   calcImageCost,
@@ -87,7 +88,7 @@ const router = Router()
  */
 router.get('/proxy', async (req, res) => {
   logger.info('CTRL_IMAGE_PROXY', { uid: req.query.uid, c: req.query.c })
-  const { u, t, s, uid, c } = req.query
+  const { u, t, s, uid, c, tx } = req.query
   if (typeof u !== 'string' || typeof t !== 'string' || typeof s !== 'string') {
     return res.status(400).send('Invalid request')
   }
@@ -95,26 +96,78 @@ router.get('/proxy', async (req, res) => {
     u, t, s,
     typeof uid === 'string' ? uid : undefined,
     typeof c === 'string' ? c : undefined,
+    typeof tx === 'string' ? tx : undefined,
   )
   if (!verified) {
     return res.status(403).send('Invalid or expired image URL')
   }
   const originalUrl = verified.url
+
+  // 代理退款：优先用 txId 精确退还（回滚 usedTokens + remainingTokens，保证余额恒等式）
+  // 旧签名 URL 无 txId 时降级为 atomicRefundQuota（余额退还，但 usedTokens 不回滚，2h 后自动过期）
+  const refundProxy = (reason: string) => {
+    if (verified.txId) {
+      void refundByTxId(verified.txId, reason)
+    } else if (verified.userId && verified.costTokens && verified.costTokens > 0) {
+      void atomicRefundQuota(verified.userId, verified.costTokens)
+    }
+  }
+
   try {
-    const upstream = await fetch(originalUrl)
+    // gen.pollinations.ai 需要 Bearer Token 认证，模型选择和尺寸参数才能生效
+    // 旧端点 image.pollinations.ai 无需认证但忽略 model 参数，不降级
+    const upstreamHost = new URL(originalUrl).hostname
+    const fetchHeaders: Record<string, string> = {}
+    if (upstreamHost === 'gen.pollinations.ai' && process.env.POLLINATIONS_API_KEY) {
+      fetchHeaders['Authorization'] = `Bearer ${process.env.POLLINATIONS_API_KEY}`
+    }
+    // 关键：fetch 第二参数是 RequestInit，headers 必须包装在 headers 属性中
+    // 之前误传 fetchHeaders 为顶层属性，导致 Authorization 从未发送
+    // 症状：model/width/height/nologo 参数被 Pollinations 忽略，返回 1:1 带水印默认图
+    const upstream = await fetch(originalUrl, Object.keys(fetchHeaders).length > 0 ? { headers: fetchHeaders } : undefined)
+
     if (!upstream.ok) {
-      // Pollinations safe=true 过滤拦截（返回 400）时，自动返还积分
-      if (upstream.status === 400 && verified.userId && verified.costTokens && verified.costTokens > 0) {
-        void atomicRefundQuota(verified.userId, verified.costTokens)
+      if (upstream.status === 400 || upstream.status === 401) {
+        refundProxy(`上游返回${upstream.status}，图片未生成成功`)
       }
+      logger.warn(`[ImageProxy] upstream ${upstream.status} for ${originalUrl.substring(0, 100)}`)
       return res.status(upstream.status).send('Upstream error')
     }
 
     // 读取完整图片到 buffer（用于后续审核和返回）
+    // 安全限制：图片大小上限 20MB，防止超大响应导致 Node 进程 OOM
+    const MAX_IMAGE_BYTES = 20 * 1024 * 1024
     const contentType = upstream.headers.get('content-type') || 'image/png'
     const contentLength = upstream.headers.get('content-length')
-    const arrayBuffer = await upstream.arrayBuffer()
-    const imageBuffer = Buffer.from(arrayBuffer)
+
+    // content-length 预校验（防止明显的超大响应）
+    if (contentLength) {
+      const len = parseInt(contentLength, 10)
+      if (Number.isFinite(len) && len > MAX_IMAGE_BYTES) {
+        return res.status(413).send('Image too large')
+      }
+    }
+
+    // 流式读取并累计字节数（防止 content-length 伪造）
+    const chunks: Buffer[] = []
+    let totalBytes = 0
+    const reader = upstream.body?.getReader()
+    if (!reader) {
+      return res.status(502).send('Upstream error')
+    }
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (value) {
+        totalBytes += value.length
+        if (totalBytes > MAX_IMAGE_BYTES) {
+          await reader.cancel()
+          return res.status(413).send('Image too large')
+        }
+        chunks.push(Buffer.from(value))
+      }
+    }
+    const imageBuffer = Buffer.concat(chunks)
 
     // 图片内容审核（生成后审核）
     if (verified.userId) {
@@ -131,9 +184,7 @@ router.get('/proxy', async (req, res) => {
           content: originalUrl.slice(0, 300),
           result: imgMod,
         })
-        if (verified.costTokens && verified.costTokens > 0) {
-          void atomicRefundQuota(verified.userId, verified.costTokens)
-        }
+        refundProxy('图片内容审核未通过')
         return res.status(403).send('Image content blocked')
       }
     }
@@ -342,7 +393,7 @@ router.post('/generate', withGeneration('image', costForImage), async (req, res,
         negativePrompt: negativePrompt ? String(negativePrompt) : undefined,
       })
       if (result.placeholder) isPlaceholder = true
-      const url = signImageUrl(result.url, userId, costPerImage)
+      const url = signImageUrl(result.url, userId, costPerImage, req._genTxId)
       images.push({ url, originalUrl: result.url, seed: result.seed ?? s, width: result.width, height: result.height })
     }
     res.json({ images, model: modelId, ratio: actualRatio, resolution, placeholder: isPlaceholder })
@@ -467,7 +518,7 @@ router.post('/img2img', withGeneration('image', costForImage), async (req, res, 
       refImage: String(refImage),
       negativePrompt: negativePrompt ? String(negativePrompt) : undefined,
     })
-    const url = signImageUrl(result.url, userId, costForImg2Img)
+    const url = signImageUrl(result.url, userId, costForImg2Img, req._genTxId)
     res.json({
       images: [{ url, originalUrl: result.url, seed: result.seed, width: result.width, height: result.height, refImage: String(refImage) }],
       model: modelId,

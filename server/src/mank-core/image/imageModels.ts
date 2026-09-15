@@ -69,6 +69,8 @@ export interface ImageModelConfig {
   features: ImageModelFeatures
   costTokens: number     // 1张默认分辨率图片的积分消耗
   status: string
+  /** 像素对齐倍数（8 或 16）。flux.2-pro / flux.2-flex / mai-image-2.5-flash 要求 16 */
+  widthMultiple?: number
 }
 
 // ============== 内置兜底模型（数据库不可用时使用） ==============
@@ -146,6 +148,7 @@ async function loadFromDB(): Promise<CacheEntry> {
         },
         costTokens: row.costTokens,
         status: row.status,
+        widthMultiple: typeof cfg.widthMultiple === 'number' ? cfg.widthMultiple : 8,
       }
       models[row.name] = model
       if (!firstActive) firstActive = row.name
@@ -226,9 +229,10 @@ export async function calcImageSize(
   ratio = ratio || model.ratios[0]
 
   const res = model.resolutions.find((r) => r.id === resolutionId) || model.resolutions[0]
+  const multiple = model.widthMultiple || 8
 
-  const w = Math.round((ratio.w * res.multiplier) / 8) * 8
-  const h = Math.round((ratio.h * res.multiplier) / 8) * 8
+  const w = Math.round((ratio.w * res.multiplier) / multiple) * multiple
+  const h = Math.round((ratio.h * res.multiplier) / multiple) * multiple
 
   return { w, h, actualRatio: ratio.id }
 }
