@@ -46,7 +46,8 @@ export async function registerUser(password: string, nickname?: string): Promise
     },
   })
 
-  const freeTokens = Math.max(0, await cfgNum('login.new_user_tokens', 1000))
+  // 新用户不再赠送积分，需充值后使用（login.new_user_tokens 已停用，强制为 0）
+  const freeTokens = 0
   await prisma.userQuota.create({
     data: {
       userId: user.id,

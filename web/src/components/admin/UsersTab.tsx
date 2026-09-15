@@ -57,7 +57,7 @@ const PLAN_OPTIONS: { id: string; label: string }[] = [
   { id: 'business', label: 'Business 企业版' },
   { id: 'enterprise', label: 'Enterprise 旗舰版' },
 ]
-const QUICK_RECHARGE = [10_000, 50_000, 100_000, 500_000, 1_000_000]
+const QUICK_RECHARGE = [100, 500, 1000, 5000, 10000]
 
 // ===== 用户列表 Tab =====
 export function UsersTab({ currentUserId, role, onError }: { currentUserId: string; role?: Role; onError: (e: string) => void }) {

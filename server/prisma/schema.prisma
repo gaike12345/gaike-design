@@ -278,9 +278,9 @@ model UserQuota {
   id              String   @id @default(cuid())
   userId          String   @unique
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  totalTokens     Int      @default(100000)  // 总额度
+  totalTokens     Int      @default(0)       // 总额度（需充值获取，新用户不赠送）
   usedTokens      Int      @default(0)       // 已用额度
-  remainingTokens Int     @default(100000)   // 剩余额度
+  remainingTokens Int     @default(0)        // 剩余额度 = total - used
   planId          String   @default("free")   // free | pro | business | enterprise
   resetAt         DateTime?                   // 额度重置时间
   createdAt       DateTime @default(now())

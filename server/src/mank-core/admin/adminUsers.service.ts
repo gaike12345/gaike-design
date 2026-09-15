@@ -214,8 +214,8 @@ export async function createUser(dto: CreateUserDTO) {
   })
 
   const plan = (newUser.role === 'superadmin' || newUser.role === 'admin') ? 'enterprise' : 'free'
-  const totalTokens = await cfgNum('login.new_user_tokens', 100000)
-  const adminTokens = newUser.role === 'user' ? totalTokens : 999_999_999
+  // 新用户不赠送积分：user 角色为 0，admin/superadmin 给予 999_999_999 便于管理操作
+  const adminTokens = newUser.role === 'user' ? 0 : 999_999_999
   await prisma.userQuota.create({
     data: { userId: newUser.id, planId: plan, totalTokens: adminTokens, usedTokens: 0, remainingTokens: adminTokens },
   })
@@ -236,7 +236,7 @@ export async function rechargeUser(targetId: string, amount: number, operatorId:
   let quota = await prisma.userQuota.findUnique({ where: { userId: targetId } })
   if (!quota) {
     quota = await prisma.userQuota.create({
-      data: { userId: targetId, totalTokens: 100000, usedTokens: 0, remainingTokens: 100000, planId: 'free' },
+      data: { userId: targetId, totalTokens: 0, usedTokens: 0, remainingTokens: 0, planId: 'free' },
     })
   }
 

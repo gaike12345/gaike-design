@@ -31,8 +31,6 @@ export default function LoginModal() {
   const { siteName, primaryColor } = useSiteThemeVars()
   const { get } = useSiteConfig()
 
-  const freeTokens = get('login.new_user_tokens', 100_000) as number
-
   // 当前 Tab
   const [tab, setTab] = useState<TabType>('password')
   // 密码 Tab 下的子模式：登录 / 注册
@@ -261,22 +259,6 @@ export default function LoginModal() {
                 <div className="text-[11px] text-neutral-500">AI 漫剧创作平台</div>
               </div>
             </div>
-
-            {/* 注册赠送提示（仅注册模式显示） */}
-            {tab === 'password' && isRegister && (
-              <div className="mb-4 text-center sm:text-left">
-                <p
-                  className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
-                  style={{
-                    backgroundColor: `${primaryColor}10`,
-                    color: primaryColor,
-                    border: `1px solid ${primaryColor}25`,
-                  }}
-                >
-                  🎁 注册即赠送 {freeTokens.toLocaleString()} 积分
-                </p>
-              </div>
-            )}
 
             {/* Tab 切换 */}
             <div className="mb-4 flex items-center gap-1 rounded-lg bg-neutral-100 p-1">

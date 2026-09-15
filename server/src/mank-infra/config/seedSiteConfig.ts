@@ -1,4 +1,4 @@
-﻿// ===== 站点配置默认 seed（仅在空库初始化时执行，不会覆盖已有值） =====
+// ===== 站点配置默认 seed（仅在空库初始化时执行，不会覆盖已有值） =====
 import prisma from '../database/prisma'
 import fs from 'fs'
 import path from 'path'
@@ -91,7 +91,7 @@ export const DEFAULT_ITEMS: DefaultItem[] = [
   // ====== ② 登录/注册页 (login) ======
   { group: 'login', key: 'login.welcome_title', defaultValue: '欢迎回来 👋', controlType: 'text', label: '登录页欢迎标题', sort: 1, icon: 'LogIn' },
   { group: 'login', key: 'login.welcome_subtitle', defaultValue: '登录 Man TV，继续你的 AI 创作旅程', controlType: 'textarea', label: '登录页欢迎副标题', sort: 2, config: { rows: 2 } },
-  { group: 'login', key: 'login.new_user_tokens', defaultValue: 100000, controlType: 'slider', label: '新用户赠送积分', description: '调整后只影响此后新注册用户', sort: 3, icon: 'Gift', config: { min: 5000, max: 1000000, step: 5000, unit: '积分' } },
+  { group: 'login', key: 'login.new_user_tokens', defaultValue: 0, controlType: 'slider', label: '新用户赠送积分（已停用）', description: '新用户不再赠送积分，需充值后使用。保留配置项仅为兼容旧代码', sort: 3, icon: 'Gift', config: { min: 0, max: 0, step: 1, unit: '积分' } },
 
   // ====== ③ 首页 Hero (hero) ======
   { group: 'hero', key: 'hero.title', defaultValue: '一个想法，从 0 到作品，AI 全程陪你创作。', controlType: 'textarea', label: 'Hero 大标题', sort: 1, icon: 'Rocket', config: { rows: 2 } },
@@ -130,23 +130,23 @@ export const DEFAULT_ITEMS: DefaultItem[] = [
   { group: 'pricing', key: 'pricing.show_pro', defaultValue: true, controlType: 'switch', label: '显示 Pro 套餐卡片', sort: 1, icon: 'DollarSign' },
   { group: 'pricing', key: 'pricing.show_business', defaultValue: true, controlType: 'switch', label: '显示 商业 套餐卡片', sort: 2 },
   { group: 'pricing', key: 'pricing.pro_price_yuan', defaultValue: 29.9, controlType: 'number', label: 'Pro 月付价格 (¥)', sort: 3, config: { min: 0, max: 9999, step: 0.1 } },
-  { group: 'pricing', key: 'pricing.pro_tokens', defaultValue: 500000, controlType: 'slider', label: 'Pro 套餐月积分', sort: 4, config: { min: 50000, max: 20000000, step: 50000, unit: '积分' } },
+  { group: 'pricing', key: 'pricing.pro_tokens', defaultValue: 3000, controlType: 'slider', label: 'Pro 套餐月积分', sort: 4, config: { min: 500, max: 200000, step: 500, unit: '积分' } },
 
-  // ====== ⑤.b 计费套餐 (billing) — H3: 从 billing.ts 硬编码迁入 SiteConfig ======
+  // ====== ⑤.b 计费套餐 (billing) — 统一 1元=100积分，新用户不再赠送积分 ======
   { group: 'billing', key: 'billing.currency', defaultValue: 'CNY', controlType: 'text', label: '计费币种', sort: 1, description: 'ISO 货币代码，如 CNY / USD' },
   { group: 'billing', key: 'billing.period', defaultValue: 'month', controlType: 'text', label: '订阅周期', sort: 2, description: 'month / year' },
   { group: 'billing', key: 'billing.plans', defaultValue: [
-      { id: 'free', name: '免费版', price: 0, tokens: 100000, features: ['基础生成', '社区浏览', '每日 100 次调用'] },
-      { id: 'pro', name: '专业版', price: 29, tokens: 500000, features: ['无限生成', '优先队列', '高清导出', '无水印'] },
-      { id: 'business', name: '商业版', price: 99, tokens: 2000000, features: ['专业版全部功能', '商用授权', 'API 接入', '专属客服'] },
-      { id: 'enterprise', name: '企业版', price: 299, tokens: 10000000, features: ['商业版全部功能', '私有部署', '定制模型', 'SLA 保障'] },
+      { id: 'free', name: '免费版', price: 0, tokens: 0, features: ['基础生成', '社区浏览', '需充值后使用'] },
+      { id: 'pro', name: '专业版', price: 29, tokens: 3000, features: ['无限生成', '优先队列', '高清导出', '无水印'] },
+      { id: 'business', name: '商业版', price: 99, tokens: 12000, features: ['专业版全部功能', '商用授权', 'API 接入', '专属客服'] },
+      { id: 'enterprise', name: '企业版', price: 299, tokens: 40000, features: ['商业版全部功能', '私有部署', '定制模型', 'SLA 保障'] },
     ], controlType: 'textarea', label: '会员套餐定义 (JSON)', sort: 3, icon: 'CreditCard',
     description: '数组，每项含 id/name/price/tokens/features。修改后计费接口立即生效。', config: { rows: 12 } },
   { group: 'billing', key: 'billing.recharge_packages', defaultValue: [
-      { id: 'pkg_10', tokens: 100000, price: 9, bonus: 0 },
-      { id: 'pkg_50', tokens: 500000, price: 39, bonus: 50000 },
-      { id: 'pkg_100', tokens: 1000000, price: 69, bonus: 150000 },
-      { id: 'pkg_500', tokens: 5000000, price: 299, bonus: 1000000 },
+      { id: 'pkg_10', tokens: 900, price: 9, bonus: 100 },
+      { id: 'pkg_50', tokens: 3900, price: 39, bonus: 600 },
+      { id: 'pkg_100', tokens: 6900, price: 69, bonus: 1600 },
+      { id: 'pkg_500', tokens: 29900, price: 299, bonus: 10100 },
     ], controlType: 'textarea', label: '充值套餐定义 (JSON)', sort: 4, icon: 'Wallet',
     description: '数组，每项含 id/tokens/price/bonus。修改后充值接口立即生效。', config: { rows: 8 } },
 

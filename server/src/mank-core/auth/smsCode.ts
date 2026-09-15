@@ -152,8 +152,8 @@ export async function verifySmsCodeAndLogin(
   let user = await prisma.user.findFirst({ where: { phone: trimmed } })
 
   if (!user) {
-    // 新用户：自动注册
-    const freeTokens = Math.max(0, await cfgNum('login.new_user_tokens', 100_000))
+    // 新用户：自动注册（不赠送积分，需充值后使用）
+    const freeTokens = 0
     const uid = await generateNextUid()
     user = await prisma.user.create({
       data: {
