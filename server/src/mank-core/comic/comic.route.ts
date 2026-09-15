@@ -43,13 +43,13 @@ function buildPlaceholderPanel(prompt: string, index: number, style = '日漫黑
   const styleKw = styleMap[style] || styleMap['日漫黑白']
   const w = 768
   const h = 1024
-  const baseUrl = process.env.IMAGE_PROVIDER_URL || 'https://image.pollinations.ai/prompt'
+  const baseUrl = process.env.IMAGE_PROVIDER_URL || 'https://gen.pollinations.ai/image'
   const params = new URLSearchParams()
   params.set('width', String(w))
   params.set('height', String(h))
   params.set('nologo', 'true')
   params.set('safe', 'true')
-  params.set('model', 'turbo')
+  params.set('model', 'tongyi-mai/z-image-turbo')
   params.set('seed', seed)
   return `${baseUrl}/${styleKw}%2C${encodeURIComponent(prompt)}?${params.toString()}`
 }

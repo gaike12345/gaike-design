@@ -377,7 +377,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
 
     const model = node.data.imageModel || 'sdxl'
     const ratio = validateRatio(model, (node.data.imageRatio as string) || '1:1')
-    const resolution = validateResolution(model, node.data.imageResolution || 'standard')
+    const resolution = validateResolution(model, node.data.imageResolution || '1k')
     const modelCfg = getImageModel(model)
     const batch = Math.max(1, Math.min(node.data.imageCount ?? 1, modelCfg.maxBatch))
     const baseSeed = node.data.imageSeed ?? randomSeed()

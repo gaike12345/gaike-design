@@ -6,6 +6,7 @@
 // 3. 预扣 → 结算/退还 两阶段模式，防止多扣/漏扣
 // 4. 幂等：相同 relatedId 的操作不会重复扣费
 
+import { Prisma } from '@prisma/client'
 import prisma from '../../mank-infra/database/prisma'
 import logger from '../../mank-infra/logging/logger'
 import { NotFoundError, BusinessError } from '../../mank-common/errors'
@@ -40,11 +41,14 @@ export interface CreateTransactionOptions {
 
 /**
  * 创建积分流水并更新余额（在事务中保证一致性）
- * 
+ *
  * 注意：调用方负责确保 amount 符号正确：
  *   - 扣除类（deduct）：amount 为负数
  *   - 增加类（refund/recharge/compensation）：amount 为正数
  *   - settle 类：不改变余额，只更新流水状态，usedTokens 另计
+ *
+ * 并发安全：使用 Prisma increment/decrement 原子操作，禁止 read-then-write（TOCTOU）。
+ * 充值类（recharge/admin_adjust/compensation）同步更新 totalTokens，保证 remaining + used = total。
  */
 export async function createTransaction(opts: CreateTransactionOptions) {
   const { userId, type, amount, status, relatedType, relatedId, modelId, provider, reason } = opts
@@ -55,35 +59,47 @@ export async function createTransaction(opts: CreateTransactionOptions) {
   }
 
   return prisma.$transaction(async (tx) => {
-    // 1. 读取当前余额
+    // 1. 读取当前余额（仅用于记录 balanceBefore，不作为写入依据）
     const quota = await tx.userQuota.findUnique({
       where: { userId },
+      select: { remainingTokens: true },
     })
     if (!quota) {
       throw new NotFoundError(`用户额度记录不存在: ${userId}`)
     }
 
     const balanceBefore = quota.remainingTokens
-    const balanceAfter = balanceBefore + amount
+    const absAmount = Math.abs(amount)
 
-    // 扣减类操作校验余额
-    if (amount < 0 && balanceAfter < 0) {
-      throw new BusinessError(`积分不足，剩余 ${balanceBefore}，需要 ${Math.abs(amount)}`)
+    // 2. 构造原子更新数据（increment/decrement 在数据库层原子执行，消除 TOCTOU）
+    const updateData: Prisma.UserQuotaUpdateInput = {}
+    if (amount > 0) {
+      updateData.remainingTokens = { increment: amount }
+      // 充值/管理员充值/补偿类同步增加 totalTokens，保证余额恒等式 remaining + used = total
+      if (type === 'recharge' || type === 'admin_adjust' || type === 'compensation') {
+        updateData.totalTokens = { increment: amount }
+      }
+    } else if (amount < 0) {
+      updateData.remainingTokens = { decrement: absAmount }
+      // 非预扣状态的扣减累加 usedTokens
+      if (status !== 'pending') {
+        updateData.usedTokens = { increment: absAmount }
+      }
     }
 
-    // 2. 更新余额
+    // 3. 执行原子更新
     const updatedQuota = await tx.userQuota.update({
       where: { userId },
-      data: {
-        remainingTokens: balanceAfter,
-        // 扣除类且非预扣状态 → 累加 usedTokens
-        ...(amount < 0 && status !== 'pending'
-          ? { usedTokens: { increment: Math.abs(amount) } }
-          : {}),
-      },
+      data: updateData,
+      select: { remainingTokens: true, totalTokens: true, usedTokens: true },
     })
 
-    // 3. 写流水
+    // 4. 扣减类余额不足防御性校验（deductTokens 已用 updateMany gte 预校验，此处为兜底）
+    if (amount < 0 && updatedQuota.remainingTokens < 0) {
+      throw new BusinessError(`积分不足，剩余 ${balanceBefore}，需要 ${absAmount}`)
+    }
+
+    // 5. 写流水
     const transaction = await tx.tokenTransaction.create({
       data: {
         userId,
@@ -372,7 +388,7 @@ export async function addTokens(params: {
   relatedType?: string
   relatedId?: string
   reason?: string
-}): Promise<{ success: boolean; remaining?: number }> {
+}): Promise<{ success: boolean; remaining?: number; total?: number }> {
   const { userId, amount, type, relatedType, relatedId, reason } = params
 
   if (amount <= 0) return { success: true }
@@ -390,6 +406,7 @@ export async function addTokens(params: {
     return {
       success: true,
       remaining: result?.quota?.remainingTokens,
+      total: result?.quota?.totalTokens,
     }
   } catch (e) {
     logger.error('积分增加失败', {
@@ -530,7 +547,11 @@ export async function settleByTxId(txId: string): Promise<void> {
 }
 
 /**
- * 通过流水ID直接退还（同步任务用）
+ * 按流水 ID 退还积分
+ * 支持 pending（预扣未结算）和 settled（已结算）两种状态：
+ * - pending：仅退还 remainingTokens（usedTokens 未被累加）
+ * - settled：退还 remainingTokens 并回滚 usedTokens（结算时已累加，需减回）
+ * 保证余额恒等式：remainingTokens + usedTokens = totalTokens 始终成立
  */
 export async function refundByTxId(txId: string, reason?: string): Promise<void> {
   if (!txId) return
@@ -540,7 +561,7 @@ export async function refundByTxId(txId: string, reason?: string): Promise<void>
       where: { id: txId },
     })
 
-    if (!tx || tx.status !== 'pending' || tx.type !== 'deduct') {
+    if (!tx || (tx.status !== 'pending' && tx.status !== 'settled') || tx.type !== 'deduct') {
       return
     }
 
@@ -553,13 +574,21 @@ export async function refundByTxId(txId: string, reason?: string): Promise<void>
         data: { status: 'refunded' },
       })
 
-      // 2. 退还余额
+      // 2. 若原流水已结算（usedTokens 已累加），需回滚 usedTokens
+      if (tx.status === 'settled' && refundAmount > 0) {
+        await trx.userQuota.update({
+          where: { userId: tx.userId },
+          data: { usedTokens: { decrement: refundAmount } },
+        })
+      }
+
+      // 3. 退还余额
       const quota = await trx.userQuota.update({
         where: { userId: tx.userId },
         data: { remainingTokens: { increment: refundAmount } },
       })
 
-      // 3. 写退还流水
+      // 4. 写退还流水
       await trx.tokenTransaction.create({
         data: {
           userId: tx.userId,

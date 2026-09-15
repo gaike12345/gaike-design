@@ -16,9 +16,9 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/pollinations-img': {
-        target: 'https://image.pollinations.ai',
+        target: 'https://gen.pollinations.ai',
         changeOrigin: true,
-        rewrite: (path: string) => path.replace(/^\/pollinations-img/, '/prompt'),
+        rewrite: (path: string) => path.replace(/^\/pollinations-img/, '/image'),
       },
       '/uploads': {
         target: 'http://localhost:3000',

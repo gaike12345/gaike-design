@@ -911,7 +911,12 @@ export const ImageNode = memo(function ImageNode({ node }: { node: UCanvasNode }
           onClick={(e) => e.stopPropagation()}
         >
           <button
-            onClick={() => { updateNodeData(node.id, { imageResolution: '4k' }); runImageGen(node.id) }}
+            onClick={() => {
+              const resolutions = modelCfg.resolutions
+              const highest = resolutions[resolutions.length - 1]
+              updateNodeData(node.id, { imageResolution: highest.id })
+              runImageGen(node.id)
+            }}
             className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
             title="高清放大"
           >

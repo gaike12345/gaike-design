@@ -17,6 +17,15 @@ import prisma from '../../mank-infra/database/prisma'
 import { logger } from '../../mank-infra/logging/logger'
 import { cfgBool } from '../../mank-infra/config/siteConfig'
 
+// 合规硬校验：生产环境必须配置内容审核服务商 API Key
+// 《生成式人工智能服务管理暂行办法》要求输入+输出双审核，禁止无审核上线
+const MODERATION_API_KEY = process.env.MODERATION_API_KEY
+if (process.env.NODE_ENV === 'production' && !MODERATION_API_KEY) {
+  console.error('[FATAL] 生产环境必须配置 MODERATION_API_KEY（内容审核合规要求，禁止无审核上线）')
+  console.error('[FATAL] 请在 server/.env 中设置 MODERATION_API_KEY=<内容安全服务商密钥>')
+  process.exit(1)
+}
+
 // ==================== 类型定义 ====================
 export type ModerationStage = 'input' | 'output'
 export type ModerationRisk = 'low' | 'medium' | 'high'
@@ -347,6 +356,21 @@ export async function moderateImageUrl(
 
   // 调用服务商图片审核
   const providerResult = await scanAliyunImage(imageUrl)
+
+  // 服务商已配置但调用失败 → fail-close，禁止放行
+  if (hasKey && providerResult === null) {
+    logger.warn('图片审核服务商调用失败，已拦截（fail-close）', { endpoint: opts.endpoint })
+    return {
+      passed: false,
+      riskLevel: 'high',
+      reason: '图片审核服务调用失败',
+      safeReason: '图片审核服务暂不可用，请稍后重试',
+      provider: providerName as 'aliyun',
+      categories: [],
+      hits: [],
+    }
+  }
+
   if (providerResult && !providerResult.passed) {
     return {
       passed: false,
@@ -386,6 +410,21 @@ export async function moderateText(
 
   // 1. 服务商审核（有 key 时）
   const providerResult = await scanProvider(text)
+
+  // 服务商已配置但调用失败（网络/超时/5xx）→ fail-close，禁止放行
+  if (hasKey && providerResult === null) {
+    logger.warn('内容审核服务商调用失败，已拦截（fail-close）', { endpoint: opts.endpoint, stage: opts.stage })
+    return {
+      passed: false,
+      riskLevel: 'high',
+      reason: '内容审核服务调用失败',
+      safeReason: '内容审核服务暂不可用，请稍后重试',
+      provider: providerName,
+      categories: [],
+      hits: [],
+    }
+  }
+
   if (providerResult && !providerResult.passed) {
     return {
       passed: false,

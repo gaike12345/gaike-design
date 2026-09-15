@@ -95,8 +95,12 @@ function DualLineChart({ data }: { data: { date: string; calls: number; tokens: 
   const y1 = (v: number) => T + ih - (v / maxCalls) * ih
   const y2 = (v: number) => T + ih - (v / maxTokens) * ih
 
-  const callsPath = data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${xs(i)} ${y1(d.calls)}`).join(' ')
-  const tokensPath = data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${xs(i)} ${y2(d.tokens)}`).join(' ')
+  const callsPath = data.length > 0
+    ? data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${xs(i)} ${y1(d.calls)}`).join(' ')
+    : `M ${xs(0)} ${T + ih}`
+  const tokensPath = data.length > 0
+    ? data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${xs(i)} ${y2(d.tokens)}`).join(' ')
+    : `M ${xs(0)} ${T + ih}`
 
   return (
     <div className="w-full overflow-x-auto">

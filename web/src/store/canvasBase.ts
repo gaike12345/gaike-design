@@ -284,7 +284,7 @@ export function normalizePortRef(
 export function defaultNodeData(type: UnifiedNodeType): UnifiedNodeData {
   switch (type) {
     case 'image':
-      return { imageResults: [], imageStatus: 'idle', imageModel: 'sdxl', imageRatio: '1:1', imageResolution: 'standard', imageCount: 1, imageSteps: 28, imageCfg: 7 }
+      return { imageResults: [], imageStatus: 'idle', imageModel: 'sdxl', imageRatio: '1:1', imageResolution: '1k', imageCount: 1, imageSteps: 28, imageCfg: 7 }
     case 'video':
       return { videoStatus: 'idle', videoPrompt: '', videoModel: 'seedance-pro', videoResolution: '720p', videoDuration: '5s', videoRatio: '16:9', videoAudio: false }
     case 'audio':

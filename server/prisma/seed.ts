@@ -328,7 +328,7 @@ async function main() {
   await prisma.aIModel.deleteMany({})
 
   const providers = await Promise.all([
-    prisma.aIProvider.create({ data: { name: 'pollinations', displayName: 'Pollinations', type: 'image', baseUrl: 'https://image.pollinations.ai/prompt/', apiKeyEnv: 'POLLINATIONS_API_KEY', status: 'active' } }),
+    prisma.aIProvider.create({ data: { name: 'pollinations', displayName: 'Pollinations', type: 'image', baseUrl: 'https://gen.pollinations.ai/image/', apiKeyEnv: 'POLLINATIONS_API_KEY', status: 'active' } }),
     prisma.aIProvider.create({ data: { name: 'pollinations-video', displayName: 'Pollinations Video', type: 'video', baseUrl: 'https://gen.pollinations.ai/video/', apiKeyEnv: 'POLLINATIONS_API_KEY', status: 'active' } }),
     prisma.aIProvider.create({ data: { name: 'kling-video', displayName: '可灵视频（阿里云百炼）', type: 'video', baseUrl: 'https://dashscope.aliyuncs.com/api/v1', apiKeyEnv: 'DASHSCOPE_API_KEY', status: 'active' } }),
     prisma.aIProvider.create({ data: { name: 'zhipu', displayName: '智谱 GLM', type: 'llm', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', apiKeyEnv: 'ZHIPU_API_KEY', status: 'active' } }),
@@ -336,19 +336,148 @@ async function main() {
   ])
   const [pPollinations, pPollinationsVideo, pKlingVideo, pZhipu, pDashscope] = providers
 
-  // Image 模型配置（与 server/src/lib/imageModels.ts 兜底一致）
-  // SDXL 基础模型：仅 1:1 比例，Pollinations 免费层实际输出约 768×768
-  const SDXL_CONFIG = JSON.stringify({
+  // ===== Image 模型配置（Pollinations gen.pollinations.ai 新 API）=====
+  // 每个模型独立配置：比例 / 分辨率档位 / 能力开关 / 像素对齐倍数
+  // 对标 https://gen.pollinations.ai/docs#tag/image 各模型实际能力
+
+  // 1) SDXL Lightning — 入门：5 种基础比例，仅 1K，不支持 seed
+  const IMAGE_SDXL_LIGHTNING = JSON.stringify({
     ratios: [
-      { id: '1:1', label: '1:1', w: 768, h: 768 },
+      { id: '1:1', label: '1:1', w: 1024, h: 1024 },
+      { id: '3:4', label: '3:4', w: 768, h: 1024 },
+      { id: '4:3', label: '4:3', w: 1024, h: 768 },
+      { id: '16:9', label: '16:9', w: 1024, h: 576 },
+      { id: '9:16', label: '9:16', w: 576, h: 1024 },
     ],
     resolutions: [
-      { id: 'standard', label: '标准', quality: '清晰画质', desc: '推荐', multiplier: 1.0 },
+      { id: '1k', label: '1K', quality: '1024px', desc: '标准清晰度', multiplier: 1.0 },
     ],
     defaultRatio: '1:1',
-    defaultResolution: 'standard',
+    defaultResolution: '1k',
     maxBatch: 4,
+    widthMultiple: 8,
+    features: { negativePrompt: true, seed: false, enhance: false },
+  })
+
+  // 2) Z-Image Turbo — 性价比：7 种比例，1K+2K，支持 seed
+  const IMAGE_ZIMAGE_TURBO = JSON.stringify({
+    ratios: [
+      { id: '1:1', label: '1:1', w: 1024, h: 1024 },
+      { id: '3:4', label: '3:4', w: 768, h: 1024 },
+      { id: '4:3', label: '4:3', w: 1024, h: 768 },
+      { id: '16:9', label: '16:9', w: 1024, h: 576 },
+      { id: '9:16', label: '9:16', w: 576, h: 1024 },
+      { id: '3:2', label: '3:2', w: 1152, h: 768 },
+      { id: '2:3', label: '2:3', w: 768, h: 1152 },
+    ],
+    resolutions: [
+      { id: '1k', label: '1K', quality: '1024px', desc: '标准清晰度', multiplier: 1.0 },
+      { id: '2k', label: '2K', quality: '2048px', desc: '高清细节', multiplier: 2.0 },
+    ],
+    defaultRatio: '1:1',
+    defaultResolution: '1k',
+    maxBatch: 4,
+    widthMultiple: 8,
     features: { negativePrompt: true, seed: true, enhance: false },
+  })
+
+  // 3) FLUX.1 Schnell — 推荐：10 种比例，1K+2K，支持 seed
+  const IMAGE_FLUX1_SCHNELL = JSON.stringify({
+    ratios: [
+      { id: '1:1', label: '1:1', w: 1024, h: 1024 },
+      { id: '3:4', label: '3:4', w: 832, h: 1104 },
+      { id: '4:3', label: '4:3', w: 1104, h: 832 },
+      { id: '16:9', label: '16:9', w: 1280, h: 720 },
+      { id: '9:16', label: '9:16', w: 720, h: 1280 },
+      { id: '3:2', label: '3:2', w: 1152, h: 768 },
+      { id: '2:3', label: '2:3', w: 768, h: 1152 },
+      { id: '4:5', label: '4:5', w: 896, h: 1120 },
+      { id: '5:4', label: '5:4', w: 1120, h: 896 },
+      { id: '21:9', label: '21:9', w: 1408, h: 608 },
+    ],
+    resolutions: [
+      { id: '1k', label: '1K', quality: '1024px', desc: '标准清晰度', multiplier: 1.0 },
+      { id: '2k', label: '2K', quality: '2048px', desc: '高清细节', multiplier: 2.0 },
+    ],
+    defaultRatio: '1:1',
+    defaultResolution: '1k',
+    maxBatch: 4,
+    widthMultiple: 8,
+    features: { negativePrompt: true, seed: true, enhance: false },
+  })
+
+  // 4) FLUX.2 Flex — 高质量：10 种比例，1K+2K+4K，不支持 seed，16px 对齐
+  const IMAGE_FLUX2_FLEX = JSON.stringify({
+    ratios: [
+      { id: '1:1', label: '1:1', w: 1024, h: 1024 },
+      { id: '3:4', label: '3:4', w: 832, h: 1104 },
+      { id: '4:3', label: '4:3', w: 1104, h: 832 },
+      { id: '16:9', label: '16:9', w: 1280, h: 720 },
+      { id: '9:16', label: '9:16', w: 720, h: 1280 },
+      { id: '3:2', label: '3:2', w: 1152, h: 768 },
+      { id: '2:3', label: '2:3', w: 768, h: 1152 },
+      { id: '4:5', label: '4:5', w: 896, h: 1120 },
+      { id: '5:4', label: '5:4', w: 1120, h: 896 },
+      { id: '21:9', label: '21:9', w: 1408, h: 608 },
+    ],
+    resolutions: [
+      { id: '1k', label: '1K', quality: '1024px', desc: '标准清晰度', multiplier: 1.0 },
+      { id: '2k', label: '2K', quality: '2048px', desc: '高清细节', multiplier: 2.0 },
+      { id: '4k', label: '4K', quality: '4096px', desc: '极致超清', multiplier: 4.0 },
+    ],
+    defaultRatio: '1:1',
+    defaultResolution: '1k',
+    maxBatch: 2,
+    widthMultiple: 16,
+    features: { negativePrompt: true, seed: false, enhance: false },
+  })
+
+  // 5) Ideogram V4 Quality — 文字渲染：7 种比例，1K+2K，不支持 negativePrompt/seed
+  const IMAGE_IDEOGRAM_V4 = JSON.stringify({
+    ratios: [
+      { id: '1:1', label: '1:1', w: 1024, h: 1024 },
+      { id: '3:4', label: '3:4', w: 768, h: 1024 },
+      { id: '4:3', label: '4:3', w: 1024, h: 768 },
+      { id: '16:9', label: '16:9', w: 1280, h: 720 },
+      { id: '9:16', label: '9:16', w: 720, h: 1280 },
+      { id: '3:2', label: '3:2', w: 1152, h: 768 },
+      { id: '2:3', label: '2:3', w: 768, h: 1152 },
+    ],
+    resolutions: [
+      { id: '1k', label: '1K', quality: '1024px', desc: '标准清晰度', multiplier: 1.0 },
+      { id: '2k', label: '2K', quality: '2048px', desc: '高清细节', multiplier: 2.0 },
+    ],
+    defaultRatio: '1:1',
+    defaultResolution: '1k',
+    maxBatch: 4,
+    widthMultiple: 8,
+    features: { negativePrompt: false, seed: false, enhance: false },
+  })
+
+  // 6) Seedream 5.0 Pro — 旗舰：10 种比例，1K+2K+4K
+  const IMAGE_SEEDREAM_5PRO = JSON.stringify({
+    ratios: [
+      { id: '1:1', label: '1:1', w: 1024, h: 1024 },
+      { id: '3:4', label: '3:4', w: 832, h: 1104 },
+      { id: '4:3', label: '4:3', w: 1104, h: 832 },
+      { id: '16:9', label: '16:9', w: 1280, h: 720 },
+      { id: '9:16', label: '9:16', w: 720, h: 1280 },
+      { id: '3:2', label: '3:2', w: 1152, h: 768 },
+      { id: '2:3', label: '2:3', w: 768, h: 1152 },
+      { id: '4:5', label: '4:5', w: 896, h: 1120 },
+      { id: '5:4', label: '5:4', w: 1120, h: 896 },
+      { id: '21:9', label: '21:9', w: 1408, h: 608 },
+    ],
+    resolutions: [
+      { id: '1k', label: '1K', quality: '1024px', desc: '标准清晰度', multiplier: 1.0 },
+      { id: '2k', label: '2K', quality: '2048px', desc: '高清细节', multiplier: 2.0 },
+      { id: '4k', label: '4K', quality: '4096px', desc: '极致超清', multiplier: 4.0 },
+    ],
+    defaultRatio: '1:1',
+    defaultResolution: '1k',
+    maxBatch: 2,
+    widthMultiple: 8,
+    features: { negativePrompt: true, seed: false, enhance: false },
   })
 
   // ===== Video 模型配置（6 个精选，Pollinations 视频 API）=====
@@ -526,8 +655,13 @@ async function main() {
   })
 
   const MODELS_SEED = [
-    // image — 仅保留 SDXL 基础
-    { name: 'sdxl', displayName: 'SDXL 基础', type: 'image', providerId: pPollinations.id, tag: '通用', desc: '稳定通用大模型', costTokens: 20, sort: 1, config: SDXL_CONFIG },
+    // image — Pollinations 6 个精选模型（入门→旗舰分档，每模型独立参数配置）
+    { name: 'community/CloudCompile/sdxl-lightning', displayName: 'SDXL Lightning', type: 'image', providerId: pPollinations.id, tag: '入门', desc: '轻量快速，入门体验', costTokens: 20, sort: 1, config: IMAGE_SDXL_LIGHTNING },
+    { name: 'tongyi-mai/z-image-turbo', displayName: 'Z-Image Turbo', type: 'image', providerId: pPollinations.id, tag: '性价比', desc: '通义万相快速版，均衡之选', costTokens: 30, sort: 2, config: IMAGE_ZIMAGE_TURBO },
+    { name: 'black-forest-labs/flux.1-schnell', displayName: 'FLUX.1 Schnell', type: 'image', providerId: pPollinations.id, tag: '推荐', desc: 'Flux 极速版，高质量通用', costTokens: 40, sort: 3, config: IMAGE_FLUX1_SCHNELL },
+    { name: 'black-forest-labs/flux.2-flex', displayName: 'FLUX.2 Flex', type: 'image', providerId: pPollinations.id, tag: '高质量', desc: 'Flux 2 灵活版，细节更丰富', costTokens: 60, sort: 4, config: IMAGE_FLUX2_FLEX },
+    { name: 'ideogram-ai/ideogram-v4-quality', displayName: 'Ideogram 4.0', type: 'image', providerId: pPollinations.id, tag: '文字', desc: '文字渲染最强，海报首选', costTokens: 80, sort: 5, config: IMAGE_IDEOGRAM_V4 },
+    { name: 'bytedance/seedream-5.0-pro', displayName: 'Seedream 5.0 Pro', type: 'image', providerId: pPollinations.id, tag: '旗舰', desc: '字节跳动旗舰，国产最强', costTokens: 100, sort: 6, config: IMAGE_SEEDREAM_5PRO },
     // novel
     { name: 'glm-4', displayName: 'GLM-4', type: 'novel', providerId: pZhipu.id, tag: '通用', desc: '智谱通用大模型', costTokens: 20, sort: 1 },
     { name: 'qwen-max', displayName: '通义千问 Max', type: 'novel', providerId: pDashscope.id, tag: '长文本', desc: '阿里通义大模型', costTokens: 30, sort: 2 },
