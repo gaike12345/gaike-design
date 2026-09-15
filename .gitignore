@@ -72,7 +72,7 @@ System Volume Information/
 prototypes/
 
 # ---------- 开发测试脚本（非生产代码） ----------
-server/scripts/
+# 注：server/scripts/ 已纳入版本控制（架构校验脚本 arch-check.ts 用于 CI）
 server/recharge-test-user.js
 server/test-writing-chain.js
 

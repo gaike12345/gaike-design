@@ -8,13 +8,15 @@
     "build": "vite build",
     "typecheck": "tsc -b",
     "lint": "oxlint",
+    "lint:check": "oxlint --max-warnings=257",
+    "lint:ratchet": "node scripts/ratchet-oxlint.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
     "clsx": "^2.1.1",
     "jspdf": "^4.2.1",
     "konva": "^10.3.1",
-    "lucide-react": "^1.33.0",
+    "lucide-react": "^1.46.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-konva": "^19.2.5",
