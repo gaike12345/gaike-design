@@ -11,14 +11,29 @@ import type { IconComponent, Stats } from './types'
 // ===== Pollinations 账户余额类型 =====
 interface PollinationsAccountInfo {
   balance: number | null
+  packBalance: number | null
+  tierBalance: number | null
   tier: string | null
   nextResetAt: string | null
   githubUsername: string | null
   fxRate: number
   balanceInTokens: number | null
+  packBalanceInTokens: number | null
+  tierBalanceInTokens: number | null
+  packBalanceInUsd: number | null
+  packBalanceInCny: number | null
   apiKeyConfigured: boolean
   fetchedAt: string
   error?: string
+  pollenPerUsd: number
+  usdToCny: number
+  tokensPerCny: number
+  // 规范化双向换算链路
+  usdToPollen: number
+  usdToTokens: number
+  cnyToUsd: number
+  cnyToPollen: number
+  cnyToTokens: number
 }
 
 // ===== 渐变 KPI 卡片 =====
@@ -328,21 +343,27 @@ export function OverviewTab({
                     {packZero && ' · 充值后付费模型才能正常调用'}
                   </p>
 
-                  {/* 换算公式 */}
+                  {/* 换算公式 - 规范化双向链路 */}
                   {!packZero && pack !== null && (
-                    <div className="mt-3 rounded-md bg-white/60 px-3 py-2 ring-1 ring-sky-100/80">
-                      <div className="flex items-center justify-between gap-2 text-[11px] text-sky-700/80">
-                        <span>
-                          等值 <span className="font-semibold text-sky-900">${apiBalance.packBalanceInUsd?.toFixed(2) ?? '—'}</span> USD
-                          · <span className="font-semibold text-sky-900">¥{apiBalance.packBalanceInCny?.toFixed(2) ?? '—'}</span> CNY
-                        </span>
+                    <div className="mt-3 rounded-md bg-white/60 px-3 py-2.5 ring-1 ring-sky-100/80">
+                      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-sky-700/60">汇率换算链路</p>
+                      {/* 1 USD 链路 */}
+                      <div className="flex items-center gap-1 text-[11px] text-sky-700/80">
+                        <span className="rounded bg-sky-100 px-1.5 py-0.5 font-semibold text-sky-900">1 USD</span>
+                        <span className="text-slate-400">=</span>
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5">{apiBalance.usdToPollen} pollen</span>
+                        <span className="text-slate-400">=</span>
+                        <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-medium text-emerald-800">{formatCompact(apiBalance.usdToTokens)} 积分</span>
                       </div>
-                      <div className="mt-1.5 flex items-center gap-1 text-[10px] text-slate-500">
-                        <span className="rounded bg-slate-100 px-1.5 py-0.5">${apiBalance.pollenPerUsd}/pollen</span>
-                        <span className="text-slate-300">→</span>
-                        <span className="rounded bg-slate-100 px-1.5 py-0.5">1 pollen = {apiBalance.fxRate} 积分</span>
-                        <span className="text-slate-300">→</span>
-                        <span className="rounded bg-slate-100 px-1.5 py-0.5">¥{apiBalance.usdToCny} = {apiBalance.tokensPerCny} 积分</span>
+                      {/* 1 CNY 链路 */}
+                      <div className="mt-1 flex items-center gap-1 text-[11px] text-sky-700/80">
+                        <span className="rounded bg-rose-100 px-1.5 py-0.5 font-semibold text-rose-900">1 CNY</span>
+                        <span className="text-slate-400">=</span>
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5">¥{apiBalance.cnyToUsd.toFixed(4)} USD</span>
+                        <span className="text-slate-400">=</span>
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5">{apiBalance.cnyToPollen} pollen</span>
+                        <span className="text-slate-400">=</span>
+                        <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-medium text-emerald-800">{formatCompact(apiBalance.cnyToTokens)} 积分</span>
                       </div>
                     </div>
                   )}

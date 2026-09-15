@@ -400,10 +400,11 @@ export function getNextMonday3AM(): number {
 
 // ───────────────────── 账户余额查询 ─────────────────────
 
-// Pollinations 充值定价基准（取 $10-$20 档的平均汇率）
-// $10 → 15 pollen, $20 → 30 pollen → 1.5 pollen/$
-// 充值越多越划算（$100 → 200 pollen = 2.0/$），取中间档作为运营估算基准
-const DEFAULT_POLLEN_PER_USD = 1.5
+// Pollinations 充值定价基准
+// 官方定价：$1 ≈ 1 pollen（来源：pollinations.ai 官网、everydev.ai、tooljunction.io）
+// 历史值：1.5 pollen/$（来自早期 beta 促销价 $10→15 pollen，已失效）
+// 回滚：将下方常量改回 1.5 即可恢复旧换算
+const DEFAULT_POLLEN_PER_USD = 1
 
 // USD → CNY 汇率（默认 7.2，可通过 USD_TO_CNY_RATE 环境变量覆盖）
 const DEFAULT_USD_TO_CNY = 7.2
@@ -428,6 +429,12 @@ export interface PollinationsAccountInfo {
   tokensPerCny: number              // ¥1 能兑换多少我们的积分
   packBalanceInUsd: number | null   // PAID 余额等值美元
   packBalanceInCny: number | null   // PAID 余额等值人民币
+  // 规范化双向换算链路（用于运营总览展示）
+  usdToPollen: number               // 1 USD = N pollen（等于 pollenPerUsd）
+  usdToTokens: number               // 1 USD = N 积分（pollenPerUsd × fxRate）
+  cnyToUsd: number                  // 1 CNY = N USD（1/usdToCny）
+  cnyToPollen: number               // 1 CNY = N pollen（cnyToUsd × pollenPerUsd）
+  cnyToTokens: number               // 1 CNY = N 积分（等于 tokensPerCny）
 }
 
 /**
@@ -447,6 +454,13 @@ export async function getPollinationsBalance(forceRefresh = false): Promise<Poll
   const pollenPerUsd = Number(process.env.POLLEN_PER_USD) || DEFAULT_POLLEN_PER_USD
   const usdToCny = Number(process.env.USD_TO_CNY_RATE) || DEFAULT_USD_TO_CNY
   const tokensPerCny = Math.round((pollenPerUsd * fxRate) / usdToCny) // ¥1 → 多少积分
+
+  // 规范化双向换算链路（向上取整避免显示截断误差）
+  const usdToPollen = pollenPerUsd                                 // 1 USD = N pollen
+  const usdToTokens = Math.round(pollenPerUsd * fxRate)            // 1 USD = N 积分
+  const cnyToUsd = 1 / usdToCny                                    // 1 CNY = N USD
+  const cnyToPollen = Math.round((cnyToUsd * pollenPerUsd) * 100) / 100  // 1 CNY = N pollen（保留 2 位）
+  const cnyToTokens = tokensPerCny                                 // 1 CNY = N 积分
 
   // 命中缓存且非强制刷新
   if (!forceRefresh && balanceCache && now - balanceCache.fetchedAt < BALANCE_CACHE_MS) {
@@ -474,6 +488,11 @@ export async function getPollinationsBalance(forceRefresh = false): Promise<Poll
       tokensPerCny,
       packBalanceInUsd: null,
       packBalanceInCny: null,
+      usdToPollen,
+      usdToTokens,
+      cnyToUsd,
+      cnyToPollen,
+      cnyToTokens,
     }
     balanceCache = { data: placeholder, fetchedAt: now }
     return placeholder
@@ -553,6 +572,11 @@ export async function getPollinationsBalance(forceRefresh = false): Promise<Poll
       tokensPerCny,
       packBalanceInUsd: packBalance !== null ? packBalance / pollenPerUsd : null,
       packBalanceInCny: packBalance !== null ? (packBalance / pollenPerUsd) * usdToCny : null,
+      usdToPollen,
+      usdToTokens,
+      cnyToUsd,
+      cnyToPollen,
+      cnyToTokens,
     }
 
     balanceCache = { data: result, fetchedAt: now }
@@ -585,6 +609,11 @@ export async function getPollinationsBalance(forceRefresh = false): Promise<Poll
       tokensPerCny,
       packBalanceInUsd: null,
       packBalanceInCny: null,
+      usdToPollen,
+      usdToTokens,
+      cnyToUsd,
+      cnyToPollen,
+      cnyToTokens,
     }
     // 失败也缓存 30 秒，避免高频重试
     balanceCache = { data: failed, fetchedAt: now - BALANCE_CACHE_MS / 2 }
