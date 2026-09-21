@@ -2087,20 +2087,46 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
                   </div>
                 </>
               )}
-              {/* 时长（仅当模型支持 duration 参数时显示） */}
-              {modelDurations.length > 0 && (
-                <>
-                  <div className={cn('text-[10px] font-medium text-neutral-500', modelResolutions.length > 0 && 'mt-2.5', 'mb-1.5')}>时长</div>
-                  <div className="flex gap-1">
-                    {modelDurations.map((d) => (
-                      <button key={d.id} onClick={() => update(node.id, { videoDuration: d.id })}
-                        className={cn('flex-1 rounded-md border py-1.5 text-[11px] font-medium', duration === d.id ? 'border-amber-400 bg-amber-500/15 text-amber-200' : 'border-[#1f1f1f] bg-[#161616] text-neutral-500 hover:text-neutral-300')}>
-                        {d.label}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
+              {/* 时长滑块（仅当模型支持 duration 参数时显示） */}
+              {modelDurations.length > 0 && (() => {
+                const durMin = modelDurations[0].value
+                const durMax = modelDurations[modelDurations.length - 1].value
+                // 步长：等差排列用公差，否则用1并在change时吸附到最近合法值
+                let durStep = 1
+                if (modelDurations.length >= 2) {
+                  const diffs = modelDurations.slice(1).map((d, i) => d.value - modelDurations[i].value)
+                  durStep = diffs.every(d => d === diffs[0]) ? diffs[0] : 1
+                }
+                const durPct = durMax > durMin ? ((durationSeconds - durMin) / (durMax - durMin)) * 100 : 100
+                return (
+                  <>
+                    <div className={cn('flex items-center justify-between', modelResolutions.length > 0 && 'mt-2.5', 'mb-1')}>
+                      <span className="text-[10px] font-medium text-neutral-500">时长</span>
+                      <span className="rounded bg-[#1f1f1f] px-1.5 py-0.5 text-[11px] font-mono text-amber-200">
+                        {durCfg?.label || duration}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={durMin}
+                      max={durMax}
+                      step={durStep}
+                      value={durationSeconds}
+                      disabled={durMax <= durMin}
+                      onChange={(e) => {
+                        const v = Number(e.target.value)
+                        // 非等差排列时，吸附到最接近的合法 duration
+                        const closest = modelDurations.reduce((prev, curr) =>
+                          Math.abs(curr.value - v) < Math.abs(prev.value - v) ? curr : prev
+                        )
+                        update(node.id, { videoDuration: closest.id })
+                      }}
+                      className="duration-slider"
+                      style={{ ['--pct' as string]: `${durPct}%` } as React.CSSProperties}
+                    />
+                  </>
+                )
+              })()}
               {/* 比例（仅当模型 config 中有 ratios 时显示） */}
               {modelRatios.length > 0 && (
                 <>
