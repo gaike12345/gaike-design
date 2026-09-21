@@ -127,10 +127,10 @@ router.get('/proxy', async (req, res) => {
     const upstream = await fetch(originalUrl, Object.keys(fetchHeaders).length > 0 ? { headers: fetchHeaders } : undefined)
 
     if (!upstream.ok) {
-      if (upstream.status === 400 || upstream.status === 401) {
-        refundProxy(`上游返回${upstream.status}，图片未生成成功`)
-      }
       logger.warn(`[ImageProxy] upstream ${upstream.status} for ${originalUrl.substring(0, 100)}`)
+      // 注意：不再为 upstream 400/401 自动退还积分
+      // 用户侧发起请求 → 预扣 → 上游失败 → 用户为失败买单（模型名错误、参数不对等属于调用方责任）
+      // 只有「图片内容审核未通过」才自动退还（见下方 imgMod.passed 分支）
       return res.status(upstream.status).send('Upstream error')
     }
 
@@ -357,7 +357,7 @@ const costForImage = async (req: Request): Promise<number> => {
 router.post('/generate', withGeneration('image', costForImage), async (req, res, next) => {
   logger.info('CTRL_IMAGE_GENERATE', { userId: req.user?.userId, model: req.body?.model, prompt: req.body?.prompt?.slice(0, 50) })
   try {
-    const { prompt, batch = 1, seed, negativePrompt } = req.body
+    const { prompt, batch = 1, seed, negativePrompt, quality, transparent } = req.body
     const modelId = req.body.model || (await getDefaultImageModel())
     const model = await getImageModelConfig(modelId)
     const ratio = req.body.ratio || model.defaultRatio
@@ -391,6 +391,8 @@ router.post('/generate', withGeneration('image', costForImage), async (req, res,
         height: h,
         seed: s,
         negativePrompt: negativePrompt ? String(negativePrompt) : undefined,
+        quality: model.features.quality && quality ? String(quality) : undefined,
+        transparent: model.features.transparent && transparent === true ? true : undefined,
       })
       if (result.placeholder) isPlaceholder = true
       const url = signImageUrl(result.url, userId, costPerImage, req._genTxId)

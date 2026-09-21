@@ -5,11 +5,11 @@ import { withGeneration } from '../../mank-infra/middleware/generation'
 import { videoLimiter } from '../../mank-infra/middleware/rate-limit'
 import { validate, z } from '../../mank-infra/middleware/validate'
 import { getVideoProvider } from './providers'
-import { FALLBACK_VIDEO_MODELS, DEFAULT_VIDEO_MODEL } from './videoModels'
+import { getVideoModels, DEFAULT_VIDEO_MODEL } from './videoModels'
 import { getModelCost } from '../../mank-core/billing/modelCost'
 import { taskQueue } from '../../mank-infra/queue/taskQueue'
 import { checkInputModeration } from '../../mank-core/moderation/moderation'
-import { linkTransactionToTask, refundTokens } from '../../mank-core/billing/tokenService'
+import { linkTransactionToTask } from '../../mank-core/billing/tokenService'
 import prisma from '../../mank-infra/database/prisma'
 import { estimateVideoCost } from '../../mank-core/billing/costEstimator'
 import logger from '../../mank-infra/logging/logger'
@@ -64,17 +64,20 @@ const router = Router()
 router.get('/models', async (_req, res, next) => {
   logger.info('CTRL_VIDEO_MODELS', {})
   try {
-    // 使用 FALLBACK_VIDEO_MODELS 作为单源真理（始终可用，与 Pollinations API 对齐）
-    const parsed = FALLBACK_VIDEO_MODELS.map((m) => ({
-      id: m.id,
-      name: m.name,
-      label: m.label,
-      description: m.description || '',
-      tag: m.tag || '',
-      costTokens: m.costTokens,
-      config: m.config,
-    })).sort((a, b) => b.costTokens - a.costTokens) // 按价格从高到低
-    return res.json({ models: parsed, defaultModel: DEFAULT_VIDEO_MODEL })
+    // 从 DB AIModel 表动态拉取（管理后台修改后实时生效）
+    const models = await getVideoModels()
+    return res.json({
+      models: models.map((m) => ({
+        id: m.id,
+        name: m.name,
+        label: m.label,
+        description: m.description || '',
+        tag: m.tag || '',
+        costTokens: m.costTokens,
+        config: m.config,
+      })),
+      defaultModel: models[0]?.id || DEFAULT_VIDEO_MODEL,
+    })
   } catch (e) {
     next(e)
   }
@@ -210,6 +213,8 @@ router.post('/text2video', videoLimiter, validate({
     prompt, duration, model, resolution, ratio, audio, seed,
     endImage, referenceImages, referenceVideo,
     _tokensCost: tokensCost,
+    _marginAtCall: req._genMarginAtCall,   // 入队时的 margin 快照（毛利对账）
+    _costTokens: req._genCostTokens,       // 入队时的 costTokens 快照
   }, userId)
 
   // 把任务ID关联到预扣流水（用于后续结算/退还）
@@ -326,6 +331,8 @@ router.post('/img2video', videoLimiter, validate({
     imageUrl, prompt, model, duration, resolution, ratio, audio, seed,
     endImage, referenceImages, referenceVideo,
     _tokensCost: tokensCost,
+    _marginAtCall: req._genMarginAtCall,   // 入队时的 margin 快照（毛利对账）
+    _costTokens: req._genCostTokens,       // 入队时的 costTokens 快照
   }, userId)
 
   // 把任务ID关联到预扣流水（用于后续结算/退还）
@@ -420,94 +427,9 @@ router.get('/task/:taskId', async (req, res) => {
   })
 })
 
-// POST /api/video/task/:taskId/cancel — 取消视频生成任务（仅本人）
-/**
- * @openapi
- * /video/task/{taskId}/cancel:
- *   post:
- *     tags: [视频生成]
- *     summary: 取消任务
- *     description: 取消视频生成任务并退还积分。仅任务所有者可操作，已结束的任务无法取消。
- *     security: [{ BearerAuth: [] }]
- *     parameters:
- *       - in: path
- *         name: taskId
- *         required: true
- *         schema:
- *           type: string
- *         description: 任务 ID
- *     responses:
- *       200:
- *         description: 取消成功
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 status:
- *                   type: string
- *                   example: cancelled
- *                 refunded:
- *                   type: integer
- *                   description: 退还的积分数量
- *       400:
- *         description: 任务已结束或取消失败
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       401:
- *         description: 未登录
- *       403:
- *         description: 无权操作该任务
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       404:
- *         description: 任务不存在
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- */
-router.post('/task/:taskId/cancel', authRequired, async (req, res) => {
-  logger.info('CTRL_VIDEO_TASK_CANCEL', { userId: req.user?.userId, taskId: req.params.taskId })
-  const userId = req.user!.userId
-  const taskId = String(req.params.taskId)
+// POST /api/video/task/:taskId/cancel 已移除（2026-09-18：系统不再支持用户主动取消生成）
+// 如需退还积分，请联系管理员或等待任务自然失败后自动退还。
 
-  const task = await taskQueue.getStatus(taskId)
-  if (!task) return res.status(404).json({ error: '任务不存在' })
-  if (task.userId !== userId) return res.status(403).json({ error: '无权操作该任务' })
-
-  // 已结束的任务无法取消
-  if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
-    return res.status(400).json({ error: '任务已结束，无法取消' })
-  }
-
-  // 执行取消
-  const cancelled = await taskQueue.cancel(taskId)
-  if (!cancelled) {
-    return res.status(400).json({ error: '取消失败' })
-  }
-
-  // 退还积分（从预扣中退回）
-  const tokensCost = (task.payload as any)?._tokensCost || 0
-  if (tokensCost > 0) {
-    await refundTokens({
-      userId,
-      relatedId: taskId,
-      relatedType: 'task',
-      reason: '用户取消生成',
-    }).catch(() => {
-      // 退款失败不影响取消结果
-    })
-  }
-
-  res.json({ success: true, status: 'cancelled', refunded: tokensCost })
-})
 export default router
 
 

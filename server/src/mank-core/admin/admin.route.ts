@@ -1,6 +1,10 @@
 import { Router, Request, Response, NextFunction } from 'express'
-import { syncPollinationsPricing, getLastSyncStatus, getSyncHistory, getNextMonday3AM, SYNC_INTERVAL_MS, getPollinationsBalance } from '../billing/pollinationsSync'
+import { syncPollinationsPricing, getLastSyncStatus, getSyncHistory, getNextMonday3AM, SYNC_INTERVAL_MS, getPollinationsBalance, fetchUsdToCny } from '../billing/pollinationsSync'
+import { syncVideoModelsFromPollinations } from '../video/syncPollinations'
+import { syncImageModelsFromPollinations } from '../image/syncPollinations'
+import { getTokenRatio, setTokenRatio, resetTokenRatio } from '../billing/billingConfig.service'
 import { authRequired, requireSuperAdmin, requireAdminOrAbove } from '../../mank-infra/middleware/auth'
+import prisma from '../../mank-infra/database/prisma'
 import {
   listUsers, getUserDetail, updateUserRole, createUser, rechargeUser,
   setUserEnabled, updateUserInfo, updateUserPlan, deleteUser,
@@ -14,7 +18,7 @@ import {
   getWorkDetail,
 } from './adminContent.service'
 import {
-  getPlatformStats, getGenerationLogs, getGenerationStats,
+  getPlatformStats, getGenerationLogs, getGenerationStats, getRevenueStats, rebuildRevenueHistory,
 } from './adminStats.service'
 import logger from '../../mank-infra/logging/logger'
 
@@ -666,6 +670,73 @@ router.get('/generations', requireSuperAdmin, async (req, res, next) => {
   } catch (e) { next(e) }
 })
 
+// ───────────────────── 毛利统计 ─────────────────────
+
+/**
+ * @openapi
+ * /admin/revenue/stats:
+ *   get:
+ *     tags: [后台管理-毛利统计]
+ *     summary: 毛利差值统计
+ *     description: |
+ *       聚合 GenerationLog 中 status='success' 且 tokensUsed>0 的调用记录，
+ *       计算用户支付积分、官方成本积分、毛利积分差值。
+ *       支持按时间范围、模型、类型筛选。
+ *     security: [{ BearerAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: days
+ *         schema: { type: integer, default: 30 }
+ *         description: 统计天数（默认30，最大365）
+ *       - in: query
+ *         name: modelId
+ *         schema: { type: string }
+ *         description: 按模型 ID 筛选
+ *       - in: query
+ *         name: type
+ *         schema: { type: string, enum: [image, video, audio, novel, comic] }
+ *         description: 按板块筛选
+ *     responses:
+ *       200:
+ *         description: 毛利统计结果
+ *       401: { description: 未登录 }
+ *       403: { description: 权限不足（需超级管理员） }
+ */
+router.get('/revenue/stats', requireSuperAdmin, async (req, res, next) => {
+  logger.info('CTRL_ADMIN_REVENUE_STATS', { days: req.query.days, modelId: req.query.modelId, type: req.query.type })
+  try {
+    const days = Math.min(365, Math.max(1, parseInt(String(req.query.days || '30'), 10)))
+    const modelId = req.query.modelId ? String(req.query.modelId) : undefined
+    const type = req.query.type ? String(req.query.type) : undefined
+    res.json(await getRevenueStats({ days, modelId, type }))
+  } catch (e) { next(e) }
+})
+
+/**
+ * @openapi
+ * /admin/revenue/rebuild:
+ *   post:
+ *     tags: [后台管理-毛利统计]
+ *     summary: 历史毛利数据回填（一次性）
+ *     description: |
+ *       为已有 GenerationLog 记录反算 costTokens/marginAtCall/revenueTokens。
+ *       幂等：仅处理 revenueTokens=0 且 tokensUsed>0 的记录。
+ *       使用每条记录调用时的模型当前 margin 作为近似值。
+ *     security: [{ BearerAuth: [] }]
+ *     responses:
+ *       200:
+ *         description: 回填结果（processed/updated）
+ *       401: { description: 未登录 }
+ *       403: { description: 权限不足（需超级管理员） }
+ */
+router.post('/revenue/rebuild', requireSuperAdmin, async (_req, res, next) => {
+  logger.info('CTRL_ADMIN_REVENUE_REBUILD', {})
+  try {
+    const result = await rebuildRevenueHistory()
+    res.json(result)
+  } catch (e) { next(e) }
+})
+
 // ───────────────────── 功能管理 ─────────────────────
 
 /**
@@ -1229,8 +1300,48 @@ router.post('/pollinations/sync', requireSuperAdmin, async (_req, res, next) => 
         added: result.modelsAdded,
         removed: result.modelsRemoved,
         diff: result.diff,
-        fxRate: result.fxRate,
+        ratio: result.ratio,
         error: result.errorMessage || null,
+      },
+    })
+  } catch (e) { next(e) }
+})
+
+// POST /api/admin/video/sync-pollinations — 同步视频模型 config 字段（SuperAdmin）
+// 从 Pollinations /video/models 拉取真实参数能力（resolutions / durations / capabilities），
+// 写入 DB AIModel 表 type='video' 模型的 config 字段。
+// 仅更新 config；不动 costTokens / displayName / desc / tag（保护管理员手动设置）。
+router.post('/video/sync-pollinations', requireSuperAdmin, async (_req, res, next) => {
+  logger.info('CTRL_ADMIN_VIDEO_SYNC_POLLINATIONS', {})
+  try {
+    const result = await syncVideoModelsFromPollinations()
+    res.json({
+      ok: result.errors.length === 0,
+      data: {
+        synced: result.synced,
+        skipped: result.skipped,
+        notFound: result.notFound,
+        errors: result.errors,
+      },
+    })
+  } catch (e) { next(e) }
+})
+
+// POST /api/admin/image/sync-pollinations — 同步图片模型 config 字段（SuperAdmin）
+// 从 Pollinations /models (category=image) 拉取真实参数能力（input_modalities / max_reference_images / resolutions 等），
+// 写入 DB AIModel 表 type='image' 模型的 config 字段。
+// 仅更新 config；不动 costTokens / displayName / desc / tag（保护管理员手动设置）。
+router.post('/image/sync-pollinations', requireSuperAdmin, async (_req, res, next) => {
+  logger.info('CTRL_ADMIN_IMAGE_SYNC_POLLINATIONS', {})
+  try {
+    const result = await syncImageModelsFromPollinations()
+    res.json({
+      ok: result.errors.length === 0,
+      data: {
+        synced: result.synced,
+        skipped: result.skipped,
+        notFound: result.notFound,
+        errors: result.errors,
       },
     })
   } catch (e) { next(e) }
@@ -1256,7 +1367,7 @@ router.get('/pollinations/status', requireAdminOrAbove, async (_req, res, next) 
         updated: last.modelsUpdated,
         added: last.modelsAdded,
         removed: last.modelsRemoved,
-        fxRate: last.pollenFxRate,
+        ratio: last.pollenFxRate,
         diff: last.diffJson ? JSON.parse(last.diffJson) : [],
         errorMessage: last.errorMessage,
       } : null,
@@ -1288,7 +1399,7 @@ router.get('/pollinations/history', requireAdminOrAbove, async (req, res, next) 
         updated: h.modelsUpdated,
         added: h.modelsAdded,
         removed: h.modelsRemoved,
-        fxRate: h.pollenFxRate,
+        ratio: h.pollenFxRate,
         diff: h.diffJson ? JSON.parse(h.diffJson) : [],
         errorMessage: h.errorMessage,
       })),
@@ -1315,4 +1426,279 @@ router.get('/pollinations/balance', requireSuperAdmin, async (req, res, next) =>
   } catch (e) { next(e) }
 })
 
+// GET /api/admin/pollinations/ratio — 获取当前 pollen→积分 汇率
+router.get('/pollinations/ratio', requireAdminOrAbove, async (_req, res, next) => {
+  try {
+    const ratio = await getTokenRatio()
+    res.json({ ok: true, data: { ratio, defaultRatio: 10 } })
+  } catch (e) { next(e) }
+})
+
+// PATCH /api/admin/pollinations/ratio — 调整汇率（级联重算所有 Pollinations 模型 costTokens）
+router.patch('/pollinations/ratio', requireSuperAdmin, async (req, res, next) => {
+  try {
+    const { ratio } = req.body
+    const n = Number(ratio)
+    if (!Number.isFinite(n) || n <= 0 || n > 10000) {
+      res.status(400).json({ ok: false, error: 'ratio 必须是 1-10000 之间的正数' })
+      return
+    }
+
+    const operator = req.user?.userId ?? 'unknown'
+    const result = await setTokenRatio(n, operator)
+    logger.info('CTRL_ADMIN_POLLINATIONS_RATIO_PATCH', { oldRatio: result.oldRatio, newRatio: result.newRatio, updated: result.modelUpdated })
+    res.json({ ok: true, data: result })
+  } catch (e) { next(e) }
+})
+
+// POST /api/admin/pollinations/ratio/reset — 重置为默认汇率 10
+router.post('/pollinations/ratio/reset', requireSuperAdmin, async (req, res, next) => {
+  try {
+    const operator = req.user?.userId ?? 'unknown'
+    const result = await resetTokenRatio(operator)
+    logger.info('CTRL_ADMIN_POLLINATIONS_RATIO_RESET', { oldRatio: result.oldRatio, updated: result.modelUpdated })
+    res.json({ ok: true, data: result })
+  } catch (e) { next(e) }
+})
+
+// GET /api/admin/pollinations/margin — 获取当前 Pollinations 模型的全局毛利率（众数）
+//
+// 返回:
+//   {
+//     ok: true,
+//     data: {
+//       margin: number,         // 当前众数毛利率（出现次数最多，并列取最大值）
+//       total: number,          // Pollinations 模型总数
+//       distribution: Array<{ margin: number, count: number }>
+//     }
+//   }
+//
+// 前端"全局毛利率"输入框初始值用此接口的 margin。
+// 众数取法：按 margin 出现次数降序，次数相同取 margin 较大的（反映最新批量设置）。
+router.get('/pollinations/margin', requireAdminOrAbove, async (_req, res, next) => {
+  try {
+    const POLLINATIONS_PROVIDER_NAMES = ['pollinations', 'pollinations-video', 'Pollinations', 'Pollinations Video']
+    const rows = await prisma.aIModel.findMany({
+      where: { provider: { name: { in: POLLINATIONS_PROVIDER_NAMES } } },
+      select: { margin: true },
+    })
+
+    if (rows.length === 0) {
+      res.json({ ok: true, data: { margin: 0, total: 0, distribution: [] } })
+      return
+    }
+
+    const counts = new Map<number, number>()
+    for (const r of rows) {
+      const m = r.margin ?? 0
+      counts.set(m, (counts.get(m) ?? 0) + 1)
+    }
+    // 按出现次数降序，次数相同取 margin 较大的（反映最新批量设置）
+    const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])
+    const mode = sorted[0][0]
+    const distribution = sorted.map(([margin, count]) => ({ margin, count }))
+
+    logger.info('CTRL_ADMIN_POLLINATIONS_MARGIN_GET', { mode, total: rows.length, distinctMargins: distribution.length })
+    res.json({ ok: true, data: { margin: mode, total: rows.length, distribution } })
+  } catch (e) { next(e) }
+})
+
+// ============================================================
+// GET /pollinations/video-benchmark
+// 动态抓取 Pollinations 官方视频模型定价，与平台 DB 对比
+// ============================================================
+router.get('/pollinations/video-benchmark', requireAdminOrAbove, async (req, res, next) => {
+  try {
+    const ratio = await getTokenRatio() // 1 pollen = N 积分
+
+    // 1. 动态拉取 Pollinations 官方 catalog
+    const resp = await fetch('https://gen.pollinations.ai/v1/models', {
+      signal: AbortSignal.timeout(15000),
+    })
+    if (!resp.ok) throw new Error(`Pollinations API ${resp.status}`)
+    const json: any = await resp.json()
+    const official: any[] = (json.data || json).filter((m: any) => {
+      const p = m.pricing
+      return p && p.completionVideoSeconds && parseFloat(p.completionVideoSeconds) > 0
+    })
+
+    // 2. 查 DB 所有 Pollinations 视频模型
+    const dbModels = await prisma.aIModel.findMany({
+      where: { type: 'video', provider: { name: { in: ['pollinations-video', 'Pollinations Video'] } } },
+      select: { id: true, name: true, costTokens: true, margin: true, config: true, status: true, provider: { select: { name: true } } },
+    })
+
+    // 3. 别名映射（与 pollinationsSync.ts MODEL_ID_ALIASES 完全同步）
+    //    仅展示平台已跟踪的模型，过滤社区上传模型（如 community/NamanSon78/Seedance-2.5）
+    const ALIASES: Record<string, string> = {
+      'bytedance/seedance-1-pro-fast': 'seedance-pro',
+      'bytedance/seedance-2.0-fast': 'seedance-2.0-fast',
+      'bytedance/seedance-2.0-mini': 'seedance-2.0-mini',
+      'bytedance/seedance-2.5': 'seedance-2.5',
+      'bytedance/seedance-2.0': 'seedance-2.0',
+      'alibaba/wan-2.2-fast': 'wan-fast',
+      'alibaba/wan-2.7': 'wan-pro',
+      'alibaba/wan-3.0': 'wan-3.0',
+      'prunaai/p-video': 'p-video',
+      'google/veo-3.1-fast': 'veo',
+      'minimax/minimax-h3': 'minimax-h3',
+      'amazon/nova-reel-v1': 'nova-reel',
+      // 以下模型 Pollinations 有但平台暂未正式接入（别名保留用于对比展示）
+      'alibaba/wan-2.6': 'wan-2.6',
+      'alibaba/happyhorse-1.1': 'happyhorse',
+      'x-ai/grok-imagine-video': 'grok-video',
+      'x-ai/grok-imagine-video-1.5': 'grok-video-pro',
+    }
+    const DEFAULT_DUR: Record<string, number> = { 'seedance-2.5': 4, 'nova-reel': 6 }
+    const getDur = (id: string) => DEFAULT_DUR[id] ?? 5
+
+    // 4. 组装对比数据（动态获取 USD→CNY 汇率）
+    const { value: USD_TO_CNY } = await fetchUsdToCny()
+    const TOKENS_PER_CNY = Math.round((1 * ratio) / USD_TO_CNY) // 1 USD = 1 pollen × ratio 积分，按汇率反推 ¥1 → 积分
+
+    // 仅保留平台已跟踪的模型（在 ALIASES 中有映射），过滤社区上传模型
+    const tracked = official.filter((om) => ALIASES[om.id])
+
+    const rows = tracked.map((om) => {
+      const internalId = ALIASES[om.id]
+      const dur = getDur(internalId)
+      const pollenPerSec = parseFloat(om.pricing.completionVideoSeconds)
+      const pollenTotal = pollenPerSec * dur
+      const officialCostUsd = pollenTotal // $1 ≈ 1 pollen
+      const officialCostCny = +(officialCostUsd * USD_TO_CNY).toFixed(2)
+
+      const db = dbModels.find((m) => m.name === internalId)
+      const dbCostTokens = db?.costTokens ?? 0
+      const dbMargin = db?.margin ?? 0
+      // 平台售价 = costTokens / 139 CNY
+      const platformPriceCny = dbCostTokens > 0 ? +(dbCostTokens / TOKENS_PER_CNY).toFixed(2) : null
+      // 应有 costTokens（按当前 ratio + margin）
+      const baseShould = Math.max(1, Math.ceil(pollenTotal * ratio))
+      const costShould = Math.ceil(baseShould * (1 + dbMargin / 100))
+      // 偏差
+      const deviation = dbCostTokens > 0 ? Math.round((dbCostTokens - costShould) / costShould * 100) : null
+
+      return {
+        officialId: om.id,
+        internalId,
+        displayName: om.title || internalId,
+        pollenPerSec,
+        defaultDuration: dur,
+        pollenTotal: +pollenTotal.toFixed(4),
+        officialCostUsd: +officialCostUsd.toFixed(4),
+        officialCostCny,
+        dbCostTokens,
+        dbMargin,
+        costShould,
+        deviation,
+        platformPriceCny,
+        status: db?.status ?? 'missing',
+      }
+    }).sort((a, b) => a.pollenPerSec - b.pollenPerSec)
+
+    // 5. 统计（officialCount = 过滤社区模型后的平台跟踪模型数）
+    const summary = {
+      officialCount: tracked.length,
+      dbCount: dbModels.length,
+      matched: rows.filter((r) => r.dbCostTokens > 0).length,
+      missing: rows.filter((r) => r.dbCostTokens === 0).length,
+      ratio,
+      usdToCny: USD_TO_CNY,
+      tokensPerCny: TOKENS_PER_CNY,
+      fetchedAt: new Date().toISOString(),
+    }
+
+    logger.info('CTRL_ADMIN_POLLINATIONS_VIDEO_BENCHMARK', { official: tracked.length, totalApi: official.length, matched: summary.matched })
+    res.json({ ok: true, data: { rows, summary } })
+  } catch (e) {
+    next(e)
+  }
+})
+
+// ============================================================
+// GET /pollinations/image-benchmark
+// 动态抓取 Pollinations 官方图像模型定价，与平台 DB 对比
+// ============================================================
+router.get('/pollinations/image-benchmark', requireAdminOrAbove, async (req, res, next) => {
+  try {
+    const ratio = await getTokenRatio()
+
+    // 1. 动态拉取 Pollinations 官方 catalog
+    const resp = await fetch('https://gen.pollinations.ai/v1/models', {
+      signal: AbortSignal.timeout(15000),
+    })
+    if (!resp.ok) throw new Error(`Pollinations API ${resp.status}`)
+    const json: any = await resp.json()
+    const official: any[] = (json.data || json).filter((m: any) => {
+      const p = m.pricing
+      if (!p) return false
+      // image 模型有 completionImageTokens
+      const imgTokens = parseFloat(p.completionImageTokens ?? '0')
+      return imgTokens > 0
+    })
+
+    // 2. 查 DB 所有 Pollinations 图像模型
+    const dbModels = await prisma.aIModel.findMany({
+      where: { type: 'image', provider: { name: { in: ['pollinations', 'Pollinations'] } } },
+      select: { id: true, name: true, costTokens: true, margin: true, status: true, provider: { select: { name: true } } },
+    })
+
+    const USD_TO_CNY = (await fetchUsdToCny()).value
+    const TOKENS_PER_CNY = Math.round((1 * ratio) / USD_TO_CNY)
+
+    // 3. 组装对比数据
+    const rows = official.map((om) => {
+      const internalId = om.id // image 模型无别名映射，DB name = 官方 ID
+      const completionImgTokens = parseFloat(om.pricing.completionImageTokens ?? '0')
+      const promptImgTokens = parseFloat(om.pricing.promptImageTokens ?? '0')
+      const promptTxtTokens = parseFloat(om.pricing.promptTextTokens ?? '0')
+      const pollenTotal = completionImgTokens + promptImgTokens + promptTxtTokens
+      const officialCostUsd = pollenTotal // $1 ≈ 1 pollen
+      const officialCostCny = +(officialCostUsd * USD_TO_CNY).toFixed(4)
+
+      const db = dbModels.find((m) => m.name === internalId)
+      const dbCostTokens = db?.costTokens ?? 0
+      const dbMargin = db?.margin ?? 0
+      const platformPriceCny = dbCostTokens > 0 ? +(dbCostTokens / TOKENS_PER_CNY).toFixed(4) : null
+      // 应有 costTokens
+      const baseShould = Math.max(1, Math.ceil(pollenTotal * ratio))
+      const costShould = Math.ceil(baseShould * (1 + dbMargin / 100))
+      const deviation = dbCostTokens > 0 ? Math.round((dbCostTokens - costShould) / costShould * 100) : null
+
+      return {
+        officialId: om.id,
+        internalId,
+        displayName: om.title || om.id,
+        completionImgTokens,
+        pollenTotal: +pollenTotal.toFixed(6),
+        officialCostUsd: +officialCostUsd.toFixed(6),
+        officialCostCny,
+        dbCostTokens,
+        dbMargin,
+        costShould,
+        deviation,
+        platformPriceCny,
+        status: db?.status ?? 'missing',
+      }
+    }).sort((a, b) => a.pollenTotal - b.pollenTotal)
+
+    const summary = {
+      officialCount: official.length,
+      dbCount: dbModels.length,
+      matched: rows.filter((r) => r.dbCostTokens > 0).length,
+      missing: rows.filter((r) => r.dbCostTokens === 0).length,
+      ratio,
+      usdToCny: USD_TO_CNY,
+      tokensPerCny: TOKENS_PER_CNY,
+      fetchedAt: new Date().toISOString(),
+    }
+
+    logger.info('CTRL_ADMIN_POLLINATIONS_IMAGE_BENCHMARK', { official: official.length, matched: summary.matched })
+    res.json({ ok: true, data: { rows, summary } })
+  } catch (e) {
+    next(e)
+  }
+})
+
 export default router
+

@@ -8,6 +8,7 @@ import { useQuotaModalStore } from '../store/useQuotaModalStore'
 
 interface ErrorResponseData {
   error?: string
+  message?: string
   need?: number
   remaining?: number
   [key: string]: unknown
@@ -26,6 +27,28 @@ export function setToken(token: string): void {
 
 export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY)
+}
+
+// 提取后端错误信息：兼容 ApiResponse.message（全局错误处理器）和 { error }（中间件直返）
+function extractErrMsg(data: ErrorResponseData | null, fallback: string): string {
+  if (!data) return fallback
+  return data.error || data.message || fallback
+}
+
+// 低阶 fetch 封装：返回原始 Response，调用方需自行 res.json()
+// 适用于需要访问 res.status / res.headers 的场景（如管理后台对比页、同步面板）
+// 业务请求优先使用 apiFetch<T>（自动处理 401/JSON 解析）
+export async function apiFetchRaw(url: string, opts?: RequestInit): Promise<Response> {
+  const token = getToken()
+  return fetch(url, {
+    ...opts,
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(opts?.headers || {}),
+    },
+  })
 }
 
 // 统一 fetch 封装
@@ -56,17 +79,18 @@ export async function apiFetch<T>(
   // 1. 如果这是登录请求本身（/api/auth/login），直接使用后端返回的错误信息
   // 2. 其他请求（需要认证的API），清除 token 提示登录过期
   if (res.status === 401) {
-    const data = await res.json()
+    let data: ErrorResponseData | null = null
+    try { data = await res.json() as ErrorResponseData } catch { /* ignore */ }
     if (url.includes('/api/auth/')) {
       // 登录请求本身失败（UID/密码错），使用后端真实错误
-      const err = new Error(data.error || `HTTP ${res.status}`) as Error & { status?: number; data?: unknown }
+      const err = new Error(extractErrMsg(data, '登录失败，请检查 UID 和密码')) as Error & { status?: number; data?: unknown }
       err.status = res.status
       err.data = data
       throw err
     } else {
       // 其他API请求认证失败，清除旧 token 提示过期
       clearToken()
-      throw new Error('登录已过期，请重新登录')
+      throw new Error(extractErrMsg(data, '登录已过期，请重新登录'))
     }
   }
 
@@ -77,18 +101,20 @@ export async function apiFetch<T>(
     useQuotaModalStore.getState().openModal({
       need: data?.need,
       remaining: data?.remaining,
-      message: data?.error,
+      message: extractErrMsg(data, '积分不足，请先充值'),
     })
-    const err = new Error(data?.error || '积分不足，请先充值') as Error & { status?: number; data?: unknown }
+    const err = new Error(extractErrMsg(data, '积分不足，请先充值')) as Error & { status?: number; data?: unknown }
     err.status = 402
     err.data = data
     throw err
   }
 
-  const data = await res.json()
+  let data: unknown = null
+  try { data = await res.json() } catch { /* ignore */ }
 
   if (!res.ok) {
-    const err = new Error(data.error || `HTTP ${res.status}`) as Error & { status?: number; data?: unknown }
+    const errData = data as ErrorResponseData | null
+    const err = new Error(extractErrMsg(errData, `HTTP ${res.status}`)) as Error & { status?: number; data?: unknown }
     err.status = res.status
     err.data = data
     throw err
@@ -131,12 +157,13 @@ export async function uploadFile(url: string, file: File): Promise<{ url: string
     useQuotaModalStore.getState().openModal({
       need: data?.need,
       remaining: data?.remaining,
-      message: data?.error,
+      message: extractErrMsg(data, '积分不足，请先充值'),
     })
-    throw new Error(data?.error || '积分不足，请先充值')
+    throw new Error(extractErrMsg(data, '积分不足，请先充值'))
   }
 
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+  let data: any = null
+  try { data = await res.json() } catch { /* ignore */ }
+  if (!res.ok) throw new Error(extractErrMsg(data, `HTTP ${res.status}`))
   return data
 }

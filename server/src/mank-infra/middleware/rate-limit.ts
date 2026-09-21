@@ -48,10 +48,18 @@ function getStore(prefix: string) {
 }
 
 // ============== IP 归一化 ==============
+// 安全规则：仅当 Express trust proxy 启用时才信任 X-Forwarded-For
+// 未启用 trust proxy 时直接使用 req.ip（即 socket 远程地址），防止 IP 伪造绕流
 function normalizeIp(req: Request): string {
-  const xff = req.headers['x-forwarded-for']
-  const rawIp = typeof xff === 'string' ? xff.split(',')[0]?.trim() : undefined
-  let ip = rawIp || req.ip || (req.socket as any)?.remoteAddress || 'unknown'
+  const trustProxy = req.app.get('trust proxy')
+  let ip: string
+  if (trustProxy) {
+    // trust proxy 已启用，req.ip 由 Express 正确解析 XFF
+    ip = req.ip || (req.socket as any)?.remoteAddress || 'unknown'
+  } else {
+    // trust proxy 未启用，不信任任何 XFF 头，直接取 socket 地址
+    ip = (req.socket as any)?.remoteAddress || req.ip || 'unknown'
+  }
   if (ip.includes(':')) {
     const doubleColon = ip.indexOf('::')
     if (doubleColon !== -1) {

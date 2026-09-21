@@ -142,8 +142,8 @@ describe('Image Signer', () => {
       expect(result).toBeNull()
     })
 
-    it('应该接受 aliyuncs.com 子域名', () => {
-      const aliUrl = 'https://result-bj.aliyuncs.com/output/test.png'
+    it('应该接受已知 region 的 OSS 子域名', () => {
+      const aliUrl = 'https://result-bj.oss-cn-beijing.aliyuncs.com/output/test.png'
       const signed = signImageUrl(aliUrl, userId, costTokens)
       const url = new URL(signed, 'http://localhost')
       const params = url.searchParams
@@ -158,6 +158,19 @@ describe('Image Signer', () => {
 
       expect(result).not.toBeNull()
       expect(result!.url).toBe(aliUrl)
+    })
+
+    it('应该拒绝未知 region 的 aliyuncs.com 子域名（防 SSRF）', () => {
+      const evilUrl = 'https://attacker-bucket.oss-cn-unknown.aliyuncs.com/output/test.png'
+      const ts = String(Date.now())
+      const payload = `${ts}::::${evilUrl}`
+      const sig = require('crypto').createHmac('sha256', process.env.IMAGE_SIGNING_SECRET || '')
+        .update(payload).digest('hex').slice(0, 16)
+      const encoded = Buffer.from(evilUrl).toString('base64url')
+
+      const result = verifySignedUrl(encoded, ts, sig)
+
+      expect(result).toBeNull()
     })
 
     it('携带 txId 的签名 URL 验证后应返回 txId', () => {

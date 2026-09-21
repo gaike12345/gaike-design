@@ -6,9 +6,43 @@ import logger from '../../mank-infra/logging/logger'
 
 const router = Router()
 
+// 会员套餐与充值套餐的契约（用于校验从 SiteConfig 读出的运行时配置）
+interface Plan {
+  id: string
+  name: string
+  price: number
+  tokens: number
+  features: string[]
+}
+interface RechargePackage {
+  id: string
+  tokens: number
+  price: number
+  bonus: number
+}
+
+// 类型守卫：检查 SiteConfig 中的运行时配置是否符合契约
+function isPlanArray(v: unknown): v is Plan[] {
+  if (!Array.isArray(v) || v.length === 0) return false
+  return v.every((it) => it !== null && typeof it === 'object'
+    && typeof (it as Plan).id === 'string'
+    && typeof (it as Plan).name === 'string'
+    && typeof (it as Plan).price === 'number'
+    && typeof (it as Plan).tokens === 'number'
+    && Array.isArray((it as Plan).features))
+}
+function isRechargePackageArray(v: unknown): v is RechargePackage[] {
+  if (!Array.isArray(v) || v.length === 0) return false
+  return v.every((it) => it !== null && typeof it === 'object'
+    && typeof (it as RechargePackage).id === 'string'
+    && typeof (it as RechargePackage).tokens === 'number'
+    && typeof (it as RechargePackage).price === 'number'
+    && typeof (it as RechargePackage).bonus === 'number')
+}
+
 // 会员套餐定义（H3: 默认值，运行时从 SiteConfig 读取，可在管理后台动态调整）
-// 标准汇率：1元 = 100积分，新用户不再赠送积分
-const DEFAULT_PLANS = [
+// 1 pollen = 2000 积分（含成本+毛利），新用户不再赠送积分
+const DEFAULT_PLANS: Plan[] = [
   { id: 'free', name: '免费版', price: 0, tokens: 0, features: ['基础生成', '社区浏览', '需充值后使用'] },
   { id: 'pro', name: '专业版', price: 29, tokens: 3000, features: ['优先队列', '高清导出', '无水印', '专属模板'] },
   { id: 'business', name: '商业版', price: 99, tokens: 12000, features: ['专业版全部功能', '商用授权', 'API 接入', '专属客服'] },
@@ -16,12 +50,12 @@ const DEFAULT_PLANS = [
 ]
 
 // 充值套餐定义（H3: 默认值，运行时从 SiteConfig 读取）
-// 标准汇率：1元 = 100积分，充值越多赠送越多
-const DEFAULT_RECHARGE_PACKAGES = [
-  { id: 'pkg_10', tokens: 900, price: 9, bonus: 100 },
-  { id: 'pkg_50', tokens: 3900, price: 39, bonus: 600 },
-  { id: 'pkg_100', tokens: 6900, price: 69, bonus: 1600 },
-  { id: 'pkg_500', tokens: 29900, price: 299, bonus: 10100 },
+// 1 pollen = 2000 积分（含成本+毛利），充值越多赠送越多
+const DEFAULT_RECHARGE_PACKAGES: RechargePackage[] = [
+  { id: 'pkg_10', tokens: 900, price: 9, bonus: 50 },
+  { id: 'pkg_50', tokens: 3900, price: 39, bonus: 200 },
+  { id: 'pkg_100', tokens: 6900, price: 69, bonus: 400 },
+  { id: 'pkg_500', tokens: 29900, price: 299, bonus: 2000 },
 ]
 
 // H3: 从 SiteConfig 读取计费配置，解析失败或未配置时回退到硬编码默认值
@@ -29,12 +63,11 @@ async function getBillingConfig() {
   const { flat } = await getAllSiteConfigs()
   const currency = typeof flat['billing.currency'] === 'string' ? flat['billing.currency'] : 'CNY'
   const period = typeof flat['billing.period'] === 'string' ? flat['billing.period'] : 'month'
-  let plans = DEFAULT_PLANS
-  let packages = DEFAULT_RECHARGE_PACKAGES
+  // 用类型守卫严格校验 SiteConfig 中的运行时配置，避免不安全 cast 把错误结构流入业务
   const rawPlans = flat['billing.plans']
-  if (Array.isArray(rawPlans) && rawPlans.length) plans = rawPlans as typeof DEFAULT_PLANS
+  const plans = isPlanArray(rawPlans) ? rawPlans : DEFAULT_PLANS
   const rawPkgs = flat['billing.recharge_packages']
-  if (Array.isArray(rawPkgs) && rawPkgs.length) packages = rawPkgs as typeof DEFAULT_RECHARGE_PACKAGES
+  const packages = isRechargePackageArray(rawPkgs) ? rawPkgs : DEFAULT_RECHARGE_PACKAGES
   return { plans, packages, currency, period }
 }
 
@@ -483,6 +516,16 @@ router.post('/pay/:id', async (req: Request, res: Response, next: NextFunction) 
     expires.setMonth(targetMonth)
 
     await prisma.$transaction(async (tx) => {
+      // 0) 提前读当前余额（用于后续 TokenTransaction 的 balanceBefore 字段）
+      //    必须在 userQuota.update 之前读，因为 update 之后再读就变成 balanceAfter 了
+      const quotaBefore = await tx.userQuota.findUnique({
+        where: { userId },
+        select: { remainingTokens: true, totalTokens: true },
+      })
+      if (!quotaBefore) {
+        throw new Error(`用户额度记录不存在: ${userId}`)
+      }
+
       // 1) 订单状态置 paid
       await tx.paymentOrder.update({
         where: { id: orderId },
@@ -500,9 +543,10 @@ router.post('/pay/:id', async (req: Request, res: Response, next: NextFunction) 
       }
       if (order.planId) updateData.planId = order.planId
 
-      await tx.userQuota.update({
+      const updatedQuota = await tx.userQuota.update({
         where: { userId },
         data: updateData,
+        select: { remainingTokens: true, totalTokens: true, usedTokens: true },
       })
 
       // 3) 订阅计划：创建或续期 Subscription
@@ -526,6 +570,24 @@ router.post('/pay/:id', async (req: Request, res: Response, next: NextFunction) 
           })
         }
       }
+
+      // 4) P0-4 修复：写充值流水 TokenTransaction
+      //    保证每一笔充值都有可审计的流水记录，reconcile 能追溯
+      await tx.tokenTransaction.create({
+        data: {
+          userId,
+          type: 'recharge',
+          status: 'completed',
+          amount: order.tokens,  // 正数 = 增加
+          balanceBefore: quotaBefore.remainingTokens,
+          balanceAfter: updatedQuota.remainingTokens,
+          relatedType: 'order',
+          relatedId: orderId,
+          reason: order.planId
+            ? `套餐充值 ${order.tokens} 积分（订单 ${orderId}，套餐 ${order.planId}）`
+            : `充值 ${order.tokens} 积分（订单 ${orderId}）`,
+        },
+      })
     })
 
     res.json({

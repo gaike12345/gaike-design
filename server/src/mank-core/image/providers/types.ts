@@ -14,6 +14,10 @@ export interface ImageGenerateParams {
   negativePrompt?: string
   /** 参考图 URL（图生图） */
   refImage?: string
+  /** 画质等级（仅对支持 quality 的模型有效：GPT Image / Grok Imagine 2.0） */
+  quality?: string
+  /** 透明背景（仅对 gptimage 系列有效） */
+  transparent?: boolean
   /** 风格 / 其他附加参数（从 model.config 读取） */
   extra?: Record<string, unknown>
 }

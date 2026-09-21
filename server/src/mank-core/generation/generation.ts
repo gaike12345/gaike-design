@@ -9,30 +9,76 @@ export interface LogGenerationParams {
   provider?: string    // 供应商
   input?: string       // JSON: 输入参数摘要
   output?: string      // JSON: 输出结果摘要
-  tokensUsed?: number  // token 消耗
+  tokensUsed?: number  // token 消耗（用户支付的售价积分）
   duration?: number    // 耗时(ms)
   status?: string      // success | failed | pending
   errorMsg?: string
+  // 毛利对账字段（2026-09 升级）
+  costTokens?: number     // 官方成本积分（无毛利）
+  marginAtCall?: number  // 调用时的 margin 快照
+  // revenueTokens 自动派生：tokensUsed - costTokens
 }
 
 export async function logGeneration(params: LogGenerationParams) {
   const {
     userId, type, modelId, provider, input, output,
     tokensUsed = 0, duration = 0, status = 'success', errorMsg,
+    costTokens, marginAtCall,
   } = params
+
+  // 派生毛利积分：仅当成功调用且 costTokens 已知时计算
+  const safeCost = typeof costTokens === 'number' && costTokens >= 0 ? costTokens : null
+  const revenueTokens = (status === 'success' && safeCost !== null && tokensUsed >= safeCost)
+    ? tokensUsed - safeCost
+    : 0
 
   // 1) 写生成日志
   const log = await prisma.generationLog.create({
     data: {
       userId, type, modelId, provider, input, output,
       tokensUsed, duration, status, errorMsg,
+      costTokens: safeCost ?? 0,
+      marginAtCall: typeof marginAtCall === 'number' && marginAtCall > 0 ? marginAtCall : 2.0,
+      revenueTokens,
     },
+  })
+
+  // 1.1) 自动修剪：每个用户最多保留 200 条生成历史
+  // 用 fire-and-forget，不阻塞主链路；失败只记录日志
+  void pruneUserGenerationLog(userId, 200).catch((e) => {
+    logger.warn('[Generation] pruneUserGenerationLog failed:', e?.message || e)
   })
 
   // 2) 扣减用户额度（失败不扣）
   // 注意：实际预扣已在 withGeneration 中通过 atomicDeductQuota 完成，
   // 这里只在 success 时记录 usedTokens 增量；failed 时由 atomicRefundQuota 退还预扣
   return log
+}
+
+/**
+ * 修剪某个用户的 generationLog，只保留最近 `keep` 条。
+ * - 超过 keep 条时，按 createdAt asc 删除最旧的
+ * - 不阻塞主流程，由调用方 catch 处理错误
+ */
+async function pruneUserGenerationLog(userId: string, keep: number): Promise<void> {
+  const total = await prisma.generationLog.count({ where: { userId } })
+  if (total <= keep) return
+
+  // 找出需要保留的最新 keep 条的 id
+  const toKeep = await prisma.generationLog.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'desc' },
+    take: keep,
+    select: { id: true },
+  })
+  const keepIds = toKeep.map((r) => r.id)
+
+  // 删除不在保留列表中的旧记录
+  const result = await prisma.generationLog.deleteMany({
+    where: { userId, id: { notIn: keepIds } },
+  })
+
+  logger.info('[Generation] pruned history', { userId, deleted: result.count, kept: keep })
 }
 
 // 检查用户额度是否足够（只读，不扣）

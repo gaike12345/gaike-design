@@ -1,11 +1,45 @@
 // AI 图像生成模型多维度对比（创作画布板块）
 // 数据基准：Pollinations 聚合 API + 官方 API 刊例价 · 2026-09
 // 目的：帮助运营理解不同图像模型的价格 / 能力 / 选型
-import { useState } from 'react'
+// "官方 vs 平台售价" tab 数据动态从 Pollinations API 抓取，随官方定价调整自动变动
+import { useState, useEffect, useCallback } from 'react'
 import {
   Image as ImageIcon, DollarSign, TrendingDown, Layers, Zap,
   Check, Minus, Sparkles, ArrowRight, Cpu, Star, Clock, Shield,
+  RefreshCw, AlertCircle, CheckCircle2,
 } from 'lucide-react'
+import { apiFetchRaw as apiFetch } from '../../services/api'
+
+// 动态抓取的 Pollinations 官方图像定价基准行
+interface BenchmarkRow {
+  officialId: string
+  internalId: string
+  displayName: string
+  completionImgTokens: number
+  pollenTotal: number
+  officialCostUsd: number
+  officialCostCny: number
+  dbCostTokens: number
+  dbMargin: number
+  costShould: number
+  deviation: number | null
+  platformPriceCny: number | null
+  status: string
+}
+
+interface BenchmarkData {
+  rows: BenchmarkRow[]
+  summary: {
+    officialCount: number
+    dbCount: number
+    matched: number
+    missing: number
+    ratio: number
+    usdToCny: number
+    tokensPerCny: number
+    fetchedAt: string
+  }
+}
 
 interface ImageModel {
   name: string           // 模型名
@@ -91,10 +125,11 @@ const ACCENT_BADGE: Record<string, string> = {
   amber:   'from-amber-500 to-amber-600',
 }
 
-type Tab = 'compare' | 'pricing'
+type Tab = 'compare' | 'pricing' | 'official'
 const TABS: { key: Tab; label: string; icon: any; count?: number }[] = [
-  { key: 'compare', label: '模型全维度对比', icon: Cpu,       count: IMAGE_MODELS.length },
-  { key: 'pricing', label: '平台定价体系',   icon: DollarSign, count: PLATFORM_PRICING.length },
+  { key: 'compare',  label: '模型全维度对比', icon: Cpu,       count: IMAGE_MODELS.length },
+  { key: 'pricing',  label: '平台定价体系',   icon: DollarSign, count: PLATFORM_PRICING.length },
+  { key: 'official', label: '官方 vs 平台售价', icon: Shield },
 ]
 
 function TierBadge({ tier }: { tier: string }) {
@@ -121,6 +156,31 @@ function SpeedTag({ s }: { s: ImageModel['speed'] }) {
 
 export function ImageModelCompare() {
   const [tab, setTab] = useState<Tab>('compare')
+  const [benchmark, setBenchmark] = useState<BenchmarkData | null>(null)
+  const [benchLoading, setBenchLoading] = useState(false)
+  const [benchError, setBenchError] = useState<string | null>(null)
+
+  const fetchBenchmark = useCallback(async () => {
+    setBenchLoading(true)
+    setBenchError(null)
+    try {
+      const res = await apiFetch('/api/admin/pollinations/image-benchmark')
+      const data = await res.json()
+      if (!res.ok || !data.ok) throw new Error(data.error || '抓取失败')
+      setBenchmark(data.data)
+    } catch (e: any) {
+      setBenchError(e.message || '未知错误')
+    } finally {
+      setBenchLoading(false)
+    }
+  }, [])
+
+  // 切换到 official tab 时自动拉取（首次）
+  useEffect(() => {
+    if (tab === 'official' && !benchmark && !benchLoading) {
+      void fetchBenchmark()
+    }
+  }, [tab, benchmark, benchLoading, fetchBenchmark])
 
   return (
     <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
@@ -135,6 +195,11 @@ export function ImageModelCompare() {
             <p className="mt-0.5 text-xs text-neutral-500">
               主流文生图 / 图生图模型全面横评 · 分辨率 · 采样步数 · 控制能力 · 定价
               <span className="ml-1 rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] text-neutral-500">2026-09</span>
+              {benchmark?.summary?.fetchedAt && (
+                <span className="ml-1 rounded bg-cyan-50 px-1.5 py-0.5 font-mono text-[10px] text-cyan-700">
+                  官方定价实时抓取 · {new Date(benchmark.summary.fetchedAt).toLocaleString('zh-CN')}
+                </span>
+              )}
             </p>
           </div>
         </div>
@@ -192,6 +257,14 @@ export function ImageModelCompare() {
       <div className="px-4 py-4 md:px-5">
         {tab === 'compare' && <CompareTable />}
         {tab === 'pricing'  && <PricingTable />}
+        {tab === 'official' && (
+          <OfficialVsPlatform
+            data={benchmark}
+            loading={benchLoading}
+            error={benchError}
+            onRefresh={fetchBenchmark}
+          />
+        )}
       </div>
     </div>
   )
@@ -319,6 +392,163 @@ function PricingTable() {
         * 以上为 1024×1024 单张的基准售价。2048×2048 / 批量 / ControlNet 等高级功能会相应加价。
         按 <b className="font-mono">100 积分 = 1 元人民币</b> 折算，¥0.10 – ¥1.00 / 张。
       </p>
+    </div>
+  )
+}
+
+// ---------- 官方 vs 平台售价对比（动态抓取 Pollinations 官方图像定价）----------
+function OfficialVsPlatform({ data, loading, error, onRefresh }: {
+  data: BenchmarkData | null
+  loading: boolean
+  error: string | null
+  onRefresh: () => void
+}) {
+  const s = data?.summary
+  const rows = data?.rows ?? []
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-3">
+        {/* 标题 + 刷新按钮 */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <DollarSign className="h-3.5 w-3.5 text-cyan-500" />
+            <span className="text-xs text-neutral-500">
+              动态抓取 <b className="text-neutral-700">Pollinations 官方图像定价</b> 与平台 DB 售价对比 · 随官方调价自动更新
+            </span>
+          </div>
+          <button
+            onClick={onRefresh}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-white px-2.5 py-1 text-[11px] font-medium text-neutral-700 hover:bg-cyan-50 hover:text-cyan-700 disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
+            {loading ? '抓取中…' : '刷新官方定价'}
+          </button>
+        </div>
+
+        {/* 汇率基准信息 */}
+        {s && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-cyan-100 bg-cyan-50/40 px-3 py-2 text-[11px] text-neutral-600">
+            <span className="inline-flex items-center gap-1">
+              <Shield className="h-3 w-3 text-emerald-500" />
+              汇率：<b className="font-mono text-neutral-800">1 pollen = {s.ratio} 积分</b>
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <DollarSign className="h-3 w-3 text-cyan-500" />
+              <b className="font-mono text-neutral-800">$1 ≈ 1 pollen ≈ ¥{s.usdToCny}</b>
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Cpu className="h-3 w-3 text-violet-500" />
+              <b className="font-mono text-neutral-800">1 CNY = {s.tokensPerCny} 积分</b>
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+              官方 {s.officialCount} 个 · 匹配 {s.matched} · 缺失 {s.missing}
+            </span>
+          </div>
+        )}
+
+        {/* 加载状态 */}
+        {loading && !data && (
+          <div className="flex items-center justify-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 py-12 text-xs text-neutral-500">
+            <RefreshCw className="h-4 w-4 animate-spin" />
+            正在从 gen.pollinations.ai 抓取官方图像模型定价…
+          </div>
+        )}
+
+        {/* 错误状态 */}
+        {error && (
+          <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+            <AlertCircle className="h-3.5 w-3.5" />
+            抓取失败：{error}
+            <button onClick={onRefresh} className="ml-auto underline">重试</button>
+          </div>
+        )}
+
+        {/* 动态对比表格 */}
+        {data && rows.length > 0 && (
+          <div className="-mx-2 overflow-x-auto px-2">
+            <table className="min-w-[1060px] w-full text-xs">
+              <thead>
+                <tr className="text-left uppercase tracking-wide text-neutral-500">
+                  <th className="whitespace-nowrap border-b border-neutral-200 px-2 py-2 font-medium">模型</th>
+                  <th className="whitespace-nowrap border-b border-neutral-200 px-2 py-2 text-right font-medium">pollen/张</th>
+                  <th className="whitespace-nowrap border-b border-neutral-200 px-2 py-2 text-right font-medium">官方成本(¥)</th>
+                  <th className="whitespace-nowrap border-b border-neutral-200 px-2 py-2 text-right font-medium">平台积分</th>
+                  <th className="whitespace-nowrap border-b border-neutral-200 px-2 py-2 text-right font-medium">平台售价(¥)</th>
+                  <th className="whitespace-nowrap border-b border-neutral-200 px-2 py-2 text-right font-medium">毛利率</th>
+                  <th className="whitespace-nowrap border-b border-neutral-200 px-2 py-2 text-right font-medium">应有积分</th>
+                  <th className="whitespace-nowrap border-b border-neutral-200 px-2 py-2 text-right font-medium">偏差</th>
+                  <th className="whitespace-nowrap border-b border-neutral-200 px-2 py-2 font-medium">状态</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-100">
+                {rows.map((r) => {
+                  const marginPct = r.platformPriceCny !== null && r.officialCostCny > 0
+                    ? Math.round((r.platformPriceCny - r.officialCostCny) / r.officialCostCny * 100)
+                    : null
+                  const isMissing = r.dbCostTokens === 0
+                  const devColor = r.deviation === null ? '' : r.deviation === 0 ? 'text-emerald-600' : Math.abs(r.deviation) <= 5 ? 'text-amber-600' : 'text-rose-600'
+                  return (
+                    <tr key={r.officialId} className={`hover:bg-cyan-50/30 ${isMissing ? 'bg-rose-50/20' : ''}`}>
+                      <td className="px-2 py-2">
+                        <div className="font-medium text-neutral-900">{r.displayName || r.internalId}</div>
+                        <div className="text-[10px] text-neutral-400">{r.officialId}</div>
+                      </td>
+                      <td className="px-2 py-2 text-right font-mono text-neutral-700">{r.pollenTotal}</td>
+                      <td className="px-2 py-2 text-right font-mono text-neutral-700">¥{r.officialCostCny}</td>
+                      <td className="px-2 py-2 text-right font-mono font-bold text-cyan-700">
+                        {r.dbCostTokens > 0 ? r.dbCostTokens : <span className="text-rose-400">—</span>}
+                      </td>
+                      <td className="px-2 py-2 text-right font-mono text-neutral-700">
+                        {r.platformPriceCny !== null ? `¥${r.platformPriceCny}` : <span className="text-rose-400">—</span>}
+                      </td>
+                      <td className="px-2 py-2 text-right">
+                        {marginPct !== null ? (
+                          <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ring-1 ${
+                            marginPct < 0
+                              ? 'bg-rose-50 text-rose-700 ring-rose-200'
+                              : marginPct < 20
+                              ? 'bg-amber-50 text-amber-700 ring-amber-200'
+                              : 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+                          }`}>
+                            {marginPct > 0 ? `+${marginPct}%` : `${marginPct}%`}
+                          </span>
+                        ) : (
+                          <span className="text-neutral-300">—</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-2 text-right font-mono text-neutral-500">{r.costShould}</td>
+                      <td className={`px-2 py-2 text-right font-mono ${devColor}`}>
+                        {r.deviation === null ? '—' : `${r.deviation > 0 ? '+' : ''}${r.deviation}%`}
+                      </td>
+                      <td className="px-2 py-2">
+                        {isMissing ? (
+                          <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 ring-1 ring-rose-200">缺失</span>
+                        ) : r.status === 'active' ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> 启用
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] text-neutral-400">
+                            <span className="h-1.5 w-1.5 rounded-full bg-neutral-400" /> 禁用
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <p className="px-1 text-[10px] leading-relaxed text-neutral-400">
+          * 官方成本 = completionImageTokens × $1/pollen × ¥{s?.usdToCny ?? 7.2}/$ · 数据实时从 gen.pollinations.ai/v1/models 抓取。
+          毛利率 &lt; 0 表示平台售价低于官方成本（亏本），20%+ 为健康。偏差表示 DB 实际积分与按当前汇率+margin 应有值的差异。
+        </p>
+      </div>
     </div>
   )
 }

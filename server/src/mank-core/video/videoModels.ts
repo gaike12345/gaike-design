@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 视频模型配置模块
  *
  *  负责：
@@ -47,6 +47,8 @@ export interface VideoModelConfig {
     defaultRatio: string
     supportsImg2Video: boolean
     supportsAudio: boolean
+    supportsReferenceImages: boolean
+    supportsEndFrame: boolean
     baseCostPerSecond: number
   } | null
 }
@@ -83,6 +85,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       // video_capabilities: [start_frame] — 仅首帧图，无 reference_images
       supportsImg2Video: true,
       supportsAudio: false,
+      supportsReferenceImages: false,
+      supportsEndFrame: false,
       baseCostPerSecond: 50,
     },
   },
@@ -109,6 +113,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       // video_capabilities: [start_frame, end_frame, audio_output, reference_images, reference_videos, reference_audios]
       supportsImg2Video: true,
       supportsAudio: true,
+      supportsReferenceImages: true,
+      supportsEndFrame: true,
       baseCostPerSecond: 360,
     },
   },
@@ -133,6 +139,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       // video_capabilities: [start_frame, end_frame, audio_output, reference_images, reference_videos, reference_audios]
       supportsImg2Video: true,
       supportsAudio: true,
+      supportsReferenceImages: true,
+      supportsEndFrame: true,
       baseCostPerSecond: 206,
     },
   },
@@ -161,6 +169,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       // video_capabilities: [start_frame, end_frame, audio_output] — 无 reference_images
       supportsImg2Video: true,
       supportsAudio: true,
+      supportsReferenceImages: false,
+      supportsEndFrame: true,
       baseCostPerSecond: 180,
     },
   },
@@ -185,6 +195,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       // video_capabilities: [start_frame, end_frame, audio_output] — 无 reference_images
       supportsImg2Video: true,
       supportsAudio: true,
+      supportsReferenceImages: false,
+      supportsEndFrame: true,
       baseCostPerSecond: 140,
     },
   },
@@ -207,6 +219,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       // video_capabilities: [start_frame, end_frame] — 有首尾帧，无 reference_images，无音频
       supportsImg2Video: true,
       supportsAudio: false,
+      supportsReferenceImages: false,
+      supportsEndFrame: true,
       baseCostPerSecond: 20,
     },
   },
@@ -235,6 +249,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       // video_capabilities: [start_frame, end_frame, audio_output, reference_images, reference_videos]
       supportsImg2Video: true,
       supportsAudio: true,
+      supportsReferenceImages: true,
+      supportsEndFrame: true,
       baseCostPerSecond: 200,
     },
   },
@@ -260,6 +276,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       // video_capabilities: [start_frame, end_frame, audio_output, reference_images, reference_videos, reference_audios]
       supportsImg2Video: true,
       supportsAudio: true,
+      supportsReferenceImages: true,
+      supportsEndFrame: true,
       baseCostPerSecond: 136,
     },
   },
@@ -287,6 +305,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       // video_capabilities: [start_frame] — 仅首帧图，无 reference_images，无音频
       supportsImg2Video: true,
       supportsAudio: false,
+      supportsReferenceImages: false,
+      supportsEndFrame: false,
       baseCostPerSecond: 40,
     },
   },
@@ -315,6 +335,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       // video_capabilities: [start_frame, end_frame, audio_output] — 无 reference_images
       supportsImg2Video: true,
       supportsAudio: true,
+      supportsReferenceImages: false,
+      supportsEndFrame: true,
       baseCostPerSecond: 160,
     },
   },
@@ -340,6 +362,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       // video_capabilities: [audio_output] — 注意：无 start_frame！纯文生视频
       supportsImg2Video: false,
       supportsAudio: true,
+      supportsReferenceImages: false,
+      supportsEndFrame: false,
       baseCostPerSecond: 100,
     },
   },
@@ -367,6 +391,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       // video_capabilities: [start_frame]
       supportsImg2Video: true,
       supportsAudio: false,
+      supportsReferenceImages: false,
+      supportsEndFrame: false,
       baseCostPerSecond: 16,
     },
   },

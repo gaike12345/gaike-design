@@ -4,7 +4,16 @@
  * 每周自动从 https://gen.pollinations.ai/v1/models 拉取官方定价
  * 同步数据库 AIModel 的 costTokens
  *
- * 汇率: 1 pollen = 1000 积分（可通过 POLLINATIONS_FX_RATE 环境变量调整）
+ * 积分制度（currency boundary redesign 2026-09）:
+ *   Pollinations 官方以 pollen 计费（$1 ≈ 1 pollen）
+ *   平台向用户以"积分"计费，换算比例 1 pollen = POLLINATIONS_TOKEN_RATIO（默认 10）
+ *
+ *   costTokens = ceil(Pollinations 官方 pollen 消耗 × 10)
+ *
+ *   margin 语义: costTokens / pollen 消耗（即"当前模型的售价倍率"）
+ *     所有模型初始 margin = POLLINATIONS_TOKEN_RATIO / 1 = 10
+ *     管理员可以在默认 10:1 基础上单独调高（如稀缺模型 ×15）或调低（折扣）
+ *     pollinationsSync 已有模型时使用模型自身的 margin，不覆盖
  *
  * 可靠性设计（scheduled-job-reliability）:
  * - 幂等: 每次同步写入 PollinationsSyncLog，UPSERT AIModel
@@ -16,12 +25,22 @@
 
 import prisma from '../../mank-infra/database/prisma'
 import logger from '../../mank-infra/logging/logger'
+import {
+  POLLINATIONS_TOKEN_RATIO as RATIO_CONSTANT,
+  DEFAULT_MARGIN_PERCENT,
+  resolveCostTokensFromPollinations,
+  PollinationsModelInfo,
+  PollinationsPricing,
+  PollinationsVideoPricing,
+  PollinationsImageSimplePricing,
+  PollinationsImageComplexPricing,
+  ResolvedCostTokens,
+} from './tokenBilling'
+import { getTokenRatio } from './billingConfig.service'
 
 export const POLLINATIONS_API = 'https://gen.pollinations.ai/v1/models'
 export const POLLINATIONS_BALANCE_API = 'https://gen.pollinations.ai/account/balance'
 export const POLLINATIONS_PROFILE_API = 'https://gen.pollinations.ai/account/profile'
-export const DEFAULT_FX_RATE = 1000 // 1 pollen = 1000 积分
-export const DEFAULT_MARGIN = 2    // 2× 毛利倍率（最终售价 = 官方成本 × MARGIN）
 export const SYNC_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000 // 7 天
 export const MISSED_RUN_THRESHOLD_MS = 8 * 24 * 60 * 60 * 1000 // 8 天以上视为漏跑
 
@@ -47,6 +66,44 @@ const MODEL_ID_ALIASES: Record<string, string> = {
   'x-ai/grok-imagine-video-1.5': 'grok-video-pro',
 }
 
+// 模型默认时长（Pollinations video pricing 以 pollen/秒 为粒度，我们需要标准时长换算）
+const DEFAULT_DURATION_SECONDS = (internalId: string): number => {
+  if (internalId === 'seedance-2.5') return 4
+  if (internalId === 'nova-reel') return 6
+  return 5 // 大多数 video 模型默认 5 秒
+}
+
+/**
+ * 查找/创建 Pollinations 对应的 AIProvider。
+ * 历史兼容：seed.ts 里有 pollinations（小写 image）+ pollinations-video（小写连字符 video），
+ *          旧 sync 可能创建了大写 Pollinations。此函数统一处理三种命名。
+ */
+async function resolvePollinationsProvider(modelType: 'video' | 'image'): Promise<{ id: string; name: string }> {
+  // 按 modelType 优先匹配 seed.ts 的命名（最常见）
+  const preferredNames = modelType === 'video'
+    ? ['pollinations-video', 'Pollinations-video', 'Pollinations Video', 'Pollinations']
+    : ['pollinations', 'Pollinations', 'Pollinations-video']
+
+  // 先 findFirst 找到第一个存在的
+  for (const name of preferredNames) {
+    const existing = await prisma.aIProvider.findFirst({ where: { name } })
+    if (existing) return { id: existing.id, name: existing.name }
+  }
+
+  // 都没找到 → 创建一个（对齐 seed.ts 命名规范）
+  const newName = modelType === 'video' ? 'pollinations-video' : 'pollinations'
+  const created = await prisma.aIProvider.create({
+    data: {
+      name: newName,
+      displayName: modelType === 'video' ? 'Pollinations Video' : 'Pollinations',
+      type: modelType,
+      baseUrl: modelType === 'video' ? 'https://gen.pollinations.ai/video/' : 'https://gen.pollinations.ai/image/',
+    },
+  })
+  logger.warn('Pollinations provider 不存在，自动创建', { name: newName, type: modelType })
+  return { id: created.id, name: created.name }
+}
+
 let isSyncing = false
 
 export interface SyncResult {
@@ -56,47 +113,51 @@ export interface SyncResult {
   modelsAdded: number
   modelsRemoved: number
   diff: Array<{ modelId: string; label: string; oldCost: number | null; newCost: number; change: string }>
-  fxRate: number
-  margin: number
+  ratio: number      // POLLINATIONS_TOKEN_RATIO（1 pollen = N 积分）
+  defaultMargin: number
   errorMessage?: string
   startedAt: Date
   endedAt?: Date
 }
 
+// 类型守卫：替代 `as any` 访问 union 类型的 pricing 字段
+function isVideoPricing(p: PollinationsPricing): p is PollinationsVideoPricing {
+  return p !== null && p !== undefined && typeof (p as PollinationsVideoPricing).completionVideoSeconds === 'string'
+}
+function isImagePricing(p: PollinationsPricing): p is PollinationsImageSimplePricing | PollinationsImageComplexPricing {
+  return p !== null && p !== undefined && typeof (p as PollinationsImageSimplePricing).completionImageTokens === 'string'
+}
+
 /**
- * 从 Pollinations /v1/models 拉取所有 video 模型的官方定价
+ * 从 Pollinations /v1/models 拉取所有模型官方定价
+ * 覆盖 video（completionVideoSeconds）+ image（completionImageTokens）两类
+ * text 模型暂不同步（不在 AIModel 表管理范围内）
  */
-async function fetchPollinationsVideoModels(timeoutMs = 30_000): Promise<PollinationsModel[]> {
+async function fetchPollinationsModels(timeoutMs = 30_000): Promise<PollinationsModelInfo[]> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
 
   try {
     const res = await fetch(POLLINATIONS_API, { signal: controller.signal })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const data = (await res.json()) as { data: PollinationsModel[] }
-    return (data.data || []).filter((m) => m.category === 'video' && m.pricing?.completionVideoSeconds)
+    const data = (await res.json()) as { data: PollinationsModelInfo[] }
+    // 只保留 video + image 模型（text 模型不在 AIModel 表范围）
+    return (data.data || []).filter((m) => {
+      if (!m.pricing) return false
+      return isVideoPricing(m.pricing) || isImagePricing(m.pricing)
+    })
   } finally {
     clearTimeout(timer)
   }
 }
 
-interface PollinationsModel {
-  id: string
-  category: string
-  pricing?: {
-    completionVideoSeconds?: string
-  }
-  aliases?: string[]
-  title?: string
-  description?: string
-}
-
 /**
- * 计算某个模型在标准时长下的 costTokens
- * costTokens = pollen/s × fxRate × defaultDurationSeconds × margin
+ * 根据 Pollinations API 返回的模型信息解析 costTokens
+ * 统一入口，覆盖 video/image 两种模型类型
+ * durationSec: video 模型的标准时长（秒），image 模型忽略
  */
-function calcCostTokens(pollenPerSec: number, fxRate: number, defaultDurationSec: number, margin: number): number {
-  return Math.round(pollenPerSec * fxRate * defaultDurationSec * margin)
+function resolveCostFromPollinations(info: PollinationsModelInfo, durationSec: number): ResolvedCostTokens {
+  return resolveCostTokensFromPollinations(info, durationSec, undefined)
 }
 
 /**
@@ -113,16 +174,16 @@ export async function syncPollinationsPricing(trigger: 'cron' | 'manual' | 'catc
       modelsAdded: 0,
       modelsRemoved: 0,
       diff: [],
-      fxRate: 0,
-      margin: 0,
+      ratio: RATIO_CONSTANT,
+      defaultMargin: 0,
       errorMessage: 'sync_already_running',
       startedAt: new Date(),
     }
   }
   isSyncing = true
 
-  const fxRate = Number(process.env.POLLINATIONS_FX_RATE) || DEFAULT_FX_RATE
-  const margin = Number(process.env.POLLINATIONS_MARGIN) || DEFAULT_MARGIN
+  const ratio = await getTokenRatio()  // 1 pollen = N 积分（动态汇率，从 SiteConfig 读）
+  const defaultMargin = 0  // 全局默认毛利率 0%（无溢价）
   const startedAt = new Date()
   let logId: string | null = null
   const diff: SyncResult['diff'] = []
@@ -134,7 +195,7 @@ export async function syncPollinationsPricing(trigger: 'cron' | 'manual' | 'catc
         trigger,
         status: 'failed',
         startedAt,
-        pollenFxRate: fxRate,
+        pollenFxRate: ratio,  // 保留旧字段名（DB schema 兼容），值改为新的 ratio
         modelsChecked: 0,
         modelsUpdated: 0,
         modelsAdded: 0,
@@ -144,19 +205,22 @@ export async function syncPollinationsPricing(trigger: 'cron' | 'manual' | 'catc
     logId = log.id
   } catch (e) {
     logger.error('无法创建 PollinationsSyncLog（可能表不存在）', { error: e instanceof Error ? e.message : String(e) })
-    // 即使日志创建失败，继续尝试同步
   }
 
   try {
-    logger.info('开始 Pollinations 定价同步', { trigger, fxRate, margin })
+    logger.info('开始 Pollinations 定价同步（margin 语义升级: 倍率 → 百分比）', {
+      trigger, ratio, defaultMargin,
+    })
 
-    // 1. 拉取官方数据
-    const official = await fetchPollinationsVideoModels()
-    logger.info('Pollinations 官方返回 video 模型', { count: official.length })
+    // 1. 拉取官方数据（覆盖 video + image 两类模型）
+    const official = await fetchPollinationsModels()
+    logger.info('Pollinations 官方返回模型', { count: official.length })
 
-    // 2. 查询我们数据库里已有的 video 模型
+    // 2. 查询我们数据库里已有的 Pollinations 模型（video + image）
+    //    历史兼容：seed.ts 里 pollinations + pollinations-video，旧 sync 可能建了大写 Pollinations
+    const POLLINATIONS_PROVIDER_NAMES = ['pollinations', 'pollinations-video', 'Pollinations', 'Pollinations Video']
     const ourModels = await prisma.aIModel.findMany({
-      where: { type: 'video' },
+      where: { provider: { name: { in: POLLINATIONS_PROVIDER_NAMES } } },
       include: { provider: true },
     })
 
@@ -166,45 +230,54 @@ export async function syncPollinationsPricing(trigger: 'cron' | 'manual' | 'catc
     const knownOfficialIds = new Set<string>()
 
     for (const om of official) {
-      const internalId = MODEL_ID_ALIASES[om.id]
-      if (!internalId) {
-        // 不在我们的映射里，跳过（非 Pollinations 提供的模型、或我们暂未接入）
-        continue
-      }
+      // 3.1 video 模型走别名映射，image 模型直接用官方 ID
+      const internalId = MODEL_ID_ALIASES[om.id] ?? om.id
       knownOfficialIds.add(internalId)
 
-      const pollenPerSec = parseFloat(om.pricing!.completionVideoSeconds!)
-      if (isNaN(pollenPerSec)) continue
+      // 3.2 计算默认时长（video 模型需要，image 模型 resolve 时会忽略）
+      const defaultDurSec = DEFAULT_DURATION_SECONDS(internalId)
 
-      // 标准时长 = 我们给这个模型配的 defaultDuration
-      // 简化: 默认取 5s，nova-reel 取 6s，seedance-2.5 取 4s
-      const defaultDurSec = (() => {
-        if (internalId === 'seedance-2.5') return 4
-        if (internalId === 'nova-reel') return 6
-        return 5
-      })()
+      // 3.3 统一入口: Pollinations pricing → costTokens
+      const resolved = resolveCostFromPollinations(om, defaultDurSec)
+      if (resolved.costTokens <= 0) {
+        logger.debug('跳过 costTokens=0 的模型', { id: om.id, billingUnit: resolved.billingUnit })
+        continue
+      }
 
-      const newCost = calcCostTokens(pollenPerSec, fxRate, defaultDurSec, margin)
-
+      // 3.4 margin 同步策略（2026-09 v2: margin 语义改为"百分比"）
+      //     - margin = 毛利率百分比（0 = 无溢价，50 = 加价 50%）
+      //     - costTokens = ceil(baseTokens × (1 + margin/100))
+      //     - 默认 margin = 0（无溢价）
+      //     - 保护逻辑：只有 margin > 0（管理员手动设了溢价）才保留，否则统一 0
+      //     - 历史遗留值（如 10/5/2/1 等旧倍率值）视为"未初始化"，清零
       const our = ourModels.find((m) => m.name === internalId)
+
+      // DB 里已有的 margin：如果 > 0 说明管理员设过溢价，保留；否则用默认 0
+      const existingMarginPercent = (our && our.margin && our.margin > 0)
+        ? our.margin   // 管理员溢价，保留
+        : 0            // 无溢价（无论是初始值还是旧倍率遗留）
+
+      // 用 DB 的 margin 算新 costTokens
+      const newCost = resolveCostTokensFromPollinations(om, defaultDurSec, existingMarginPercent, ratio).costTokens
+
+      // 目标 margin: 管理员设的保留，否则 0
+      const newMargin = existingMarginPercent > 0 ? existingMarginPercent : defaultMargin
+
+      const modelType = isVideoPricing(om.pricing) ? 'video' : 'image'
+
       if (!our) {
-        // 新增模型 — 暂不自动创建数据库记录（需要管理员手动确认），仅记录 diff
-        // 但可以考虑自动创建一条
+        // 新增模型
         try {
-          // 先找 Pollinations provider
-          let provider = await prisma.aIProvider.findFirst({ where: { name: 'Pollinations' } })
-          if (!provider) {
-            provider = await prisma.aIProvider.create({
-              data: { name: 'Pollinations', displayName: 'Pollinations', type: 'video', baseUrl: 'https://gen.pollinations.ai' },
-            })
-          }
+          // 按模型类型找到正确的 provider（video → pollinations-video, image → pollinations）
+          const provider = await resolvePollinationsProvider(modelType)
           await prisma.aIModel.create({
             data: {
               name: internalId,
               displayName: om.title || internalId,
-              type: 'video',
+              type: modelType,
               providerId: provider.id,
               costTokens: newCost,
+              margin: newMargin,
               status: 'active',
               desc: om.description || null,
             },
@@ -214,51 +287,84 @@ export async function syncPollinationsPricing(trigger: 'cron' | 'manual' | 'catc
             label: om.title || internalId,
             oldCost: null,
             newCost,
-            change: '+新增',
+            change: `+新增(${resolved.billingUnit === 'per-second' ? 'video' : 'image'})`,
           })
           added++
-          logger.info('新增 Pollinations video 模型到数据库', { modelId: internalId, costTokens: newCost })
+          logger.info('新增 Pollinations 模型', {
+            modelId: internalId, costTokens: newCost, margin: newMargin,
+            pollenConsumed: resolved.pollenConsumed, billingUnit: resolved.billingUnit,
+          })
         } catch (e) {
           logger.error('新增模型失败', { modelId: internalId, error: e instanceof Error ? e.message : String(e) })
         }
-      } else if (our.costTokens !== newCost) {
-        // 价格变了，更新
+      } else {
+        // 已有模型：costTokens 或 margin 变了都要更新
+        // 注意：迁移脚本会先把历史遗留的旧倍率 margin 清零，
+        //      所以到 sync 这里，oldMargin 要么是管理员设的 > 0，要么是 0
         const oldCost = our.costTokens
-        await prisma.aIModel.update({
-          where: { id: our.id },
-          data: { costTokens: newCost },
-        })
-        diff.push({
-          modelId: internalId,
-          label: our.displayName,
-          oldCost,
-          newCost,
-          change: newCost > oldCost ? `↑${((newCost - oldCost) / oldCost * 100).toFixed(0)}%` : `↓${((oldCost - newCost) / oldCost * 100).toFixed(0)}%`,
-        })
-        updated++
-        logger.info('Pollinations 定价变更', { modelId: internalId, oldCost, newCost })
+        const oldMargin = our.margin
+        const needsCostUpdate = our.costTokens !== newCost
+        // margin 变了就更新（0→0 不变，管理员设了→保留不变，旧倍率残留→清零变）
+        const needsMarginSync = Math.abs(oldMargin - newMargin) > 0.001
+        const needsUpdate = needsCostUpdate || needsMarginSync
+
+        if (needsUpdate) {
+          const updateData: Record<string, unknown> = { costTokens: newCost }
+          if (needsMarginSync) updateData.margin = newMargin
+          await prisma.aIModel.update({ where: { id: our.id }, data: updateData })
+
+          // 变化描述
+          const parts: string[] = []
+          if (needsCostUpdate) {
+            parts.push(newCost > oldCost
+              ? `cost ↑${Math.round((newCost - oldCost) / Math.max(1, oldCost) * 100)}%`
+              : `cost ↓${Math.round((oldCost - newCost) / Math.max(1, oldCost) * 100)}%`)
+          }
+          if (needsMarginSync) {
+            parts.push(`margin ${oldMargin ?? 'null'}→${newMargin}`)
+          }
+
+          diff.push({
+            modelId: internalId,
+            label: our.displayName,
+            oldCost,
+            newCost,
+            change: parts.join(' | ') || '同步',
+          })
+          updated++
+          logger.info('Pollinations 定价/毛利率变更', {
+            modelId: internalId, oldCost, newCost, oldMargin, newMargin,
+          })
+        }
       }
     }
 
-    // 4. 检测下架（我们数据库里有、但官方 catalog 里没了的模型）
+    // 4. 检测下架（我们数据库里有、但官方 catalog 里没了的 Pollinations 模型）
+    // 修改：只记录告警，不再自动写 status='disabled'
+    // 原因：sync 在 cron/catchup/重启 时都可能触发,会误伤人工治理脚本遗留的旧 ID 模型
+    //       或运营手动新增的未在 MODEL_ID_ALIASES 映射表中的模型
+    //       状态字段是 DB 持久态,缓存失效也恢复不了,只能人工逐个重新启用
+    // 修复策略：仅 warn,把决策权交还给人(管理员可在管理后台手动禁用)
     let removed = 0
     for (const our of ourModels) {
-      if (!knownOfficialIds.has(our.name) && MODEL_ID_ALIASES[our.name] !== undefined) {
-        // 这个模型在我们的映射表里但官方 catalog 找不到了
-        // 软下架（标记 disabled）
+      if (!knownOfficialIds.has(our.name)) {
+        // Pollinations 官方 catalog 找不到了 → 仅记录告警，不动 status
         try {
-          await prisma.aIModel.update({ where: { id: our.id }, data: { status: 'disabled' } })
           diff.push({
             modelId: our.name,
             label: our.displayName,
             oldCost: our.costTokens,
             newCost: our.costTokens,
-            change: '↓下架',
+            change: '↓未在官方目录(已跳过禁用,请人工确认)',
           })
           removed++
-          logger.warn('Pollinations 模型下架，已禁用', { modelId: our.name })
+          logger.warn('Pollinations 模型未在官方目录,但已跳过自动禁用(保留当前 status)', {
+            modelId: our.name,
+            currentStatus: our.status,
+            tip: '如需下架请在管理后台手动禁用',
+          })
         } catch (e) {
-          logger.error('禁用模型失败', { modelId: our.name, error: e instanceof Error ? e.message : String(e) })
+          logger.error('记录下架告警失败', { modelId: our.name, error: e instanceof Error ? e.message : String(e) })
         }
       }
     }
@@ -289,8 +395,8 @@ export async function syncPollinationsPricing(trigger: 'cron' | 'manual' | 'catc
       modelsAdded: added,
       modelsRemoved: removed,
       diff,
-      fxRate,
-      margin,
+      ratio,
+      defaultMargin,
       startedAt,
       endedAt,
     }
@@ -324,8 +430,8 @@ export async function syncPollinationsPricing(trigger: 'cron' | 'manual' | 'catc
       modelsAdded: 0,
       modelsRemoved: 0,
       diff: [],
-      fxRate,
-      margin,
+      ratio: RATIO_CONSTANT,
+      defaultMargin: 0,
       errorMessage: errMsg,
       startedAt,
       endedAt: new Date(),
@@ -406,8 +512,56 @@ export function getNextMonday3AM(): number {
 // 回滚：将下方常量改回 1.5 即可恢复旧换算
 const DEFAULT_POLLEN_PER_USD = 1
 
-// USD → CNY 汇率（默认 7.2，可通过 USD_TO_CNY_RATE 环境变量覆盖）
+// USD → CNY 汇率（默认 7.2 作为安全网回退值）
+// 实际运行时优先从公开汇率 API 动态获取（见 fetchUsdToCny），失败时回退到此常量
+// 也可通过 USD_TO_CNY_RATE 环境变量强制覆盖（适合离线/调试场景）
 const DEFAULT_USD_TO_CNY = 7.2
+
+// ===== 动态 USD→CNY 汇率获取（1 小时 TTL，单 flight 防止 stampede）=====
+// 数据源：frankfurter.app（欧洲央行数据，免费、无需 API Key、无频率限制）
+// 失败回退：DEFAULT_USD_TO_CNY 常量或环境变量 USD_TO_CNY_RATE
+let usdToCnyCache: { value: number; fetchedAt: number; source: string } | null = null
+const FX_CACHE_MS = 60 * 60 * 1000  // 1 小时
+let inFlight: Promise<number> | null = null
+
+export async function fetchUsdToCny(): Promise<{ value: number; source: string }> {
+  const envOverride = Number(process.env.USD_TO_CNY_RATE)
+  if (Number.isFinite(envOverride) && envOverride > 0) {
+    return { value: envOverride, source: 'env' }
+  }
+  if (usdToCnyCache && Date.now() - usdToCnyCache.fetchedAt < FX_CACHE_MS) {
+    return { value: usdToCnyCache.value, source: usdToCnyCache.source }
+  }
+  if (!inFlight) {
+    inFlight = (async (): Promise<number> => {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 8000)
+      try {
+        const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=CNY', {
+          signal: controller.signal,
+        })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = (await res.json()) as { rates?: { CNY?: number } }
+        const cny = data?.rates?.CNY
+        if (cny === undefined || !Number.isFinite(cny) || cny <= 0) throw new Error('invalid rate')
+        usdToCnyCache = { value: cny, fetchedAt: Date.now(), source: 'frankfurter' }
+        return cny
+      } catch (e) {
+        logger.warn('动态 USD→CNY 汇率获取失败，回退到默认常量', {
+          error: e instanceof Error ? e.message : String(e),
+          fallback: DEFAULT_USD_TO_CNY,
+        })
+        usdToCnyCache = { value: DEFAULT_USD_TO_CNY, fetchedAt: Date.now(), source: 'fallback' }
+        return DEFAULT_USD_TO_CNY
+      } finally {
+        clearTimeout(timer)
+        inFlight = null
+      }
+    })()
+  }
+  const value = await inFlight
+  return { value, source: usdToCnyCache?.source ?? 'unknown' }
+}
 
 export interface PollinationsAccountInfo {
   balance: number | null
@@ -416,7 +570,7 @@ export interface PollinationsAccountInfo {
   tier: string | null
   nextResetAt: string | null
   githubUsername: string | null
-  fxRate: number
+  ratio: number  // 1 pollen = N 积分（平台内部汇率，默认 10）
   balanceInTokens: number | null
   packBalanceInTokens: number | null
   tierBalanceInTokens: number | null
@@ -426,6 +580,7 @@ export interface PollinationsAccountInfo {
   // 换算公式：帮助管理员理解美元充值 → 人民币积分的链路
   pollenPerUsd: number              // Pollinations 购买汇率（pollen/$）
   usdToCny: number                  // 当前美元兑人民币汇率
+  usdToCnySource: string            // 汇率来源标识：'frankfurter'（实时）| 'env'（环境变量）| 'fallback'（常量回退）
   tokensPerCny: number              // ¥1 能兑换多少我们的积分
   packBalanceInUsd: number | null   // PAID 余额等值美元
   packBalanceInCny: number | null   // PAID 余额等值人民币
@@ -445,21 +600,21 @@ let balanceCache: { data: PollinationsAccountInfo; fetchedAt: number } | null = 
 const BALANCE_CACHE_MS = 60_000
 
 export async function getPollinationsBalance(forceRefresh = false): Promise<PollinationsAccountInfo> {
-  const fxRate = Number(process.env.POLLINATIONS_FX_RATE) || DEFAULT_FX_RATE
+  const ratio = await getTokenRatio()  // 动态汇率
   const apiKey = process.env.POLLINATIONS_API_KEY || ''
   const apiKeyConfigured = !!apiKey
   const now = Date.now()
 
-  // 汇率配置（可通过环境变量覆盖）
+  // 汇率配置（优先从公开 API 动态获取，失败时回退到常量；环境变量 USD_TO_CNY_RATE 强制覆盖）
   const pollenPerUsd = Number(process.env.POLLEN_PER_USD) || DEFAULT_POLLEN_PER_USD
-  const usdToCny = Number(process.env.USD_TO_CNY_RATE) || DEFAULT_USD_TO_CNY
-  const tokensPerCny = Math.round((pollenPerUsd * fxRate) / usdToCny) // ¥1 → 多少积分
+  const { value: usdToCny, source: usdToCnySource } = await fetchUsdToCny()
+  const tokensPerCny = Math.round((pollenPerUsd * ratio) / usdToCny) // ¥1 → 多少积分
 
-  // 规范化双向换算链路（向上取整避免显示截断误差）
+  // 规范化双向换算链路（保留足够精度避免显示链断链）
   const usdToPollen = pollenPerUsd                                 // 1 USD = N pollen
-  const usdToTokens = Math.round(pollenPerUsd * fxRate)            // 1 USD = N 积分
+  const usdToTokens = Math.round(pollenPerUsd * ratio)             // 1 USD = N 积分
   const cnyToUsd = 1 / usdToCny                                    // 1 CNY = N USD
-  const cnyToPollen = Math.round((cnyToUsd * pollenPerUsd) * 100) / 100  // 1 CNY = N pollen（保留 2 位）
+  const cnyToPollen = Math.round((cnyToUsd * pollenPerUsd) * 10000) / 10000  // 1 CNY = N pollen（保留 4 位，避免 0.14 → 140 ≠ 139 的精度断链）
   const cnyToTokens = tokensPerCny                                 // 1 CNY = N 积分
 
   // 命中缓存且非强制刷新
@@ -476,7 +631,7 @@ export async function getPollinationsBalance(forceRefresh = false): Promise<Poll
       tier: null,
       nextResetAt: null,
       githubUsername: null,
-      fxRate,
+      ratio,
       balanceInTokens: null,
       packBalanceInTokens: null,
       tierBalanceInTokens: null,
@@ -485,6 +640,7 @@ export async function getPollinationsBalance(forceRefresh = false): Promise<Poll
       error: 'POLLINATIONS_API_KEY not configured',
       pollenPerUsd,
       usdToCny,
+      usdToCnySource,
       tokensPerCny,
       packBalanceInUsd: null,
       packBalanceInCny: null,
@@ -560,15 +716,16 @@ export async function getPollinationsBalance(forceRefresh = false): Promise<Poll
       tier,
       nextResetAt,
       githubUsername,
-      fxRate,
-      balanceInTokens: balance !== null ? Math.round(balance * fxRate) : null,
-      packBalanceInTokens: packBalance !== null ? Math.round(packBalance * fxRate) : null,
-      tierBalanceInTokens: tierBalance !== null ? Math.round(tierBalance * fxRate) : null,
+      ratio,
+      balanceInTokens: balance !== null ? Math.round(balance * ratio) : null,
+      packBalanceInTokens: packBalance !== null ? Math.round(packBalance * ratio) : null,
+      tierBalanceInTokens: tierBalance !== null ? Math.round(tierBalance * ratio) : null,
       apiKeyConfigured: true,
       fetchedAt: new Date().toISOString(),
       error: balanceError,
       pollenPerUsd,
       usdToCny,
+      usdToCnySource,
       tokensPerCny,
       packBalanceInUsd: packBalance !== null ? packBalance / pollenPerUsd : null,
       packBalanceInCny: packBalance !== null ? (packBalance / pollenPerUsd) * usdToCny : null,
@@ -597,7 +754,7 @@ export async function getPollinationsBalance(forceRefresh = false): Promise<Poll
       tier: null,
       nextResetAt: null,
       githubUsername: null,
-      fxRate,
+      ratio,
       balanceInTokens: null,
       packBalanceInTokens: null,
       tierBalanceInTokens: null,
@@ -606,6 +763,7 @@ export async function getPollinationsBalance(forceRefresh = false): Promise<Poll
       error: errMsg,
       pollenPerUsd,
       usdToCny,
+      usdToCnySource,
       tokensPerCny,
       packBalanceInUsd: null,
       packBalanceInCny: null,

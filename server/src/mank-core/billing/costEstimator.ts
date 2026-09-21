@@ -11,9 +11,21 @@ import { getModelCost } from './modelCost'
 export const DEFAULT_VIDEO_MODEL = process.env.DEFAULT_VIDEO_MODEL || 'seedance-pro'
 const VIDEO_FALLBACK_DEFAULT = 1250
 
-function getResolutionMultiplier(config: any, resolutionId: string): number {
+// 模型运行时配置（JSON.parse 后的最小化类型，仅含本文件用到的字段）
+// 完整定义见 web/src/config/videoModels.ts 的 VideoModelConfig
+interface VideoModelRuntimeConfig {
+  resolutions?: Array<{ id: string; multiplier?: number }>
+  defaultDuration?: string
+  defaultResolution?: string
+}
+
+function getResolutionMultiplier(
+  config: VideoModelRuntimeConfig | null | undefined,
+  resolutionId: string | undefined,
+): number {
   if (!config?.resolutions || !Array.isArray(config.resolutions)) return 1.0
-  const res = config.resolutions.find((r: any) => r.id === resolutionId)
+  if (!resolutionId) return 1.0
+  const res = config.resolutions.find((r) => r.id === resolutionId)
   return res?.multiplier ?? 1.0
 }
 
@@ -30,17 +42,21 @@ export async function estimateVideoCost(params: {
   try {
     const modelData = await prisma.aIModel.findFirst({
       where: { name: modelName, type: 'video', status: 'active' },
-      select: { config: true, costTokens: true },
+      select: { config: true, costTokens: true, margin: true },
     })
 
-    if (modelData?.config) {
-      const config = JSON.parse(modelData.config)
-      const basePerSecond = Number(config.baseCostPerSecond) || 0
-      if (basePerSecond > 0) {
-        const resMultiplier = getResolutionMultiplier(config, params.resolution || config.defaultResolution)
-        const cost = Math.round(basePerSecond * duration * resMultiplier * imgFactor)
-        return Math.max(1, cost)
-      }
+    if (modelData && modelData.costTokens > 0) {
+      // 以 costTokens 为 SoR（含毛利售价），通过 config.defaultDuration 反推 per-second
+      // 这样 margin 变化 → costTokens 变化 → perSecond 变化 → 画布显示同步更新
+      const config: VideoModelRuntimeConfig | null = modelData.config ? JSON.parse(modelData.config) : null
+      const resMultiplier = config ? getResolutionMultiplier(config, params.resolution || config.defaultResolution) : 1.0
+      // config.defaultDuration 形如 "5s" / "10s"，反推默认时长；失败用 5
+      const defaultDurationSec = config?.defaultDuration
+        ? Number(String(config.defaultDuration).replace(/\D/g, '')) || 5
+        : 5
+      const perSecond = modelData.costTokens / defaultDurationSec
+      const cost = Math.round(perSecond * duration * resMultiplier * imgFactor)
+      return Math.max(1, cost)
     }
   } catch {
     // 数据库查询失败，走 fallback

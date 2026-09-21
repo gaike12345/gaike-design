@@ -1,9 +1,10 @@
-/**
+﻿/**
  * 统计与日志服务层 — 从 routes/admin.ts 提取
  */
 
 import prisma from '../../mank-infra/database/prisma'
 import logger from '../../mank-infra/logging/logger'
+import { getTokenRatioSync } from '../billing/billingConfig.service'
 
 // ───────────────────── 平台总览统计 辅助函数 ─────────────────────
 
@@ -219,4 +220,242 @@ export async function getGenerationStats(days: number) {
   const result = buildGenerationStatsResult({ days, byType, byDay, topUsers, topUserMap, totalStats })
   logger.info('SERVICE_GET_GENERATION_STATS_EXIT', { days, total: result.total })
   return result
+}
+
+// ───────────────────── 毛利统计（差值对账） ─────────────────────
+
+/**
+ * 毛利统计 — 聚合 GenerationLog 中 status='success' 的差值数据
+ * 筛选条件：status='success' AND tokensUsed>0（确保数据准确性）
+ * 聚合维度：时间范围（days） × 模型（modelId） × 类型（type）
+ * 指标：调用次数、用户支付积分总和、官方成本积分总和、毛利积分总和、毛利率%
+ *
+ * @param params.days 天数（默认 30）
+ * @param params.modelId 可选：按模型筛选
+ * @param params.type 可选：按类型筛选（image/video/audio/novel/comic）
+ */
+export async function getRevenueStats(params: {
+  days?: number
+  modelId?: string
+  type?: string
+} = {}) {
+  const { days = 30, modelId, type } = params
+  logger.info('SERVICE_GET_REVENUE_STATS_ENTRY', { days, modelId, type })
+
+  const since = new Date()
+  since.setDate(since.getDate() - days)
+  since.setHours(0, 0, 0, 0)
+
+  // 筛选条件：成功调用 + 有积分消耗 + 时间范围 + 可选模型/类型筛选
+  const where: {
+    status: string
+    tokensUsed: { gt: number }
+    createdAt: { gte: Date }
+    modelId?: string
+    type?: string
+  } = {
+    status: 'success',
+    tokensUsed: { gt: 0 },
+    createdAt: { gte: since },
+  }
+  if (modelId) where.modelId = modelId
+  if (type) where.type = type
+
+  const [totalAgg, byTypeAgg, byModelAgg, byDayAgg, topUsersAgg] = await Promise.all([
+    prisma.generationLog.aggregate({
+      where,
+      _count: { _all: true },
+      _sum: {
+        tokensUsed: true,
+        costTokens: true,
+        revenueTokens: true,
+      },
+    }),
+    prisma.generationLog.groupBy({
+      by: ['type'],
+      where,
+      _count: { _all: true },
+      _sum: {
+        tokensUsed: true,
+        costTokens: true,
+        revenueTokens: true,
+      },
+    }),
+    prisma.generationLog.groupBy({
+      by: ['modelId'],
+      where,
+      _count: { _all: true },
+      _sum: {
+        tokensUsed: true,
+        costTokens: true,
+        revenueTokens: true,
+      },
+      orderBy: { modelId: 'asc' },
+    }),
+    prisma.generationLog.groupBy({
+      by: ['createdAt'],
+      where,
+      _count: { _all: true },
+      _sum: {
+        tokensUsed: true,
+        costTokens: true,
+        revenueTokens: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    }),
+    prisma.generationLog.groupBy({
+      by: ['userId'],
+      where,
+      _count: { _all: true },
+      _sum: {
+        tokensUsed: true,
+        costTokens: true,
+        revenueTokens: true,
+      },
+      orderBy: { userId: 'desc' },
+      take: 10,
+    }),
+  ])
+
+  // 整理按日数据
+  const byDayMap: Record<string, { calls: number; revenue: number; tokens: number; cost: number }> = {}
+  for (const r of byDayAgg) {
+    const key = new Date(r.createdAt).toISOString().slice(0, 10)
+    if (!byDayMap[key]) byDayMap[key] = { calls: 0, revenue: 0, tokens: 0, cost: 0 }
+    byDayMap[key].calls += r._count._all
+    byDayMap[key].revenue += r._sum.revenueTokens ?? 0
+    byDayMap[key].tokens += r._sum.tokensUsed ?? 0
+    byDayMap[key].cost += r._sum.costTokens ?? 0
+  }
+
+  // 整理按类型数据
+  const byTypeMap: Record<string, { calls: number; revenue: number; tokens: number; cost: number; marginPct: number }> = {}
+  for (const r of byTypeAgg) {
+    const tokens = r._sum.tokensUsed ?? 0
+    const cost = r._sum.costTokens ?? 0
+    const revenue = r._sum.revenueTokens ?? 0
+    byTypeMap[r.type] = {
+      calls: r._count._all,
+      revenue,
+      tokens,
+      cost,
+      marginPct: tokens > 0 ? Math.round((revenue / tokens) * 1000) / 10 : 0,
+    }
+  }
+
+  // 整理按模型数据
+  const byModelArr = byModelAgg
+    .filter((r) => r.modelId !== null)
+    .map((r) => {
+      const tokens = r._sum.tokensUsed ?? 0
+      const cost = r._sum.costTokens ?? 0
+      const revenue = r._sum.revenueTokens ?? 0
+      return {
+        modelId: r.modelId as string,
+        calls: r._count._all,
+        revenue,
+        tokens,
+        cost,
+        marginPct: tokens > 0 ? Math.round((revenue / tokens) * 1000) / 10 : 0,
+      }
+    })
+    .sort((a, b) => b.revenue - a.revenue)
+
+  // 整理 Top 用户
+  const topUserIds = topUsersAgg.map((u) => u.userId)
+  const topUserInfos = await prisma.user.findMany({
+    where: { id: { in: topUserIds } },
+    select: { id: true, nickname: true, email: true, avatar: true },
+  })
+  const userMap = new Map(topUserInfos.map((u) => [u.id, u]))
+  const topUsersWithInfo = topUsersAgg.map((u) => {
+    const info = userMap.get(u.userId)
+    const tokens = u._sum.tokensUsed ?? 0
+    const cost = u._sum.costTokens ?? 0
+    const revenue = u._sum.revenueTokens ?? 0
+    return {
+      ...info,
+      calls: u._count?._all ?? 0,
+      revenue,
+      tokens,
+      cost,
+      marginPct: tokens > 0 ? Math.round((revenue / tokens) * 1000) / 10 : 0,
+    }
+  }).sort((a, b) => b.revenue - a.revenue)
+
+  // 汇总
+  const totalTokens = totalAgg._sum.tokensUsed ?? 0
+  const totalCost = totalAgg._sum.costTokens ?? 0
+  const totalRevenue = totalAgg._sum.revenueTokens ?? 0
+
+  const result = {
+    days,
+    total: {
+      calls: totalAgg._count._all,
+      tokens: totalTokens,
+      cost: totalCost,
+      revenue: totalRevenue,
+      marginPct: totalTokens > 0 ? Math.round((totalRevenue / totalTokens) * 1000) / 10 : 0,
+    },
+    byType: byTypeMap,
+    byModel: byModelArr,
+    byDay: byDayMap,
+    topUsers: topUsersWithInfo,
+  }
+  logger.info('SERVICE_GET_REVENUE_STATS_EXIT', { total: result.total })
+  return result
+}
+
+/**
+ * 历史数据回填 — 为已有的 GenerationLog 记录反算 costTokens/marginAtCall/revenueTokens
+ * 使用每条记录调用时的 AIModel.margin（如果模型不存在则用默认 2.0）
+ * 一次性脚本，幂等：重复执行不会重复扣减
+ */
+export async function rebuildRevenueHistory() {
+  logger.info('SERVICE_REBUILD_REVENUE_HISTORY_ENTRY', {})
+  const BATCH = 500
+  let processed = 0
+  let updated = 0
+  let cursor: string | undefined
+
+  while (true) {
+    const batch = await prisma.generationLog.findMany({
+      take: BATCH,
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      where: { revenueTokens: 0, tokensUsed: { gt: 0 }, status: 'success' },
+      orderBy: { id: 'asc' },
+      select: { id: true, userId: true, type: true, modelId: true, tokensUsed: true, createdAt: true },
+    })
+    if (batch.length === 0) break
+
+    for (const log of batch) {
+      processed++
+      cursor = log.id
+
+      // 读取模型当前的 margin（最佳近似：无历史快照则用当前值）
+      let margin = 0
+      let costTokens = 0
+      if (log.modelId) {
+        const model = await prisma.aIModel.findFirst({
+          where: { name: log.modelId },
+          select: { margin: true, costTokens: true },
+        })
+        if (model) {
+          margin = model.margin ?? 0
+          // 历史反算：成本 = 售价 / margin
+          costTokens = Math.max(0, Math.round(log.tokensUsed / margin))
+        }
+      }
+      const revenueTokens = Math.max(0, log.tokensUsed - costTokens)
+
+      await prisma.generationLog.update({
+        where: { id: log.id },
+        data: { costTokens, marginAtCall: margin, revenueTokens },
+      })
+      updated++
+    }
+  }
+
+  logger.info('SERVICE_REBUILD_REVENUE_HISTORY_EXIT', { processed, updated })
+  return { processed, updated }
 }

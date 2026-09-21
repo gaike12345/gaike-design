@@ -1,9 +1,10 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import prisma from '../../mank-infra/database/prisma'
-import { authRequired, requireRole, requireAdminOrAbove } from '../../mank-infra/middleware/auth'
+import { authRequired, authOptional, requireRole, requireAdminOrAbove } from '../../mank-infra/middleware/auth'
 import bcrypt from 'bcryptjs'
 import { invalidateModelCostCache } from '../billing/modelCost'
 import { calcImageCost, invalidateImageModelCache } from '../image/imageModels'
+import { clearVideoModelCache } from '../video/videoModels'
 import {
   estimateVideoCost,
   estimateTTSCost, estimateMusicCost,
@@ -316,11 +317,16 @@ const modelRouter = Router()
  *           application/json:
  *             schema: { $ref: '#/components/schemas/Error' }
  */
-modelRouter.get('/', async (req, res, next) => {
-  logger.info('CTRL_MODELS_LIST', { type: req.query.type })
+modelRouter.get('/', authOptional, async (req, res, next) => {
+  logger.info('CTRL_MODELS_LIST', { type: req.query.type, includeInactive: req.query.includeInactive })
   try {
-    const { type } = req.query
-    const where: { status: string; type?: string } = { status: 'active' }
+    const { type, includeInactive } = req.query
+    // 管理后台需要看到禁用模型;画布等公开调用只看 active
+    // 仅 admin 及以上角色 + 显式传 includeInactive=true 才能看到 disabled
+    const role = req.user?.role || 'user'
+    const canSeeInactive = includeInactive === 'true' && (role === 'admin' || role === 'superadmin')
+    const where: { status?: string; type?: string } = {}
+    if (!canSeeInactive) where.status = 'active'
     if (type) {
       if (!MODEL_TYPES.includes(String(type))) {
         return res.status(400).json({ error: `type 必须为 ${MODEL_TYPES.join(' / ')} 之一` })
@@ -438,7 +444,7 @@ modelRouter.get('/:id', async (req, res, next) => {
 modelRouter.post('/', authRequired, requireAdminOrAbove, verifyPassword, async (req, res, next) => {
   logger.info('CTRL_MODEL_CREATE', { name: req.body.name, displayName: req.body.displayName, type: req.body.type, providerId: req.body.providerId })
   try {
-    const { name, displayName, type, providerId, tag, desc, status, sort, config, costTokens } = req.body
+    const { name, displayName, type, providerId, tag, desc, status, sort, config, costTokens, margin } = req.body
     if (!name || !displayName || !type || !providerId) {
       return res.status(400).json({ error: 'name / displayName / type / providerId 不能为空' })
     }
@@ -450,6 +456,8 @@ modelRouter.post('/', authRequired, requireAdminOrAbove, verifyPassword, async (
     // costTokens 可选：不传时使用 model 列默认 1000
     const data: any = { name, displayName, type, providerId, tag, desc, status, sort, config }
     if (typeof costTokens === 'number' && Number.isFinite(costTokens) && costTokens >= 0) data.costTokens = Math.trunc(costTokens)
+    // margin 可选：不传时默认 0；下限 0（无溢价），无上限（毛利率百分比）
+    if (typeof margin === 'number' && Number.isFinite(margin) && margin >= 0) data.margin = margin
     const model = await prisma.aIModel.create({ data })
     invalidateModelCostCache() // 新增模型 → 下次请求重拉
     if (type === 'image') invalidateImageModelCache() // 图片模型配置缓存也失效
@@ -524,7 +532,7 @@ modelRouter.post('/', authRequired, requireAdminOrAbove, verifyPassword, async (
 modelRouter.put('/:id', authRequired, requireAdminOrAbove, async (req, res, next) => {
   logger.info('CTRL_MODEL_UPDATE', { id: req.params.id, name: req.body.name, type: req.body.type, status: req.body.status })
   try {
-    const { name, displayName, type, providerId, tag, desc, status, sort, config, costTokens } = req.body
+    const { name, displayName, type, providerId, tag, desc, status, sort, config, costTokens, margin } = req.body
     if (type !== undefined && !MODEL_TYPES.includes(type)) {
       return res.status(400).json({ error: `type 必须为 ${MODEL_TYPES.join(' / ')} 之一` })
     }
@@ -549,14 +557,19 @@ modelRouter.put('/:id', authRequired, requireAdminOrAbove, async (req, res, next
     if (typeof costTokens === 'number' && Number.isFinite(costTokens) && costTokens >= 0) {
       updateData.costTokens = Math.trunc(costTokens)
     }
+    // 毛利率更新：下限 1.0，无上限
+    if (typeof margin === 'number' && Number.isFinite(margin) && margin >= 0) {
+      updateData.margin = margin
+    }
     const updated = await prisma.aIModel.update({
       where: { id: String(req.params.id) },
       data: updateData,
     })
-    invalidateModelCostCache() // 更新模型 → 全局失效（含 costTokens 变更）
+    invalidateModelCostCache() // 更新模型 → 全局失效（含 costTokens/margin 变更）
     // 如果是图片模型或 type/config 变化，也失效图片模型配置缓存
     const updatedType = type || updated.type
     if (updatedType === 'image') invalidateImageModelCache()
+    if (updatedType === 'video') clearVideoModelCache()
     res.json({ model: updated })
   } catch (e) {
     next(e)
@@ -625,41 +638,198 @@ modelRouter.put('/:id', authRequired, requireAdminOrAbove, async (req, res, next
  *             schema: { $ref: '#/components/schemas/Error' }
  */
 modelRouter.patch('/:id/cost', authRequired, requireAdminOrAbove, async (req, res, next) => {
-  logger.info('CTRL_MODEL_COST_UPDATE', { id: req.params.id, costTokens: req.body.costTokens })
+  logger.info('CTRL_MODEL_COST_UPDATE', { id: req.params.id, costTokens: req.body.costTokens, margin: req.body.margin })
   try {
     const id = String(req.params.id)
-    const { costTokens } = req.body
-    if (typeof costTokens !== 'number' || !Number.isFinite(costTokens) || costTokens < 0) {
+    const { costTokens, margin } = req.body
+    // 至少传一个可更新字段
+    if (costTokens === undefined && margin === undefined) {
+      return res.status(400).json({ error: '至少传入 costTokens 或 margin 之一' })
+    }
+    if (costTokens !== undefined && (typeof costTokens !== 'number' || !Number.isFinite(costTokens) || costTokens < 0)) {
       return res.status(400).json({ error: 'costTokens 必须是 ≥0 的整数积分值' })
     }
-    const model = await prisma.aIModel.findUnique({ where: { id }, select: { id: true, name: true, costTokens: true, type: true } })
-    if (!model) return res.status(404).json({ error: '模型不存在' })
-    const oldValue = model.costTokens
-    const newValue = Math.trunc(costTokens)
-    if (oldValue === newValue) {
-      return res.json({ model: { ...model, costTokens: newValue }, unchanged: true })
+    // margin 下限 0（无溢价），无上限（管理员可设任意百分比）
+    // margin 语义: 毛利率百分比，costTokens = ceil(baseTokens × (1 + margin/100))
+    if (margin !== undefined && (typeof margin !== 'number' || !Number.isFinite(margin) || margin < 0)) {
+      return res.status(400).json({ error: 'margin 必须 ≥ 0（毛利率百分比，0=无溢价）' })
     }
-    // 写审计日志（复用 SiteConfigAuditLog 表，module=models）
-    const [updated] = await prisma.$transaction([
-      prisma.aIModel.update({ where: { id }, data: { costTokens: newValue } }),
-      prisma.siteConfigAuditLog.create({
+    const model = await prisma.aIModel.findUnique({ where: { id }, select: { id: true, name: true, costTokens: true, margin: true, type: true } })
+    if (!model) return res.status(404).json({ error: '模型不存在' })
+
+    const updateData: any = {}
+    const auditLogs: any[] = []
+    const changed: any = {}
+
+    // 1) margin 调整时，若未手动指定 costTokens，则按新公式联动
+    //    costTokens = ceil(baseTokens × (1 + margin/100))
+    //    从旧值反推 baseTokens，再用新 margin 算 costTokens
+    //    baseTokens = reverseMargin(旧 costTokens, 旧 margin)
+    let finalCostTokens: number | null = null
+
+    if (margin !== undefined && model.margin !== margin) {
+      updateData.margin = margin
+      changed.margin = { from: model.margin, to: margin }
+      auditLogs.push(prisma.siteConfigAuditLog.create({
+        data: {
+          group: 'AI_MODEL',
+          key: `margin.${model.name}`,
+          action: 'UPDATE',
+          oldValue: String(model.margin),
+          newValue: String(margin),
+          operator: req.user?.userId ?? null,
+        },
+      }))
+
+      // 未手动指定 costTokens → 按 margin 联动
+      if (costTokens === undefined) {
+        // 从旧 costTokens + 旧 margin 反推 baseTokens（成本）
+        const oldMarginPct = model.margin || 0
+        const baseFromOld = Math.max(1, Math.round(model.costTokens / (1 + oldMarginPct / 100)))
+        // 用新 margin 算新 costTokens
+        const newCost = Math.ceil(baseFromOld * (1 + margin / 100))
+        finalCostTokens = newCost
+      }
+    }
+
+    // 2) 手动指定的 costTokens 优先级最高
+    if (costTokens !== undefined) {
+      const newValue = Math.trunc(costTokens)
+      if (model.costTokens !== newValue) {
+        finalCostTokens = newValue
+      }
+    }
+
+    // 3) 写入 costTokens（联动或手动）
+    if (finalCostTokens !== null && finalCostTokens !== model.costTokens) {
+      updateData.costTokens = finalCostTokens
+      changed.costTokens = { from: model.costTokens, to: finalCostTokens }
+      auditLogs.push(prisma.siteConfigAuditLog.create({
         data: {
           group: 'AI_MODEL',
           key: `cost.${model.name}`,
           action: 'UPDATE',
-          oldValue: String(oldValue),
-          newValue: String(newValue),
+          oldValue: String(model.costTokens),
+          newValue: String(finalCostTokens),
+          operator: req.user?.userId ?? null,
+        },
+      }))
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.json({ model, unchanged: true })
+    }
+
+    const txOps = [prisma.aIModel.update({ where: { id }, data: updateData }), ...auditLogs]
+    const [updated] = await prisma.$transaction(txOps)
+    invalidateModelCostCache() // 核心：积分制度全局同步 — 下一次扣减立即使用新值
+    if (model.type === 'image') invalidateImageModelCache() // 图片模型配置也含 costTokens
+    if (model.type === 'video') clearVideoModelCache() // 视频模型配置也含 costTokens
+    res.json({
+      model: updated,
+      changed,
+      cacheInvalidated: true,
+      note: changed.costTokens
+        ? `毛利率调整 → 积分联动：${changed.costTokens?.from} → ${changed.costTokens?.to}（缓存已失效，下一次请求立即生效）`
+        : '所有实例的积分扣减缓存已失效，后续请求将使用新积分/毛利率',
+    })
+  } catch (e) {
+    next(e)
+  }
+})
+
+// PATCH /api/models/:id/status — 启用/禁用模型（管理员，无需密码，写审计日志 + 三路缓存失效）
+// 替代物理删除:禁用后画布等公开接口 WHERE status='active' 自动隐藏,数据保留可恢复
+/**
+ * @openapi
+ * /models/{id}/status:
+ *   patch:
+ *     tags: [模型管理-模型]
+ *     summary: 切换模型启用状态
+ *     description: 启用/禁用模型,无需密码,但记录审计日志;禁用后画布等公开接口自动隐藏该模型
+ *     security: [{ BearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *         description: 模型 ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [status]
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [active, disabled]
+ *                 description: 目标状态
+ *     responses:
+ *       200:
+ *         description: 切换结果
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 model: { type: object }
+ *                 changed:
+ *                   type: object
+ *                   properties:
+ *                     from: { type: string }
+ *                     to: { type: string }
+ *                 cacheInvalidated: { type: boolean, example: true }
+ *       400:
+ *         description: status 非法
+ *       401: { description: 未登录 }
+ *       403: { description: 权限不足 }
+ *       404: { description: 模型不存在 }
+ */
+modelRouter.patch('/:id/status', authRequired, requireAdminOrAbove, async (req, res, next) => {
+  logger.info('CTRL_MODEL_STATUS_TOGGLE', { id: req.params.id, status: req.body.status })
+  try {
+    const id = String(req.params.id)
+    const { status } = req.body
+    if (status !== 'active' && status !== 'disabled') {
+      return res.status(400).json({ error: 'status 必须为 active 或 disabled' })
+    }
+    const model = await prisma.aIModel.findUnique({
+      where: { id },
+      select: { id: true, name: true, type: true, status: true },
+    })
+    if (!model) return res.status(404).json({ error: '模型不存在' })
+    if (model.status === status) {
+      return res.json({ model, unchanged: true })
+    }
+
+    const [updated] = await prisma.$transaction([
+      prisma.aIModel.update({ where: { id }, data: { status } }),
+      prisma.siteConfigAuditLog.create({
+        data: {
+          group: 'AI_MODEL',
+          key: `status.${model.name}`,
+          action: 'UPDATE',
+          oldValue: model.status,
+          newValue: status,
           operator: req.user?.userId ?? null,
         },
       }),
     ])
-    invalidateModelCostCache() // 核心：积分制度全局同步 — 下一次扣减立即使用新值
-    if (model.type === 'image') invalidateImageModelCache() // 图片模型配置也含 costTokens
+
+    // 三路缓存失效:模型积分缓存 + 图片模型配置 + 视频模型配置
+    invalidateModelCostCache()
+    if (model.type === 'image') invalidateImageModelCache()
+    if (model.type === 'video') clearVideoModelCache()
+
     res.json({
       model: updated,
-      changed: { from: oldValue, to: newValue },
+      changed: { from: model.status, to: status },
       cacheInvalidated: true,
-      note: '所有实例的积分扣减缓存已失效，后续请求将使用新积分',
+      note: status === 'disabled'
+        ? '已禁用,画布等公开接口将不再展示该模型(30s 缓存过期后生效)'
+        : '已启用,画布等公开接口将重新展示该模型(30s 缓存过期后生效)',
     })
   } catch (e) {
     next(e)
@@ -733,6 +903,90 @@ modelRouter.delete('/:id', authRequired, requireAdminOrAbove, verifyPassword, as
 // 子路由挂载：/providers 与 /models
 router.use('/providers', providerRouter)
 router.use('/models', modelRouter)
+
+// ============================================================
+// PATCH /api/models/batch-margin — 全局批量设置所有模型的毛利率（管理员）
+//
+// 请求体: {
+//   margin: number,        // 毛利率百分比，如 0 / 50 / 100
+//   providerFilter?: string // 可选: 只改某个 provider 的模型，如 "pollinations"
+// }
+//
+// 逻辑:
+//   - 所有目标模型的 margin 直接设为指定值
+//   - 同时自动重算 costTokens（从旧 costTokens + 旧 margin 反推 baseTokens，再用新 margin 算）
+//   - invalidateModelCostCache() 让运行时缓存立即刷新
+// ============================================================
+router.patch('/models/batch-margin', authRequired, requireAdminOrAbove, async (req: Request, res: Response, next: NextFunction) => {
+  logger.info('CTRL_BATCH_MARGIN', { margin: req.body.margin, providerFilter: req.body.providerFilter, typeFilter: req.body.typeFilter })
+  try {
+    const { margin, providerFilter, typeFilter } = req.body
+
+    if (typeof margin !== 'number' || !Number.isFinite(margin) || margin < 0) {
+      return res.status(400).json({ error: 'margin 必须是 ≥ 0 的数字（毛利率百分比）' })
+    }
+
+    // typeFilter 校验：限定模型类型
+    const VALID_TYPES = ['novel', 'image', 'audio', 'video', 'comic']
+    if (typeFilter && !VALID_TYPES.includes(typeFilter)) {
+      return res.status(400).json({ error: `typeFilter 必须是 ${VALID_TYPES.join(' / ')} 之一` })
+    }
+
+    // 查询目标模型
+    // 特殊处理：providerFilter='pollinations' 时匹配所有 Pollinations 相关 provider
+    //   （image 用 'pollinations'，video 用 'pollinations-video'，历史可能有大小写变体）
+    const POLLINATIONS_PROVIDER_NAMES = ['pollinations', 'pollinations-video', 'Pollinations', 'Pollinations Video']
+    const where: any = {}
+    if (providerFilter) {
+      if (providerFilter.toLowerCase() === 'pollinations') {
+        where.provider = { name: { in: POLLINATIONS_PROVIDER_NAMES } }
+      } else {
+        where.provider = { name: providerFilter }
+      }
+    }
+    if (typeFilter) {
+      where.type = typeFilter
+    }
+    const targets = await prisma.aIModel.findMany({
+      where,
+      include: { provider: true },
+    })
+    if (targets.length === 0) {
+      return res.status(404).json({ error: '没有匹配的模型', providerFilter, typeFilter })
+    }
+
+    const result = { updated: 0, skipped: 0, details: [] as any[] }
+
+    for (const m of targets) {
+      if (Math.abs(m.margin - margin) < 0.001) {
+        result.skipped++
+        continue
+      }
+      // 从旧 costTokens + 旧 margin 反推 baseTokens，再用新 margin 算 costTokens
+      const oldMargin = m.margin || 0
+      const baseTokens = Math.max(1, Math.round(m.costTokens / (1 + oldMargin / 100)))
+      const newCost = Math.ceil(baseTokens * (1 + margin / 100))
+
+      await prisma.aIModel.update({
+        where: { id: m.id },
+        data: { margin, costTokens: newCost },
+      })
+      result.updated++
+      result.details.push({
+        id: m.id, name: m.name, provider: m.provider.name,
+        oldMargin, newMargin: margin, oldCost: m.costTokens, newCost,
+      })
+    }
+
+    // 三路缓存失效：扣费缓存 + 图片模型列表 + 视频模型列表
+    invalidateModelCostCache()
+    invalidateImageModelCache()
+    clearVideoModelCache()
+    res.json({ ok: true, margin, providerFilter: providerFilter || '(全部)', typeFilter: typeFilter || '(全部)', total: targets.length, ...result })
+  } catch (e) {
+    next(e)
+  }
+})
 
 // ============================================================
 // POST /api/models/estimate-cost

@@ -33,13 +33,26 @@ import canvasRoutes from './mank-core/canvas/canvas.route'
 import siteRoutes from './mank-core/site/site.route'
 import comicRoutes from './mank-core/comic/comic.route'
 import { preloadModelCosts } from './mank-core/billing/modelCost'
-import { refundStalePendingTasks } from './mank-core/billing/tokenService'
+import {
+  refundStalePendingTasks,
+  pruneTransactionHistory,
+  reconcileBalanceInvariant,
+  scanStuckPendingTransactions,
+} from './mank-core/billing/tokenService'
 import { syncPollinationsPricing, runMissedRunCheck, getNextMonday3AM } from './mank-core/billing/pollinationsSync'
 import { setupSwagger } from './mank-infra/server/swagger'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '3000', 10)
 const IS_PROD = process.env.NODE_ENV === 'production'
+
+// Trust Proxy — 生产环境部署在反向代理（Nginx）后时必须启用
+// 启用后 req.ip / req.ips 会正确解析 X-Forwarded-For，且限流中间件可信任真实 IP
+// 安全：仅当 BEHIND_PROXY=true 时显式启用，防止裸部署时 IP 被伪造
+const BEHIND_PROXY = process.env.BEHIND_PROXY === 'true'
+if (BEHIND_PROXY) {
+  app.set('trust proxy', 1) // 信任一级代理（Nginx）
+}
 
 // 数据库类型检测（从 DATABASE_URL 判断）
 const DB_TYPE = (() => {
@@ -51,12 +64,16 @@ const DB_TYPE = (() => {
 
 // CORS — 跨域安全配置
 //   - 支持多域名白名单（逗号分隔，生产环境建议明确列出）
+//   - 子域匹配：默认关闭，通过 CORS_ALLOW_SUBDOMAINS=true 显式开启
+//     防止被攻击者控制的子域发起带 cookie 的请求
 //   - 生产环境强制 HTTPS（localhost 开发除外）
 //   - credentials: true 配合 JWT Bearer 使用
 const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
   .split(',')
   .map((s) => s.trim().replace(/\/$/, ''))
   .filter(Boolean)
+
+const CORS_ALLOW_SUBDOMAINS = process.env.CORS_ALLOW_SUBDOMAINS === 'true'
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -66,9 +83,9 @@ app.use(cors({
     const matched = allowedOrigins.some((allowed) => {
       // 精确匹配
       if (origin === allowed) return true
-      // 子域名匹配（生产环境可用，如 https://app.example.com 匹配 https://example.com）
-      // 安全规则：必须是 ".允许域名" 结尾，防止前缀注入（如 evilgaike.xyz 绕过 gaike.xyz）
-      if (IS_PROD) {
+      // 子域名匹配（需显式启用 CORS_ALLOW_SUBDOMAINS=true）
+      // 安全规则：必须是 ".允许域名" 结尾，防止前缀注入
+      if (CORS_ALLOW_SUBDOMAINS && IS_PROD) {
         try {
           const allowedUrl = new URL(allowed)
           const originUrl = new URL(origin)
@@ -392,6 +409,69 @@ const server = app.listen(PORT, () => {
       logger.error('超时任务扫描失败', { error: e instanceof Error ? e.message : String(e) })
     })
   }, STALE_TASK_CHECK_INTERVAL_MS)
+
+  // 定时任务：每 10 分钟扫描一次 stuck pending 流水（超过 2h 未被自动退还）
+  // 独立于 refundStalePendingTasks 的运维告警通道，防止自动退还漏跑无感知
+  const STUCK_PENDING_ALERT_MINUTES = 120 // 2 小时告警阈值
+  setInterval(() => {
+    scanStuckPendingTransactions({ alertMinutes: STUCK_PENDING_ALERT_MINUTES }).catch((e) => {
+      logger.error('stuck pending 扫描失败', { error: e instanceof Error ? e.message : String(e) })
+    })
+  }, 10 * 60 * 1000)
+
+  // 定时任务：每天凌晨 03:00 执行余额恒等式 reconciliation 检查
+  // 防止任何绕过 tokenService 的写入导致 remaining + used != total
+  function scheduleDailyBalanceReconcile() {
+    const now = new Date()
+    const next = new Date(now)
+    next.setHours(3, 0, 0, 0)
+    if (next.getTime() <= now.getTime()) {
+      next.setDate(next.getDate() + 1)
+    }
+    const delay = next.getTime() - now.getTime()
+    logger.info('余额恒等式 reconciliation 定时任务已注册', {
+      nextRun: next.toLocaleString('zh-CN'),
+    })
+    setTimeout(async () => {
+      try {
+        await reconcileBalanceInvariant()
+      } catch (e) {
+        logger.error('余额恒等式 reconciliation 失败', {
+          error: e instanceof Error ? e.message : String(e),
+        })
+      } finally {
+        scheduleDailyBalanceReconcile()
+      }
+    }, delay)
+  }
+  scheduleDailyBalanceReconcile()
+
+  // 定时任务：每周一凌晨 04:00 执行 TokenTransaction 历史裁剪
+  // 保留 90 天活跃 + 每用户 500 条终态流水；充值/管理员调整永不删除
+  function scheduleWeeklyTxPrune() {
+    const now = new Date()
+    const next = new Date(now)
+    const dayOfWeek = next.getDay() // 0=Sunday, 1=Monday
+    const daysUntilMonday = dayOfWeek === 0 ? 1 : (8 - dayOfWeek)
+    next.setDate(next.getDate() + daysUntilMonday)
+    next.setHours(4, 0, 0, 0)
+    const delay = next.getTime() - now.getTime()
+    logger.info('TokenTransaction 历史裁剪定时任务已注册', {
+      nextRun: next.toLocaleString('zh-CN'),
+    })
+    setTimeout(async () => {
+      try {
+        await pruneTransactionHistory({ activeDays: 90, perUserKeepLimit: 500 })
+      } catch (e) {
+        logger.error('TokenTransaction 历史裁剪失败', {
+          error: e instanceof Error ? e.message : String(e),
+        })
+      } finally {
+        scheduleWeeklyTxPrune()
+      }
+    }, delay)
+  }
+  scheduleWeeklyTxPrune()
 
   logger.info('服务已启动', {
     port: PORT,

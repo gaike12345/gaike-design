@@ -5,23 +5,33 @@
 
 import { createHmac } from 'crypto'
 
-// 安全硬校验：生产环境必须配置图片签名密钥，禁止使用默认值
+// 安全硬校验：所有环境必须配置图片签名密钥，禁止使用默认值
 // 默认密钥公开后攻击者可伪造签名 URL，绕过 ALLOWED_HOSTS 白名单发动 SSRF
 const IMAGE_SIGNING_SECRET = process.env.IMAGE_SIGNING_SECRET
-if (process.env.NODE_ENV === 'production' && !IMAGE_SIGNING_SECRET) {
-  console.error('[FATAL] 生产环境必须配置 IMAGE_SIGNING_SECRET（图片签名密钥，禁止使用默认值）')
+if (!IMAGE_SIGNING_SECRET || IMAGE_SIGNING_SECRET.length < 16) {
+  console.error('[FATAL] IMAGE_SIGNING_SECRET 环境变量未设置或长度不足 (最小 16 字符)')
   console.error('[FATAL] 请在 server/.env 中设置 IMAGE_SIGNING_SECRET=<随机强密钥>')
   process.exit(1)
 }
-const SIGNING_SECRET = IMAGE_SIGNING_SECRET || 'img-sign-key-change-in-prod'
+const SIGNING_SECRET = IMAGE_SIGNING_SECRET
 const SIGN_TTL_MS = 2 * 60 * 60 * 1000
 
 const ALLOWED_HOSTS = [
   'gen.pollinations.ai',
   'image.pollinations.ai',
+  'video.pollinations.ai',
   'dashscope.aliyuncs.com',
   'dashscope-result.oss-cn-beijing.aliyuncs.com',
   'dashscope-result.oss-cn-hangzhou.aliyuncs.com',
+]
+
+// 安全：额外的白名单后缀（仅允许已知的阿里云 OSS region，防止任意 bucket 通配）
+// 攻击者可注册自己的 OSS bucket 存放恶意图片，绕过白名单做 SSRF 探测
+const ALLOWED_OSS_SUFFIXES = [
+  '.oss-cn-beijing.aliyuncs.com',
+  '.oss-cn-hangzhou.aliyuncs.com',
+  '.oss-cn-shanghai.aliyuncs.com',
+  '.oss-cn-shenzhen.aliyuncs.com',
 ]
 
 export function signImageUrl(originalUrl: string, userId?: string, costTokens?: number, txId?: string): string {
@@ -70,10 +80,13 @@ export function verifySignedUrl(
 
   try {
     const urlObj = new URL(originalUrl)
-    if (!ALLOWED_HOSTS.some(h => urlObj.hostname === h || urlObj.hostname.endsWith('.' + h))) {
-      if (!urlObj.hostname.endsWith('.aliyuncs.com')) {
-        return null
-      }
+    const hostname = urlObj.hostname
+    // 精确匹配白名单 → 直接通过
+    const exactMatch = ALLOWED_HOSTS.includes(hostname)
+    // OSS 子域匹配：限制在已知 region 后缀内，防止任意 bucket 通配
+    const isAllowedOss = ALLOWED_OSS_SUFFIXES.some(suffix => hostname.endsWith(suffix))
+    if (!exactMatch && !isAllowedOss) {
+      return null
     }
   } catch {
     return null

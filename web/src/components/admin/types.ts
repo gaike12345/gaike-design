@@ -88,6 +88,7 @@ export interface Model {
   status: string
   sort?: number
   costTokens?: number
+  margin?: number
 }
 
 export interface Stats {
@@ -117,6 +118,54 @@ export interface GenerationsStats {
   byType: Record<string, TypeStat>
   byDay: Record<string, TypeStat>
   topUsers: Array<{ nickname: string; count: number; tokens: number }>
+}
+
+// 毛利统计（2026-09 升级，差值对账）
+export interface RevenueTotal {
+  calls: number       // 成功调用次数
+  tokens: number      // 用户支付积分总和（售价）
+  cost: number        // 官方成本积分总和
+  revenue: number     // 毛利积分 = tokens - cost
+  marginPct: number   // 毛利率% = revenue / tokens × 100
+}
+export interface RevenueByType {
+  calls: number
+  revenue: number
+  tokens: number
+  cost: number
+  marginPct: number
+}
+export interface RevenueByModel {
+  modelId: string
+  calls: number
+  revenue: number
+  tokens: number
+  cost: number
+  marginPct: number
+}
+export interface RevenueByDay {
+  calls: number
+  revenue: number
+  tokens: number
+  cost: number
+}
+export interface RevenueStats {
+  days: number
+  total: RevenueTotal
+  byType: Record<string, RevenueByType>
+  byModel: RevenueByModel[]
+  byDay: Record<string, RevenueByDay>
+  topUsers: Array<{
+    id: string
+    nickname: string
+    email: string
+    avatar: string | null
+    calls: number
+    revenue: number
+    tokens: number
+    cost: number
+    marginPct: number
+  }>
 }
 export interface GenerationLog {
   id: string

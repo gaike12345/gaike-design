@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { estimateCost, type EstimateKind, type EstimateParams, formatTokensCompact } from '../services/cost'
+import { estimateCost, type EstimateKind, type EstimateParams, formatTokensCompact, clearEstimateCostCache } from '../services/cost'
 import { useQuotaStore } from '../store/useQuotaStore'
 
 /**
@@ -8,6 +8,7 @@ import { useQuotaStore } from '../store/useQuotaStore'
  * - 客户端 30s TTL 缓存（services/cost.ts 内实现）
  * - 返回 tokens（可能为 loading: undefined）
  * - 会自动拉一次 quota，用于按钮判断余额是否不足
+ * - 监听 'models-batch-updated' 事件（管理后台批量改 margin 后），清缓存强制刷新
  *
  * 用法：
  *   const { tokens, loading, lowBalance } = useCostEstimate('image', { model, ratio })
@@ -21,6 +22,8 @@ export function useCostEstimate(
   const debounceMs = options?.debounceMs ?? 250
   const [tokens, setTokens] = useState<number | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
+  // 用于强制重新估算：管理后台批量改 margin 后触发
+  const [refreshTick, setRefreshTick] = useState(0)
 
   const remaining = useQuotaStore((s) => s.quota.remainingTokens)
   const refreshQuota = useQuotaStore((s) => s.refreshQuota)
@@ -28,6 +31,16 @@ export function useCostEstimate(
 
   // 首次挂载入，如果 quota 还没拉 就刷新一次
   useEffect(() => { if (!loadedAt) void refreshQuota() }, [loadedAt, refreshQuota])
+
+  // 监听管理后台批量更新事件，清空客户端缓存 + 强制重新估算
+  useEffect(() => {
+    const handler = () => {
+      clearEstimateCostCache()
+      setRefreshTick((t) => t + 1)
+    }
+    window.addEventListener('models-batch-updated', handler)
+    return () => window.removeEventListener('models-batch-updated', handler)
+  }, [])
 
   // params 序列化稳定 key
   const key = useMemo(
@@ -41,12 +54,13 @@ export function useCostEstimate(
     setLoading(true)
     let cancelled = false
     const t = setTimeout(async () => {
-      const v = await estimateCost(kind, params)
+      // refreshTick 变化时强制绕过缓存拉新值
+      const v = await estimateCost(kind, params, { force: true })
       if (!cancelled) { setTokens(v); setLoading(false) }
     }, debounceMs)
     return () => { cancelled = true; clearTimeout(t) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, key, debounceMs])
+  }, [kind, key, debounceMs, refreshTick])
 
   const lowBalance = typeof tokens === 'number' && tokens > 0 && remaining < tokens
 

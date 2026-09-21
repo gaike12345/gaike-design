@@ -180,9 +180,10 @@ interface UnifiedCanvasState {
   completeImageGen: (nodeId: string) => void
   retryImage: (nodeId: string, imgId: string) => void
   clearImageResults: (nodeId: string) => void
+  /** 创建连接的图片节点（高清/9宫格/四视图）：自动创建新节点+连接线+img2img 生成 */
+  createConnectedImageNode: (sourceNodeId: string, mode: 'hd' | '9grid' | '4view') => void
   runVideoGen: (nodeId: string) => Promise<void>
   pollVideoTask: (nodeId: string) => Promise<void>
-  cancelVideoGen: (nodeId: string) => Promise<void>
   runAudioGen: (nodeId: string) => Promise<void>
   runScriptGen: (nodeId: string) => Promise<void>
 
@@ -416,6 +417,8 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
             seed: baseSeed,
             model,
             resolution,
+            quality: node.data.imageQuality as string | undefined,
+            transparent: node.data.imageTransparent as boolean | undefined,
           })
 
       const newResults: GenImage[] = res.images.map((img) => ({
@@ -468,6 +471,70 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     get().updateNodeData(nodeId, { imageResults: [], imageStatus: 'idle' })
   },
 
+  createConnectedImageNode: (sourceNodeId, mode) => {
+    const state = get()
+    const srcNode = state.nodes.find((n) => n.id === sourceNodeId)
+    if (!srcNode || srcNode.type !== 'image') return
+
+    // 获取源节点的生成结果（用于判断是否有图可引用）
+    const srcResults = srcNode.data.imageResults?.filter((r) => r.status === 'done') ?? []
+    if (srcResults.length === 0) return
+
+    // 原始 prompt
+    const srcPrompt = (srcNode.data.imagePrompt as string) || ''
+
+    // 按模式构建 prompt 和参数
+    let prompt: string
+    let ratio: string
+    let resolution: string
+
+    if (mode === 'hd') {
+      // 高清：同画面放大增强
+      prompt = srcPrompt
+        ? `${srcPrompt}, ultra detailed, high resolution, enhanced details, 4K quality, sharp focus, masterpiece`
+        : 'ultra detailed, high resolution, enhanced details, 4K quality, sharp focus, masterpiece'
+      ratio = (srcNode.data.imageRatio as string) || '1:1'
+      resolution = '2k'
+    } else if (mode === '9grid') {
+      // 9宫格：主图 + 9 个细节面板合成图
+      prompt = srcPrompt
+        ? `${srcPrompt}, concept art design sheet, main panoramic view in center with 9 numbered detail callout panels showing specific areas of interest, labeled detail views arranged around the main image, grid layout, comprehensive design overview`
+        : 'concept art design sheet, main panoramic view in center with 9 numbered detail callout panels showing specific areas of interest, labeled detail views arranged around the main image, grid layout, comprehensive design overview'
+      ratio = '16:9'
+      resolution = '2k'
+    } else {
+      // 四视图：4 视角参考表（特写 + 正面 + 侧面 + 背面）
+      prompt = srcPrompt
+        ? `${srcPrompt}, character reference sheet, 4 views arrangement: close-up portrait, front view, side view, back view, character turnaround, full character design, multiple angles reference`
+        : 'character reference sheet, 4 views arrangement: close-up portrait, front view, side view, back view, character turnaround, full character design, multiple angles reference'
+      ratio = '16:9'
+      resolution = '2k'
+    }
+
+    // 新节点位置：原节点右侧偏移 400px（节点宽 320 + 80 间距）
+    const offsetX = 400
+    const newX = srcNode.position.x + offsetX
+    const newY = srcNode.position.y
+
+    // 创建新图片节点
+    const newNodeId = get().addNode('image', { x: newX, y: newY }, {
+      imagePrompt: prompt,
+      imageRatio: ratio,
+      imageResolution: resolution,
+      imageModel: srcNode.data.imageModel,
+      imageCount: 1,
+    }, false)
+
+    // 添加连接线：源节点 out → 新节点 ref
+    get().addConnection({
+      source: { nodeId: sourceNodeId, portId: 'out' },
+      target: { nodeId: newNodeId, portId: 'ref' },
+    })
+
+    // 自动启动生成（img2img 模式，runImageGen 会自动从 ref 连接读取参考图）
+    setTimeout(() => { get().runImageGen(newNodeId) }, 100)
+  },
+
   runVideoGen: async (nodeId) => {
     const state = get()
     const node = state.nodes.find((n) => n.id === nodeId)
@@ -476,23 +543,67 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     // ===== 全能参考：遍历所有 ref 连接，收集所有可用的图片作为参考 =====
     const refConns = state.connections.filter((c) => c.target.nodeId === nodeId && c.target.portId === 'ref')
 
-    // 收集所有参考图（来自所有 image/video 源节点的所有 done 结果）
-    const allRefImages: string[] = [] // originalUrl 列表
+    // 构建 连接节点 → originalUrl 映射表（用于 @图N 解析）
+    const refNodeMap = new Map<string, { label: string; url: string }>()
     for (const conn of refConns) {
       const src = state.nodes.find((n) => n.id === conn.source.nodeId)
       if (!src) continue
-      // 类型校验：只有 image 节点能提供图片作为参考
       if (src.type !== 'image') continue
+      const label = (src.data.__label as string) || ''
       const imgs = src.data.imageResults?.filter((r) => r.status === 'done')
-      for (const img of imgs) {
-        if (img.originalUrl) allRefImages.push(img.originalUrl)
+      if (imgs?.[0]?.originalUrl) {
+        refNodeMap.set(src.id, { label, url: imgs[0].originalUrl })
       }
     }
 
-    // 首张图 → imageUrl（图生视频主参考）
-    // 所有图 → referenceImages（全能参考多图输入）
-    const imageUrl = allRefImages[0]
-    const collectedRefImages = allRefImages.length > 1 ? allRefImages.slice(1) : undefined
+    const rawPrompt = node.data.videoPrompt || 'AI 生成视频'
+
+    // 解析 @图N 标签，按出现顺序收集参考图
+    // 例："场景：@图1是家庭场景，人物：@图2是男主" → [@图1, @图2]
+    const mentionPattern = /@图\d+/g
+    const mentions = rawPrompt.match(mentionPattern) || []
+
+    let imageUrl: string | undefined
+    let collectedRefImages: string[] | undefined
+    let prompt: string
+
+    if (mentions.length > 0) {
+      // 有 @引用：按 @出现顺序收集对应图片 URL
+      const orderedUrls: string[] = []
+      for (const mention of mentions) {
+        const label = mention.substring(1) // 去掉 @，得到 "图1"
+        // 在 refNodeMap 中找到 label 匹配的节点
+        for (const [, info] of refNodeMap) {
+          if (info.label === label) {
+            orderedUrls.push(info.url)
+            break
+          }
+        }
+      }
+
+      if (orderedUrls.length > 0) {
+        imageUrl = orderedUrls[0]
+        collectedRefImages = orderedUrls.length > 1 ? orderedUrls.slice(1) : undefined
+      }
+
+      // 保留 @图N 标签在 prompt 中（视频模型可理解 @图1/@图2 对应参考图顺序）
+      prompt = rawPrompt.trim() || 'AI 生成视频'
+    } else {
+      // 无 @引用：回退到旧行为（收集所有连接节点的图片）
+      const allRefImages: string[] = []
+      for (const conn of refConns) {
+        const src = state.nodes.find((n) => n.id === conn.source.nodeId)
+        if (!src) continue
+        if (src.type !== 'image') continue
+        const imgs = src.data.imageResults?.filter((r) => r.status === 'done')
+        for (const img of imgs) {
+          if (img.originalUrl) allRefImages.push(img.originalUrl)
+        }
+      }
+      imageUrl = allRefImages[0]
+      collectedRefImages = allRefImages.length > 1 ? allRefImages.slice(1) : undefined
+      prompt = rawPrompt.trim() || 'AI 生成视频'
+    }
 
     // 用户连了 ref 但没有任何 image 源产出可用图片 → 阻止静默文生视频
     if (refConns.length > 0 && !imageUrl) {
@@ -500,11 +611,6 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       return
     }
 
-    // 剥离 @-mention 标签（@图1 @图2 等）——这些是 UI 可视化标记，
-    // 真实图片引用已通过 imageUrl / referenceImages 字段传递，
-    // 残留的 @图N 标签会被视频模型当成无意义噪音，干扰内容理解
-    const rawPrompt = node.data.videoPrompt || 'AI 生成视频'
-    const prompt = rawPrompt.replace(/@图\d+\s*/g, '').trim() || 'AI 生成视频'
     const isImg2Video = !!imageUrl
     const model = node.data.videoModel || 'seedance-pro'
     const resolution = node.data.videoResolution
@@ -580,29 +686,6 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       // 轮询失败不立即标记为 error，可能是临时网络问题
       // 连续失败由 stopPoll 的超时机制处理
       logger.warn('Canvas', '视频任务轮询失败:', node.data.videoTaskId, e)
-    }
-  },
-
-  cancelVideoGen: async (nodeId) => {
-    const state = get()
-    const node = state.nodes.find((n) => n.id === nodeId)
-    if (!node || node.type !== 'video' || !node.data.videoTaskId) return
-    if (!isBusy(node.data.videoStatus)) return
-
-    try {
-      await api.post('/api/video/task/' + node.data.videoTaskId + '/cancel')
-      // 停止轮询
-      pollRegistry.stop(nodeId)
-      // 更新状态为已取消
-      get().updateNodeData(nodeId, {
-        videoStatus: 'error',
-        videoErrorMsg: '已取消',
-      })
-      // 刷新积分
-      void useQuotaStore.getState().refreshQuota({ force: true })
-    } catch (e) {
-      const errMsg = e instanceof Error ? e.message : '取消失败'
-      logger.warn('Canvas', '取消视频生成失败:', errMsg)
     }
   },
 

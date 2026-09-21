@@ -8,9 +8,9 @@
  * ---------------------------------------------------------------
  */
 
-import { useCallback, useEffect, useState } from 'react'
 import { api } from '../services/api'
 import logger from '../utils/logger'
+import { useModelStore, type ModelStore } from '../hooks/useModelStore'
 
 export type ImageAspectRatio = '1:1'
 
@@ -36,6 +36,11 @@ export interface ImageModelFeatures {
   negativePrompt: boolean
   seed: boolean
   enhance: boolean
+  imageToImage: boolean
+  maxReferenceImages: number
+  quality: boolean
+  qualityOptions: Array<{ id: string; label: string }>
+  transparent: boolean
 }
 
 export interface ImageModelConfig {
@@ -74,7 +79,7 @@ const FALLBACK_MODELS: Record<string, ImageModelConfig> = {
     defaultRatio: '1:1',
     defaultResolution: '1k',
     maxBatch: 4,
-    features: { negativePrompt: true, seed: true, enhance: false },
+    features: { negativePrompt: true, seed: false, enhance: false, imageToImage: false, maxReferenceImages: 0, quality: false, qualityOptions: [], transparent: false },
     costTokens: 20,
   },
 }
@@ -200,40 +205,19 @@ export function validateResolution(modelId: string | undefined, resId: string): 
 
 // ============== React Hook ==============
 
+// 图片模型存储适配器（供 useModelStore 泛型 hook 使用）
+const imageModelStore: ModelStore<ImageModelConfig> = {
+  loader: loadImageModels,
+  lister: listImageModels,
+  getDefault: getDefaultImageModel,
+  hasLoaded: hasLoadedImageModels,
+  getCacheVersion: getImageModelsCacheVersion,
+}
+
 /**
  * 加载并返回图片模型列表的 React Hook
  * 在组件首次挂载时触发加载；当 cacheVersion 变化（管理后台修改模型）时自动重新拉取
  */
 export function useImageModels() {
-  const [models, setModels] = useState<ImageModelConfig[]>(() => listImageModels())
-  const [defaultModel, setDefaultModel] = useState<string>(() => getDefaultImageModel())
-  const [loading, setLoading] = useState(!loadAttempted)
-  const [loadedVersion, setLoadedVersion] = useState(() => getImageModelsCacheVersion())
-
-  const refresh = useCallback(async () => {
-    setLoading(true)
-    try {
-      await loadImageModels(true)
-      setModels(listImageModels())
-      setDefaultModel(getDefaultImageModel())
-      setLoadedVersion(getImageModelsCacheVersion())
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    // 首次加载 或 缓存版本号变化（管理后台修改了模型）→ 重新拉取
-    if (!loadAttempted || loadedVersion !== getImageModelsCacheVersion()) {
-      setLoading(true)
-      loadImageModels().then(() => {
-        setModels(listImageModels())
-        setDefaultModel(getDefaultImageModel())
-        setLoadedVersion(getImageModelsCacheVersion())
-        setLoading(false)
-      })
-    }
-  }, [loadedVersion])
-
-  return { models, defaultModel, loading, refresh }
+  return useModelStore<ImageModelConfig>(imageModelStore)
 }

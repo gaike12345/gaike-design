@@ -54,6 +54,11 @@ export interface ImageModelFeatures {
   negativePrompt: boolean
   seed: boolean
   enhance: boolean
+  imageToImage: boolean
+  maxReferenceImages: number
+  quality: boolean
+  qualityOptions: Array<{ id: string; label: string }>
+  transparent: boolean
 }
 
 export interface ImageModelConfig {
@@ -95,7 +100,7 @@ const FALLBACK_MODELS: Record<string, ImageModelConfig> = {
     defaultRatio: '1:1',
     defaultResolution: 'standard',
     maxBatch: 4,
-    features: { negativePrompt: true, seed: true, enhance: false },
+    features: { negativePrompt: true, seed: false, enhance: false, imageToImage: false, maxReferenceImages: 0, quality: false, qualityOptions: [], transparent: false },
     costTokens: 800,
     status: 'active',
   },
@@ -136,15 +141,22 @@ async function loadFromDB(): Promise<CacheEntry> {
         name: row.name,
         label: row.displayName || row.name,
         description: row.desc || '',
-        ratios: Array.isArray(cfg.ratios) && cfg.ratios.length ? cfg.ratios : SDXL_RATIOS,
-        resolutions: Array.isArray(cfg.resolutions) && cfg.resolutions.length ? cfg.resolutions : SDXL_RESOLUTIONS,
+        // 移除 SDXL 兜底；config=null 时返回空数组，前端隐藏对应参数项
+        // （与视频节点同步模式一致：config=null → 参数项隐藏）
+        ratios: Array.isArray(cfg.ratios) ? cfg.ratios : [],
+        resolutions: Array.isArray(cfg.resolutions) ? cfg.resolutions : [],
         defaultRatio: cfg.defaultRatio || '1:1',
-        defaultResolution: cfg.defaultResolution || 'standard',
+        defaultResolution: cfg.defaultResolution || '1k',
         maxBatch: typeof cfg.maxBatch === 'number' ? cfg.maxBatch : 4,
         features: {
           negativePrompt: cfg.features?.negativePrompt !== false,
-          seed: cfg.features?.seed !== false,
+          seed: cfg.features?.seed === true,
           enhance: cfg.features?.enhance === true,
+          imageToImage: cfg.features?.imageToImage === true,
+          maxReferenceImages: typeof cfg.features?.maxReferenceImages === 'number' ? cfg.features.maxReferenceImages : 0,
+          quality: cfg.features?.quality === true,
+          qualityOptions: Array.isArray(cfg.features?.qualityOptions) ? cfg.features.qualityOptions : [],
+          transparent: cfg.features?.transparent === true,
         },
         costTokens: row.costTokens,
         status: row.status,
@@ -261,7 +273,7 @@ export async function calcImageCost(
   const model = await getImageModelConfig(modelId)
   const res = model.resolutions.find((r) => r.id === resolutionId) || model.resolutions[0]
   const resMultiplier = res.multiplier || 1
-  const baseCost = model.costTokens || 800
+  const baseCost = model.costTokens ?? 0
   return Math.max(1, Math.ceil(baseCost * resMultiplier * Math.max(1, Math.min(batch, model.maxBatch))))
 }
 

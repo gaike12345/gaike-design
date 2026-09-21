@@ -1,12 +1,12 @@
-﻿/**
+/**
  * 视频模型配置 — 从后端 API 动态加载（带本地兜底）
  *
  *  对应后端：server/src/mank-core/video/videoModels.ts
  */
 
-import { useCallback, useEffect, useState } from 'react'
 import { api } from '../services/api'
 import logger from '../utils/logger'
+import { useModelStore, type ModelStore } from '../hooks/useModelStore'
 
 export interface VideoDurationConfig {
   id: string
@@ -36,6 +36,8 @@ export interface VideoModelConfig {
     defaultRatio: string
     supportsImg2Video: boolean
     supportsAudio: boolean
+    supportsReferenceImages: boolean
+    supportsEndFrame: boolean
     baseCostPerSecond: number
   } | null
 }
@@ -70,6 +72,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       defaultRatio: '16:9',
       supportsImg2Video: true,
       supportsAudio: false,
+      supportsReferenceImages: false,
+      supportsEndFrame: false,
       baseCostPerSecond: 50,
     },
   },
@@ -93,6 +97,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       defaultRatio: '16:9',
       supportsImg2Video: true,
       supportsAudio: true,
+      supportsReferenceImages: true,
+      supportsEndFrame: true,
       baseCostPerSecond: 360,
     },
   },
@@ -115,6 +121,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       defaultRatio: '16:9',
       supportsImg2Video: true,
       supportsAudio: true,
+      supportsReferenceImages: true,
+      supportsEndFrame: true,
       baseCostPerSecond: 206,
     },
   },
@@ -141,6 +149,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       defaultRatio: '16:9',
       supportsImg2Video: true,
       supportsAudio: true,
+      supportsReferenceImages: false,
+      supportsEndFrame: true,
       baseCostPerSecond: 180,
     },
   },
@@ -163,6 +173,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       defaultRatio: '16:9',
       supportsImg2Video: true,
       supportsAudio: true,
+      supportsReferenceImages: false,
+      supportsEndFrame: true,
       baseCostPerSecond: 140,
     },
   },
@@ -182,6 +194,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       defaultRatio: '16:9',
       supportsImg2Video: true,
       supportsAudio: false,
+      supportsReferenceImages: false,
+      supportsEndFrame: true,
       baseCostPerSecond: 20,
     },
   },
@@ -208,6 +222,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       defaultRatio: '16:9',
       supportsImg2Video: true,
       supportsAudio: true,
+      supportsReferenceImages: true,
+      supportsEndFrame: true,
       baseCostPerSecond: 200,
     },
   },
@@ -231,6 +247,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       defaultRatio: '16:9',
       supportsImg2Video: true,
       supportsAudio: true,
+      supportsReferenceImages: true,
+      supportsEndFrame: true,
       baseCostPerSecond: 136,
     },
   },
@@ -256,6 +274,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       defaultRatio: '16:9',
       supportsImg2Video: true,
       supportsAudio: false,
+      supportsReferenceImages: false,
+      supportsEndFrame: false,
       baseCostPerSecond: 40,
     },
   },
@@ -282,6 +302,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       defaultRatio: '16:9',
       supportsImg2Video: true,
       supportsAudio: true,
+      supportsReferenceImages: false,
+      supportsEndFrame: true,
       baseCostPerSecond: 160,
     },
   },
@@ -305,6 +327,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       defaultRatio: '16:9',
       supportsImg2Video: false,
       supportsAudio: true,
+      supportsReferenceImages: false,
+      supportsEndFrame: false,
       baseCostPerSecond: 100,
     },
   },
@@ -329,6 +353,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       defaultRatio: '16:9',
       supportsImg2Video: true,
       supportsAudio: false,
+      supportsReferenceImages: false,
+      supportsEndFrame: false,
       baseCostPerSecond: 16,
     },
   },
@@ -391,7 +417,9 @@ export function hasLoadedVideoModels(): boolean {
 
 /**
  * 计算视频预计消耗积分（前端预估值，最终以后端为准）
- * 公式：baseCostPerSecond × 时长(秒) × 分辨率倍率 × 图生视频加成(+15%)
+ * 公式：(costTokens / defaultDurationSec) × 时长(秒) × 分辨率倍率 × 图生视频加成(+15%)
+ * 以 costTokens 为 SoR（含毛利售价），通过 config.defaultDuration 反推 per-second
+ * 这样管理后台改 margin → DB costTokens 变化 → 画布显示同步更新
  */
 export function estimateVideoCost(
   model: VideoModelConfig,
@@ -400,40 +428,31 @@ export function estimateVideoCost(
   img2video = false,
 ): number {
   if (!model.config) return model.costTokens
-  const { baseCostPerSecond, resolutions } = model.config
+  const { resolutions, defaultDuration } = model.config
   const res = resolutions.find(r => r.id === resolutionId)
   const multiplier = res?.multiplier ?? 1.0
   const imgFactor = img2video ? 1.15 : 1
-  return Math.max(1, Math.round(baseCostPerSecond * durationSec * multiplier * imgFactor))
+  // 以 costTokens 为 SoR（含毛利售价），通过 config.defaultDuration 反推 per-second
+  // 这样管理后台改 margin → DB costTokens 变化 → /api/video/models 返回新值 → 画布显示同步
+  // 不再用 config.baseCostPerSecond（seed 时硬编码的静态成本价，不受 margin 影响）
+  const defaultDurationSec = defaultDuration
+    ? Number(String(defaultDuration).replace(/\D/g, '')) || 5
+    : 5
+  const perSecond = model.costTokens / defaultDurationSec
+  return Math.max(1, Math.round(perSecond * durationSec * multiplier * imgFactor))
 }
 
 // ========== React Hook ==========
 
+// 视频模型存储适配器（供 useModelStore 泛型 hook 使用）
+const videoModelStore: ModelStore<VideoModelConfig> = {
+  loader: loadVideoModels,
+  lister: listVideoModels,
+  getDefault: getDefaultVideoModel,
+  hasLoaded: hasLoadedVideoModels,
+  // videoModels.ts 没有 cacheVersion 机制（不需要跨缓存版本检测，事件驱动即可）
+}
+
 export function useVideoModels() {
-  const [models, setModels] = useState<VideoModelConfig[]>(() => listVideoModels())
-  const [defaultModel, setDefaultModel] = useState<string>(() => getDefaultVideoModel())
-  const [loading, setLoading] = useState(!loadAttempted)
-
-  const refresh = useCallback(async () => {
-    setLoading(true)
-    try {
-      await loadVideoModels(true)
-      setModels(listVideoModels())
-      setDefaultModel(getDefaultVideoModel())
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!loadAttempted) {
-      loadVideoModels().then(() => {
-        setModels(listVideoModels())
-        setDefaultModel(getDefaultVideoModel())
-        setLoading(false)
-      })
-    }
-  }, [])
-
-  return { models, defaultModel, loading, refresh }
+  return useModelStore<VideoModelConfig>(videoModelStore)
 }

@@ -23,7 +23,7 @@ export function signToken(payload: JwtPayload): string {
 
 export function verifyToken(token: string): JwtPayload | null {
   try {
-    return jwt.verify(token, SECRET) as JwtPayload
+    return jwt.verify(token, SECRET, { algorithms: ['HS256'] }) as JwtPayload
   } catch {
     return null
   }

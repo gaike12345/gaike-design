@@ -73,9 +73,18 @@ async function verifyImageMagic(filePath: string, ext: string): Promise<boolean>
 }
 
 // 限制 50MB（图像/音频/视频）
+// 安全：额外限制字段数量和大小，缓解 multer multipart 解析 ReDoS (CVE-2024-29149)
+// 通过严格限制 parts/fields/fieldSize，即使解析器有正则回溯也会快速失败
 export const upload = multer({
   storage,
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: {
+    fileSize: 50 * 1024 * 1024,
+    files: 20,       // 最多 20 个文件
+    fields: 20,      // 最多 20 个非文件字段
+    fieldSize: 1 * 1024 * 1024,  // 单个字段最大 1MB
+    parts: 40,       // 总共最多 40 个 part（文件+字段）
+    headerPairs: 100, // header 键值对数量限制
+  },
   fileFilter: (_req, file, cb) => {
     const allowed = /\.(jpg|jpeg|png|gif|webp|mp3|wav|m4a|mp4|mov|pdf|txt|epub)$/i
     if (allowed.test(path.extname(file.originalname))) {

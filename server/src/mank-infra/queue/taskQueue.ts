@@ -444,36 +444,6 @@ class TaskQueueService {
     return this.useRedis && isRedisReady()
   }
 
-  /**
-   * 取消任务
-   * - queued 状态：从队列中移除，标记为 cancelled
-   * - processing 状态：标记为 cancelled（已在执行的任务由 worker 检查取消标记）
-   * - completed/failed/cancelled：无操作
-   *
-   * @returns true 表示取消成功，false 表示任务不存在或已结束
-   */
-  async cancel(taskId: string): Promise<boolean> {
-    const task = await this.backend.getStatus(taskId)
-    if (!task) return false
-
-    // 已结束的任务无法取消
-    if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
-      return false
-    }
-
-    // 从队列中移除（queued 状态）
-    if (task.status === 'queued') {
-      await this.backend.remove(taskId, task.type)
-    }
-
-    // 更新状态为 cancelled
-    await this.updateStatus(taskId, 'cancelled', {
-      error: '用户取消',
-    })
-
-    return true
-  }
-
   // ========== 私有方法 ==========
 
   private _generateId(type: TaskType): string {

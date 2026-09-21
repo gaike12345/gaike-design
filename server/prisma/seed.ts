@@ -14,9 +14,9 @@
  */
 
 import 'dotenv/config'
-import prisma from '../src/lib/prisma'
+import prisma from '../src/mank-infra/database/prisma'
 import bcrypt from 'bcryptjs'
-import { generateNextUid } from '../src/lib/uidGenerator'
+import { generateNextUid } from '../src/mank-core/auth/uidGenerator'
 
 // ========== 共用工具 ==========
 const COVER = (encoded: string) =>
@@ -656,33 +656,34 @@ async function main() {
 
   const MODELS_SEED = [
     // image — Pollinations 6 个精选模型（入门→旗舰分档，每模型独立参数配置）
-    { name: 'community/CloudCompile/sdxl-lightning', displayName: 'SDXL Lightning', type: 'image', providerId: pPollinations.id, tag: '入门', desc: '轻量快速，入门体验', costTokens: 20, sort: 1, config: IMAGE_SDXL_LIGHTNING },
-    { name: 'tongyi-mai/z-image-turbo', displayName: 'Z-Image Turbo', type: 'image', providerId: pPollinations.id, tag: '性价比', desc: '通义万相快速版，均衡之选', costTokens: 30, sort: 2, config: IMAGE_ZIMAGE_TURBO },
-    { name: 'black-forest-labs/flux.1-schnell', displayName: 'FLUX.1 Schnell', type: 'image', providerId: pPollinations.id, tag: '推荐', desc: 'Flux 极速版，高质量通用', costTokens: 40, sort: 3, config: IMAGE_FLUX1_SCHNELL },
-    { name: 'black-forest-labs/flux.2-flex', displayName: 'FLUX.2 Flex', type: 'image', providerId: pPollinations.id, tag: '高质量', desc: 'Flux 2 灵活版，细节更丰富', costTokens: 60, sort: 4, config: IMAGE_FLUX2_FLEX },
-    { name: 'ideogram-ai/ideogram-v4-quality', displayName: 'Ideogram 4.0', type: 'image', providerId: pPollinations.id, tag: '文字', desc: '文字渲染最强，海报首选', costTokens: 80, sort: 5, config: IMAGE_IDEOGRAM_V4 },
-    { name: 'bytedance/seedream-5.0-pro', displayName: 'Seedream 5.0 Pro', type: 'image', providerId: pPollinations.id, tag: '旗舰', desc: '字节跳动旗舰，国产最强', costTokens: 100, sort: 6, config: IMAGE_SEEDREAM_5PRO },
-    // novel
-    { name: 'glm-4', displayName: 'GLM-4', type: 'novel', providerId: pZhipu.id, tag: '通用', desc: '智谱通用大模型', costTokens: 20, sort: 1 },
-    { name: 'qwen-max', displayName: '通义千问 Max', type: 'novel', providerId: pDashscope.id, tag: '长文本', desc: '阿里通义大模型', costTokens: 30, sort: 2 },
-    { name: 'gpt-4o', displayName: 'GPT-4o', type: 'novel', providerId: pZhipu.id, tag: '高质量', desc: 'OpenAI旗舰模型', costTokens: 50, sort: 3 },
+    // costTokens = 官方成本（1 pollen = 10 积分（默认汇率比）），margin=10 = 默认汇率比（可管理员单独调高/调低）
+    { name: 'community/CloudCompile/sdxl-lightning', displayName: 'SDXL Lightning', type: 'image', providerId: pPollinations.id, tag: '入门', desc: '轻量快速，入门体验', costTokens: 20, margin: 10, sort: 1, config: IMAGE_SDXL_LIGHTNING },
+    { name: 'tongyi-mai/z-image-turbo', displayName: 'Z-Image Turbo', type: 'image', providerId: pPollinations.id, tag: '性价比', desc: '通义万相快速版，均衡之选', costTokens: 30, margin: 10, sort: 2, config: IMAGE_ZIMAGE_TURBO },
+    { name: 'black-forest-labs/flux.1-schnell', displayName: 'FLUX.1 Schnell', type: 'image', providerId: pPollinations.id, tag: '推荐', desc: 'Flux 极速版，高质量通用', costTokens: 40, margin: 10, sort: 3, config: IMAGE_FLUX1_SCHNELL },
+    { name: 'black-forest-labs/flux.2-flex', displayName: 'FLUX.2 Flex', type: 'image', providerId: pPollinations.id, tag: '高质量', desc: 'Flux 2 灵活版，细节更丰富', costTokens: 60, margin: 10, sort: 4, config: IMAGE_FLUX2_FLEX },
+    { name: 'ideogram-ai/ideogram-v4-quality', displayName: 'Ideogram 4.0', type: 'image', providerId: pPollinations.id, tag: '文字', desc: '文字渲染最强，海报首选', costTokens: 80, margin: 10, sort: 5, config: IMAGE_IDEOGRAM_V4 },
+    { name: 'bytedance/seedream-5.0-pro', displayName: 'Seedream 5.0 Pro', type: 'image', providerId: pPollinations.id, tag: '旗舰', desc: '字节跳动旗舰，国产最强', costTokens: 100, margin: 10, sort: 6, config: IMAGE_SEEDREAM_5PRO },
+    // novel — LLM 调用按次扣费，成本主要为 token 量，margin=10 = 默认汇率比（可管理员单独调高/调低）
+    { name: 'glm-4', displayName: 'GLM-4', type: 'novel', providerId: pZhipu.id, tag: '通用', desc: '智谱通用大模型', costTokens: 20, margin: 10, sort: 1 },
+    { name: 'qwen-max', displayName: '通义千问 Max', type: 'novel', providerId: pDashscope.id, tag: '长文本', desc: '阿里通义大模型', costTokens: 30, margin: 10, sort: 2 },
+    { name: 'gpt-4o', displayName: 'GPT-4o', type: 'novel', providerId: pZhipu.id, tag: '高质量', desc: 'OpenAI旗舰模型', costTokens: 50, margin: 10, sort: 3 },
     // comic
-    { name: 'comic-pro', displayName: '漫画 Pro', type: 'comic', providerId: pDashscope.id, tag: '专业', desc: '漫画分镜专用', costTokens: 150, sort: 1 },
-    { name: 'guoman-comic', displayName: '国漫专用', type: 'comic', providerId: pDashscope.id, tag: '风格', desc: '中文漫画优化', costTokens: 240, sort: 2 },
+    { name: 'comic-pro', displayName: '漫画 Pro', type: 'comic', providerId: pDashscope.id, tag: '专业', desc: '漫画分镜专用', costTokens: 150, margin: 10, sort: 1 },
+    { name: 'guoman-comic', displayName: '国漫专用', type: 'comic', providerId: pDashscope.id, tag: '风格', desc: '中文漫画优化', costTokens: 240, margin: 10, sort: 2 },
     // audio
-    { name: 'tts-pro', displayName: 'TTS Pro', type: 'audio', providerId: pDashscope.id, tag: '语音合成', desc: '高质量文本转语音', costTokens: 25, sort: 1 },
-    { name: 'voice-clone', displayName: '声音克隆', type: 'audio', providerId: pDashscope.id, tag: '克隆', desc: '个性化声音复刻', costTokens: 100, sort: 2 },
-    // video — Pollinations 视频模型（6 个精选，4 档分层）
-    { name: 'wan-fast', displayName: 'Wan 快速版', type: 'video', providerId: pPollinationsVideo.id, tag: '体验', desc: '入门体验，480p 5秒，快速预览', costTokens: 75, sort: 1, config: VIDEO_WANFAST_CONFIG },
-    { name: 'p-video', displayName: 'Pruna Video', type: 'video', providerId: pPollinationsVideo.id, tag: '性价比', desc: '便宜好用，720p/1080p', costTokens: 150, sort: 2, config: VIDEO_PVIDEO_CONFIG },
-    { name: 'seedance-pro', displayName: 'Seedance Pro', type: 'video', providerId: pPollinationsVideo.id, tag: '推荐', desc: '稳定通用，480p/720p/1080p', costTokens: 180, sort: 3, config: VIDEO_SEEDANCE_PRO_CONFIG },
-    { name: 'minimax-h3', displayName: 'MiniMax H3', type: 'video', providerId: pPollinationsVideo.id, tag: '带音频', desc: '自带立体声，480p/768p/2K', costTokens: 360, sort: 4, config: VIDEO_MINIMAX_CONFIG },
-    { name: 'veo', displayName: 'Veo 3.1 Fast', type: 'video', providerId: pPollinationsVideo.id, tag: '高质量', desc: 'Google出品，720p/1080p，支持音频', costTokens: 460, sort: 5, config: VIDEO_VEO_CONFIG },
-    { name: 'wan-pro', displayName: 'Wan Pro', type: 'video', providerId: pPollinationsVideo.id, tag: '专业', desc: '高质量全能，支持参考图/视频/音频', costTokens: 720, sort: 6, config: VIDEO_WANPRO_CONFIG },
-    // video — 可灵 Kling（国产，阿里云百炼）
-    { name: 'kling-v3-turbo', displayName: '可灵 Turbo', type: 'video', providerId: pKlingVideo.id, tag: '国产·快', desc: '性价比首选，720p/1080p，自带音频', costTokens: 80, sort: 11, config: VIDEO_KLING_TURBO_CONFIG },
-    { name: 'kling-v3', displayName: '可灵 V3', type: 'video', providerId: pKlingVideo.id, tag: '国产·推荐', desc: '标准画质，720p/1080p/4K，首尾帧', costTokens: 120, sort: 12, config: VIDEO_KLING_V3_CONFIG },
-    { name: 'kling-v3-omni', displayName: '可灵 Omni', type: 'video', providerId: pKlingVideo.id, tag: '国产·专业', desc: '全能版，参考图/参考视频/视频编辑', costTokens: 200, sort: 13, config: VIDEO_KLING_OMNI_CONFIG },
+    { name: 'tts-pro', displayName: 'TTS Pro', type: 'audio', providerId: pDashscope.id, tag: '语音合成', desc: '高质量文本转语音', costTokens: 25, margin: 10, sort: 1 },
+    { name: 'voice-clone', displayName: '声音克隆', type: 'audio', providerId: pDashscope.id, tag: '克隆', desc: '个性化声音复刻', costTokens: 100, margin: 10, sort: 2 },
+    // video — Pollinations 视频模型（6 个精选，4 档分层，margin=10 = 默认汇率比（可管理员单独调高/调低））
+    { name: 'wan-fast', displayName: 'Wan 快速版', type: 'video', providerId: pPollinationsVideo.id, tag: '体验', desc: '入门体验，480p 5秒，快速预览', costTokens: 75, margin: 10, sort: 1, config: VIDEO_WANFAST_CONFIG },
+    { name: 'p-video', displayName: 'Pruna Video', type: 'video', providerId: pPollinationsVideo.id, tag: '性价比', desc: '便宜好用，720p/1080p', costTokens: 150, margin: 10, sort: 2, config: VIDEO_PVIDEO_CONFIG },
+    { name: 'seedance-pro', displayName: 'Seedance Pro', type: 'video', providerId: pPollinationsVideo.id, tag: '推荐', desc: '稳定通用，480p/720p/1080p', costTokens: 180, margin: 10, sort: 3, config: VIDEO_SEEDANCE_PRO_CONFIG },
+    { name: 'minimax-h3', displayName: 'MiniMax H3', type: 'video', providerId: pPollinationsVideo.id, tag: '带音频', desc: '自带立体声，480p/768p/2K', costTokens: 360, margin: 10, sort: 4, config: VIDEO_MINIMAX_CONFIG },
+    { name: 'veo', displayName: 'Veo 3.1 Fast', type: 'video', providerId: pPollinationsVideo.id, tag: '高质量', desc: 'Google出品，720p/1080p，支持音频', costTokens: 460, margin: 10, sort: 5, config: VIDEO_VEO_CONFIG },
+    { name: 'wan-pro', displayName: 'Wan Pro', type: 'video', providerId: pPollinationsVideo.id, tag: '专业', desc: '高质量全能，支持参考图/视频/音频', costTokens: 720, margin: 10, sort: 6, config: VIDEO_WANPRO_CONFIG },
+    // video — 可灵 Kling（国产，阿里云百炼，margin=10 = 默认汇率比（可管理员单独调高/调低））
+    { name: 'kling-v3-turbo', displayName: '可灵 Turbo', type: 'video', providerId: pKlingVideo.id, tag: '国产·快', desc: '性价比首选，720p/1080p，自带音频', costTokens: 80, margin: 10, sort: 11, config: VIDEO_KLING_TURBO_CONFIG },
+    { name: 'kling-v3', displayName: '可灵 V3', type: 'video', providerId: pKlingVideo.id, tag: '国产·推荐', desc: '标准画质，720p/1080p/4K，首尾帧', costTokens: 120, margin: 10, sort: 12, config: VIDEO_KLING_V3_CONFIG },
+    { name: 'kling-v3-omni', displayName: '可灵 Omni', type: 'video', providerId: pKlingVideo.id, tag: '国产·专业', desc: '全能版，参考图/参考视频/视频编辑', costTokens: 200, margin: 10, sort: 13, config: VIDEO_KLING_OMNI_CONFIG },
   ]
   for (const m of MODELS_SEED) {
     await prisma.aIModel.upsert({ where: { name: m.name }, update: m, create: m })
@@ -736,6 +737,28 @@ async function main() {
       data: { value: cfg.value },
     })
   }
+
+  // 7.5) 定价配置初始化（Pollinations pollen→积分 汇率）
+  // 1 pollen = 10 积分（默认值，运营可在"运营总览 → 换算链路"手动调整）
+  console.log('  💱 写入定价配置种子数据...')
+  await prisma.siteConfig.upsert({
+    where: { group_key: { group: 'pricing', key: 'pollinations.token_ratio' } },
+    update: {
+      value: '10',
+      label: 'Pollinations pollen→积分 汇率',
+      description: '运营总览 / 换算链路设置：1 pollen = N 积分。修改后所有 Pollinations 模型积分消耗自动按比例上浮。',
+      controlType: 'number',
+    },
+    create: {
+      group: 'pricing',
+      key: 'pollinations.token_ratio',
+      value: '10',
+      label: 'Pollinations pollen→积分 汇率',
+      description: '运营总览 / 换算链路设置：1 pollen = N 积分。修改后所有 Pollinations 模型积分消耗自动按比例上浮。',
+      controlType: 'number',
+      sort: 10,
+    },
+  })
 
   // 8) 板块功能配置初始化
   console.log('  🧩 写入板块功能配置种子数据...')
@@ -815,3 +838,4 @@ main()
   .finally(async () => {
     await prisma.$disconnect()
   })
+

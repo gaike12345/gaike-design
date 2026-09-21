@@ -7,7 +7,8 @@
 
 import fetch from 'node-fetch'
 import logger from '../../mank-infra/logging/logger'
-import { BusinessError } from '../../mank-common/errors'
+import { BusinessError, ForbiddenError } from '../../mank-common/errors'
+import { detectPromptInjection, wrapSystemPromptWithBoundary } from './promptInjection'
 
 // ---- 供应商配置 ----
 type LlmProviderName = 'zhipu' | 'pollinations'
@@ -42,14 +43,38 @@ interface LlmMessage {
  * @returns 模型返回的文本
  */
 export async function callLlm(systemPrompt: string, userPrompt: string, model?: string): Promise<string> {
+  // === Prompt Injection 检测（确定性防御层）===
+  // 检测高严重度的注入模式 → 直接抛错拦截，不会到达 LLM
+  const injectionCheck = detectPromptInjection(userPrompt)
+  if (injectionCheck.detected && injectionCheck.severity === 'high') {
+    logger.warn('LLM 调用被 prompt injection 拦截', {
+      pattern: injectionCheck.matchedPattern,
+      severity: injectionCheck.severity,
+    })
+    throw new ForbiddenError('请求包含可疑的系统指令覆盖尝试，请修改后重试')
+  }
+
+  // 中/低严重度：记录日志但继续（避免误杀正常创作）
+  if (injectionCheck.detected && injectionCheck.severity !== 'high') {
+    logger.info('LLM 调用检测到弱信号注入模式，已审计放行', {
+      pattern: injectionCheck.matchedPattern,
+      severity: injectionCheck.severity,
+    })
+  }
+
+  // === System prompt 边界标记 ===
+  // 在 system prompt 前后加入显式边界 + 指令覆盖声明
+  // 这是 defense-in-depth，真正的安全靠上面的确定性检测
+  const safeSystemPrompt = wrapSystemPromptWithBoundary(systemPrompt)
+
   // 无 API Key 时走 fallback 模板
   if (!ACTIVE.key) {
     logger.warn('LLM 供应商未配置 API Key，使用模板兜底', { provider: ACTIVE.name })
-    return fallbackTemplate(systemPrompt, userPrompt)
+    return fallbackTemplate(safeSystemPrompt, userPrompt)
   }
 
   const messages: LlmMessage[] = [
-    { role: 'system', content: systemPrompt },
+    { role: 'system', content: safeSystemPrompt },
     { role: 'user', content: userPrompt },
   ]
 
@@ -72,7 +97,7 @@ export async function callLlm(systemPrompt: string, userPrompt: string, model?: 
   if (!res.ok) {
     const errText = await res.text()
     logger.error('LLM API 调用失败', { provider: ACTIVE.name, status: res.status, error: errText.slice(0, 200) })
-    return fallbackTemplate(systemPrompt, userPrompt)
+    return fallbackTemplate(safeSystemPrompt, userPrompt)
   }
 
   const data = await res.json() as any
@@ -149,7 +174,8 @@ export async function listModels(): Promise<{ id: string; type: string }[]> {
   }
 }
 
-// 无 API Key 时的模板兜底（保证接口可用，但结果为占位文本）
-function fallbackTemplate(system: string, user: string): string {
-  return `（LLM 未配置 API Key，返回占位内容）\n系统提示：${system.slice(0, 50)}…\n用户输入：${user.slice(0, 50)}…`
+// 无 API Key 或 API 调用失败时的安全兜底
+// 不回显任何 system prompt 或用户输入，防止敏感创作内容泄露到前端
+function fallbackTemplate(_system: string, _user: string): string {
+  return '（AI 服务暂未配置或调用失败，返回占位内容）请联系管理员开通 AI 功能。'
 }

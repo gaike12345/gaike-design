@@ -294,14 +294,16 @@ const VideoPromptMentionInput = memo(function VideoPromptMentionInput({
       const pos = ta.selectionStart
       if (pos !== ta.selectionEnd) return // 有选中时不触发
 
-      // 找到光标前最近的 @（@ 前面必须是空白或行首）
+      // 找到光标前最近的 @（@ 前面必须是空白、行首、或常见标点符号）
+      // 支持中文标点后触发 @，如 "场景：@图1" 或 "人物，@图2"
+      const atTriggerChars = /[\s\n，。：；！？、,.:;!?（）()\[\]【】「」""''`]/
       let atIdx = -1
       for (let i = pos - 1; i >= Math.max(0, pos - 30); i--) {
-        if (ta.value[i] === '@' && (i === 0 || /[\s\n]/.test(ta.value[i - 1]))) {
+        if (ta.value[i] === '@' && (i === 0 || atTriggerChars.test(ta.value[i - 1]))) {
           atIdx = i
           break
         }
-        if (/[\s\n]/.test(ta.value[i])) break // @ 前必须是空白字符
+        if (/[\s\n]/.test(ta.value[i])) break // 遇到空白停止向后搜索
       }
 
       if (atIdx >= 0) {
@@ -815,6 +817,7 @@ export const ImageNode = memo(function ImageNode({ node }: { node: UCanvasNode }
   const runImageGen = useUnifiedCanvasStore((s) => s.runImageGen)
   const completeImageGen = useUnifiedCanvasStore((s) => s.completeImageGen)
   const updateNodeData = useUnifiedCanvasStore((s) => s.updateNodeData)
+  const createConnectedImageNode = useUnifiedCanvasStore((s) => s.createConnectedImageNode)
   const selectNode = useUnifiedCanvasStore((s) => s.selectNode)
   const selectedNodeId = useUnifiedCanvasStore((s) => s.selectedNodeId)
   const isSelected = selectedNodeId === node.id
@@ -911,33 +914,28 @@ export const ImageNode = memo(function ImageNode({ node }: { node: UCanvasNode }
           onClick={(e) => e.stopPropagation()}
         >
           <button
-            onClick={() => {
-              const resolutions = modelCfg.resolutions
-              const highest = resolutions[resolutions.length - 1]
-              updateNodeData(node.id, { imageResolution: highest.id })
-              runImageGen(node.id)
-            }}
+            onClick={() => createConnectedImageNode(node.id, 'hd')}
             className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
-            title="高清放大"
+            title="高清放大（创建新节点，图生图）"
           >
             <Sparkles className="h-4 w-4 text-cyan-400" />
             高清
           </button>
           <button
-            onClick={() => { updateNodeData(node.id, { imageCount: 4 }); runImageGen(node.id) }}
+            onClick={() => createConnectedImageNode(node.id, '9grid')}
             className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
-            title="9宫格生成"
+            title="9宫格（创建新节点，图生图生成主图+9细节面板合成图）"
           >
             <Grid3x3 className="h-4 w-4 text-cyan-400" />
             9宫格
           </button>
           <button
-            onClick={() => { updateNodeData(node.id, { imageRatio: '4:3', imageCount: 3 }); runImageGen(node.id) }}
+            onClick={() => createConnectedImageNode(node.id, '4view')}
             className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
-            title="三视图"
+            title="四视图（创建新节点，图生图生成特写+正面+侧面+背面4视角参考表）"
           >
             <GalleryHorizontalEnd className="h-4 w-4 text-cyan-400" />
-            三视图
+            四视图
           </button>
           <button
             onClick={() => { updateNodeData(node.id, { imageRatio: '21:9' }); runImageGen(node.id) }}
@@ -1122,7 +1120,13 @@ export function ImageSettingsPanel({ node }: { node: UCanvasNode }) {
   const count = node.data.imageCount ?? 1
   const currentModel = imageModelList.find(m => m.id === model)
   const currentResolution = modelCfg.resolutions.find(r => r.id === resolution)
-  const ratioOptions = modelCfg.ratios
+  // 参数自适应：config 为空数组时隐藏对应参数项（与视频节点同步模式一致）
+  const modelRatios = modelCfg.ratios || []
+  const modelResolutions = modelCfg.resolutions || []
+  const modelMaxBatch = modelCfg.maxBatch ?? 0
+  const modelFeatures = modelCfg.features
+  const modelQualityOptions = modelFeatures?.quality ? (modelFeatures.qualityOptions || []) : []
+  const modelSupportsTransparent = modelFeatures?.transparent === true
   const sortedImageModels = (() => {
     const copy = [...imageModelList]
     if (imageSortMode === 'price-desc') copy.sort((a, b) => b.costTokens - a.costTokens)
@@ -1347,61 +1351,132 @@ export function ImageSettingsPanel({ node }: { node: UCanvasNode }) {
           )}
         </div>
 
-        {/* 分隔点 */}
-        <span className="text-neutral-700">·</span>
+        {/* 分隔点（仅当有可配置参数时显示） */}
+        {(modelRatios.length > 0 || modelResolutions.length > 0 || modelMaxBatch > 1 || modelQualityOptions.length > 0 || modelSupportsTransparent) && (
+          <span className="text-neutral-700">·</span>
+        )}
 
-        {/* 比例/分辨率/数量 */}
+        {/* 比例/分辨率/数量/画质等级/透明背景（按模型能力自适应显示） */}
+        {(modelRatios.length > 0 || modelResolutions.length > 0 || modelMaxBatch > 1 || modelQualityOptions.length > 0 || modelSupportsTransparent) && (
         <div className="relative">
           <button
             onClick={() => { setShowSizeList(v => !v); setShowModelList(false) }}
             className="flex h-7 items-center gap-1 rounded-md px-1.5 transition-colors hover:bg-neutral-800/60"
           >
-            <span className="font-mono text-[12px] text-neutral-200">{ratio}</span>
-            <span className="text-neutral-700">·</span>
-            <span className="text-[12px] text-neutral-200">{currentResolution?.quality || currentResolution?.label || '高清画质'}</span>
-            <span className="text-neutral-700">·</span>
-            <span className="text-[12px] text-neutral-400">{count}张</span>
+            {/* 仅显示存在的参数段，用 · 分隔 */}
+            {(() => {
+              const segs: string[] = []
+              if (modelRatios.length > 0) segs.push(ratio)
+              if (modelResolutions.length > 0) segs.push(currentResolution?.label || currentResolution?.quality || resolution)
+              if (modelMaxBatch > 1) segs.push(`${count}张`)
+              if (modelQualityOptions.length > 0) {
+                const qVal = (node.data.imageQuality as string) || 'medium'
+                const qLabel = modelQualityOptions.find(q => q.id === qVal)?.label || qVal
+                segs.push(qLabel)
+              }
+              if (modelSupportsTransparent && node.data.imageTransparent) segs.push('透明')
+              if (segs.length === 0) {
+                return <span className="text-[12px] text-neutral-500">参数</span>
+              }
+              return segs.map((s, i) => (
+                <span key={i} className="flex items-center gap-1">
+                  {i > 0 && <span className="text-neutral-700">·</span>}
+                  <span className={i === 0 ? 'font-mono text-[12px] text-neutral-200' : 'text-[12px] text-neutral-200'}>{s}</span>
+                </span>
+              ))
+            })()}
             <ChevronUp className={cn('h-3 w-3 shrink-0 text-neutral-500 transition-transform', showSizeList && 'rotate-180')} />
           </button>
           {showSizeList && (
             <div className="absolute bottom-full left-0 z-50 mb-1 w-[280px] rounded-lg border border-[#1f1f1f] bg-[#121212] p-2.5 shadow-lg" onWheel={(e) => e.stopPropagation()}>
-              {/* 分辨率 */}
-              <div className="mb-2 text-[10px] font-medium text-neutral-500">画质</div>
-              <div className="flex gap-1">
-                {modelCfg.resolutions.map((r) => (
-                  <button key={r.id} onClick={() => update(node.id, { imageResolution: r.id })}
-                    className={cn('flex-1 rounded-md border py-1.5 text-[11px] font-medium', resolution === r.id ? 'border-cyan-400 bg-cyan-500/15 text-cyan-200' : 'border-[#1f1f1f] bg-[#161616] text-neutral-500 hover:text-neutral-300')}>
-                    {r.label}
-                  </button>
-                ))}
-              </div>
+              {/* 画质（仅当模型支持 resolution 参数时显示） */}
+              {modelResolutions.length > 0 && (
+                <>
+                  <div className="mb-2 text-[10px] font-medium text-neutral-500">画质</div>
+                  <div className="flex gap-1">
+                    {modelResolutions.map((r) => (
+                      <button key={r.id} onClick={() => update(node.id, { imageResolution: r.id })}
+                        className={cn('flex-1 rounded-md border py-1.5 text-[11px] font-medium', resolution === r.id ? 'border-cyan-400 bg-cyan-500/15 text-cyan-200' : 'border-[#1f1f1f] bg-[#161616] text-neutral-500 hover:text-neutral-300')}>
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
 
-              {/* 比例 */}
-              <div className="mt-2.5 mb-1.5 text-[10px] font-medium text-neutral-500">比例</div>
-              <div className="grid grid-cols-5 gap-1">
-                {ratioOptions.map((r) => (
-                  <button key={r.id} onClick={() => update(node.id, { imageRatio: r.id })}
-                    className={cn('flex h-10 flex-col items-center justify-center rounded-md border', ratio === r.id ? 'border-cyan-400 bg-cyan-500/10 text-cyan-200' : 'border-[#1f1f1f] bg-[#161616] text-neutral-500 hover:text-neutral-300')}>
-                    <div className={cn('rounded-sm', ratio === r.id ? 'bg-cyan-400' : 'bg-neutral-700')}
-                      style={{ width: r.w >= r.h ? '14px' : `${(r.w / r.h) * 14}px`, height: r.h >= r.w ? '14px' : `${(r.h / r.w) * 14}px` }} />
-                    <span className="mt-0.5 text-[9px]">{r.label}</span>
-                  </button>
-                ))}
-              </div>
+              {/* 比例（仅当模型 config 中有 ratios 时显示） */}
+              {modelRatios.length > 0 && (
+                <>
+                  <div className={cn('text-[10px] font-medium text-neutral-500', modelResolutions.length > 0 && 'mt-2.5', 'mb-1.5')}>比例</div>
+                  <div className="grid grid-cols-5 gap-1">
+                    {modelRatios.map((r) => (
+                      <button key={r.id} onClick={() => update(node.id, { imageRatio: r.id })}
+                        className={cn('flex h-10 flex-col items-center justify-center rounded-md border', ratio === r.id ? 'border-cyan-400 bg-cyan-500/10 text-cyan-200' : 'border-[#1f1f1f] bg-[#161616] text-neutral-500 hover:text-neutral-300')}>
+                        <div className={cn('rounded-sm', ratio === r.id ? 'bg-cyan-400' : 'bg-neutral-700')}
+                          style={{ width: r.w >= r.h ? '14px' : `${(r.w / r.h) * 14}px`, height: r.h >= r.w ? '14px' : `${(r.h / r.w) * 14}px` }} />
+                        <span className="mt-0.5 text-[9px]">{r.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
 
-              {/* 数量 */}
-              <div className="mt-2.5 mb-1.5 text-[10px] font-medium text-neutral-500">数量</div>
-              <div className="flex gap-1">
-                {[1, 2, 4].filter(c => c <= modelCfg.maxBatch).map((c) => (
-                  <button key={c} onClick={() => update(node.id, { imageCount: c })}
-                    className={cn('flex-1 rounded-md border py-1.5 text-[11px] font-medium', count === c ? 'border-cyan-400 bg-cyan-500/15 text-cyan-200' : 'border-[#1f1f1f] bg-[#161616] text-neutral-500 hover:text-neutral-300')}>
-                    {c}张
+              {/* 数量（仅当模型 maxBatch > 1 时显示） */}
+              {modelMaxBatch > 1 && (
+                <>
+                  <div className={cn('text-[10px] font-medium text-neutral-500', (modelResolutions.length > 0 || modelRatios.length > 0) && 'mt-2.5', 'mb-1.5')}>数量</div>
+                  <div className="flex gap-1">
+                    {[1, 2, 4].filter(c => c <= modelMaxBatch).map((c) => (
+                      <button key={c} onClick={() => update(node.id, { imageCount: c })}
+                        className={cn('flex-1 rounded-md border py-1.5 text-[11px] font-medium', count === c ? 'border-cyan-400 bg-cyan-500/15 text-cyan-200' : 'border-[#1f1f1f] bg-[#161616] text-neutral-500 hover:text-neutral-300')}>
+                        {c}张
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* 画质等级（仅对支持 quality 参数的模型显示：GPT Image / Grok Imagine 2.0） */}
+              {modelQualityOptions.length > 0 && (
+                <>
+                  <div className={cn('text-[10px] font-medium text-neutral-500', (modelResolutions.length > 0 || modelRatios.length > 0 || modelMaxBatch > 1) && 'mt-2.5', 'mb-1.5')}>画质等级</div>
+                  <div className="flex gap-1">
+                    {modelQualityOptions.map((q) => {
+                      const qVal = (node.data.imageQuality as string) || 'medium'
+                      return (
+                        <button key={q.id} onClick={() => update(node.id, { imageQuality: q.id })}
+                          className={cn('flex-1 rounded-md border py-1.5 text-[11px] font-medium', qVal === q.id ? 'border-cyan-400 bg-cyan-500/15 text-cyan-200' : 'border-[#1f1f1f] bg-[#161616] text-neutral-500 hover:text-neutral-300')}>
+                          {q.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+
+              {/* 透明背景（仅对支持 transparent 参数的模型显示：GPT Image 1.x） */}
+              {modelSupportsTransparent && (
+                <div className={cn('flex items-center justify-between', (modelResolutions.length > 0 || modelRatios.length > 0 || modelMaxBatch > 1 || modelQualityOptions.length > 0) && 'mt-2.5')}>
+                  <span className="text-[10px] font-medium text-neutral-500">透明背景</span>
+                  <button
+                    onClick={() => update(node.id, { imageTransparent: !node.data.imageTransparent })}
+                    className={cn('relative h-4 w-7 rounded-full transition-colors', node.data.imageTransparent ? 'bg-cyan-500' : 'bg-neutral-700')}
+                  >
+                    <span className={cn('absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform', node.data.imageTransparent ? 'translate-x-3.5' : 'translate-x-0.5')} />
                   </button>
-                ))}
-              </div>
+                </div>
+              )}
+
+              {/* 所有参数项都不可见时的提示 */}
+              {modelResolutions.length === 0 && modelRatios.length === 0 && modelMaxBatch <= 1 && modelQualityOptions.length === 0 && !modelSupportsTransparent && (
+                <div className="py-2 text-center text-[11px] text-neutral-500">
+                  该模型无可配置参数
+                </div>
+              )}
             </div>
           )}
         </div>
+        )}
 
         {/* 右侧操作按钮组 */}
         <div className="ml-auto flex items-center gap-0.5">
@@ -1657,7 +1732,6 @@ function VideoRefUpload({ node, update }: {
 export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
   const update = useUnifiedCanvasStore((s) => s.updateNodeData)
   const runVideoGen = useUnifiedCanvasStore((s) => s.runVideoGen)
-  const cancelVideoGen = useUnifiedCanvasStore((s) => s.cancelVideoGen)
   useUnifiedCanvasStore((s) => s.connections) // 订阅变化以刷新引用卡片
   const results = node.data.videoResult ? [node.data.videoResult] : []
   const [previewImg, setPreviewImg] = useState<string | null>(null)
@@ -1698,9 +1772,20 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
   const defaultRes = modelCfg?.defaultResolution || '720p'
   const defaultRatio = modelCfg?.defaultRatio || '16:9'
   const sortedVideoModels = (() => {
-    const copy = [...videoModelList]
+    // 根据当前选中的功能模式过滤模型列表
+    const refMode = (node.data.videoRefMode as string) ?? 'omni'
+    const filteredByMode = videoModelList.filter((m) => {
+      const cfg = m.config
+      if (!cfg) return true // 无 config 的模型不过滤（通常为兜底）
+      if (refMode === 'omni') return cfg.supportsReferenceImages
+      if (refMode === 'img2video') return cfg.supportsImg2Video
+      if (refMode === 'endframe') return cfg.supportsEndFrame
+      // text2video → 所有模型都支持
+      return true
+    })
+    const copy = [...filteredByMode]
     if (videoSortMode === 'price-desc') copy.sort((a, b) => b.costTokens - a.costTokens)
-    else if (videoSortMode === 'price-asc') copy.sort((a, b) => a.costTokens - b.costTokens)
+    else if (videoSortMode === 'price-asc') copy.sort((a, b) => a.costTokens - a.costTokens)
     else copy.sort((a, b) => a.label.localeCompare(b.label, 'zh'))
     return copy
   })()
@@ -1731,13 +1816,27 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model, modelCfg])
 
+  // 切换功能模式后，如果当前模型不在过滤后列表中 → 自动切换到第一个可用模型
+  useEffect(() => {
+    if (sortedVideoModels.length === 0) return
+    const currentModelExists = sortedVideoModels.some(m => m.id === model)
+    if (!currentModelExists) {
+      update(node.id, { videoModel: sortedVideoModels[0].id })
+    }
+    // 只在 refMode 或 sortedVideoModels 变时触发
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [node.data.videoRefMode, sortedVideoModels])
+
   const resolution = node.data.videoResolution ?? defaultRes
   const duration = node.data.videoDuration ?? defaultDur
   const ratio = (node.data.videoRatio as string) || defaultRatio
   const audio = node.data.videoAudio ?? false
   const modelResolutions = modelCfg?.resolutions || []
   const modelDurations = modelCfg?.durations || []
-  const modelRatios = modelCfg?.ratios || ['16:9', '9:16']
+  // 移除硬编码兜底 ['16:9','9:16']；让 ratios 也参与"为空则隐藏"逻辑
+  // Pollinations /video/models 不返回 ratios 字段，syncPollinations 同步时统一填 ['16:9','9:16']
+  // 但 community 模型或同步失败的模型 config=null → modelRatios=[] → 比例参数项隐藏
+  const modelRatios = modelCfg?.ratios || []
   const supportsAudio = modelCfg?.supportsAudio || false
   const supportsImg2Video = modelCfg?.supportsImg2Video ?? true
   const cur = results[0]
@@ -1948,62 +2047,85 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
         {/* 分隔点 */}
         <span className="text-neutral-700">·</span>
 
-        {/* 分辨率/时长/比例 */}
+        {/* 分辨率/时长/比例（按模型能力自适应显示） */}
         <div className="relative">
           <button
             onClick={() => { setShowSizeList(v => !v); setShowModelList(false); setShowRefModeList(false) }}
             className="flex h-7 items-center gap-1 rounded-md px-1.5 transition-colors hover:bg-neutral-800/60"
           >
-            <span className="font-mono text-[12px] text-neutral-200">{ratio}</span>
-            <span className="text-neutral-700">·</span>
-            <span className="text-[12px] text-neutral-200">{modelResolutions.find(r => r.id === resolution)?.label || resolution}</span>
-            <span className="text-neutral-700">·</span>
-            <span className="text-[12px] text-neutral-200">{modelDurations.find(d => d.id === duration)?.label || duration}</span>
+            {/* 仅显示存在的参数段，用 · 分隔 */}
+            {(() => {
+              const segs: string[] = []
+              if (modelRatios.length > 0) segs.push(ratio)
+              if (modelResolutions.length > 0) segs.push(modelResolutions.find(r => r.id === resolution)?.label || resolution)
+              if (modelDurations.length > 0) segs.push(modelDurations.find(d => d.id === duration)?.label || duration)
+              if (segs.length === 0) {
+                return <span className="text-[12px] text-neutral-500">参数</span>
+              }
+              return segs.map((s, i) => (
+                <span key={i} className="flex items-center gap-1">
+                  {i > 0 && <span className="text-neutral-700">·</span>}
+                  <span className={i === 0 ? 'font-mono text-[12px] text-neutral-200' : 'text-[12px] text-neutral-200'}>{s}</span>
+                </span>
+              ))
+            })()}
             <ChevronUp className={cn('h-3 w-3 shrink-0 text-neutral-500 transition-transform', showSizeList && 'rotate-180')} />
           </button>
           {showSizeList && (
             <div className="absolute bottom-full left-0 z-50 mb-1 w-[280px] rounded-lg border border-[#1f1f1f] bg-[#121212] p-2.5 shadow-lg" onWheel={(e) => e.stopPropagation()}>
-              {/* 分辨率 */}
-              <div className="mb-2 text-[10px] font-medium text-neutral-500">画质</div>
-              <div className="flex gap-1">
-                {modelResolutions.map((r) => (
-                  <button key={r.id} onClick={() => update(node.id, { videoResolution: r.id })}
-                    className={cn('flex-1 rounded-md border py-1.5 text-[11px] font-medium', resolution === r.id ? 'border-amber-400 bg-amber-500/15 text-amber-200' : 'border-[#1f1f1f] bg-[#161616] text-neutral-500 hover:text-neutral-300')}>
-                    {r.label}
-                  </button>
-                ))}
-              </div>
-              {/* 时长 */}
-              <div className="mt-2.5 mb-1.5 text-[10px] font-medium text-neutral-500">时长</div>
-              <div className="flex gap-1">
-                {modelDurations.map((d) => (
-                  <button key={d.id} onClick={() => update(node.id, { videoDuration: d.id })}
-                    className={cn('flex-1 rounded-md border py-1.5 text-[11px] font-medium', duration === d.id ? 'border-amber-400 bg-amber-500/15 text-amber-200' : 'border-[#1f1f1f] bg-[#161616] text-neutral-500 hover:text-neutral-300')}>
-                    {d.label}
-                  </button>
-                ))}
-              </div>
-              {/* 比例 */}
-              <div className="mt-2.5 mb-1.5 text-[10px] font-medium text-neutral-500">比例</div>
-              <div className="grid grid-cols-4 gap-1">
-                {modelRatios.map((rLabel) => {
-                  const parts = rLabel.split(':')
-                  const w = Number(parts[0]) || 1
-                  const h = Number(parts[1]) || 1
-                  return (
-                    <button key={rLabel} onClick={() => update(node.id, { videoRatio: rLabel })}
-                      className={cn('flex h-10 flex-col items-center justify-center rounded-md border', ratio === rLabel ? 'border-amber-400 bg-amber-500/10 text-amber-200' : 'border-[#1f1f1f] bg-[#161616] text-neutral-500 hover:text-neutral-300')}>
-                      <div className={cn('rounded-sm', ratio === rLabel ? 'bg-amber-400' : 'bg-neutral-700')}
-                        style={{ width: `${Math.max(5, Math.min(w, h) * 3)}px`, height: `${Math.max(5, Math.max(w, h) * 3)}px` }} />
-                      <span className="text-[9px]">{rLabel}</span>
-                    </button>
-                  )
-                })}
-              </div>
+              {/* 画质（仅当模型支持 resolution 参数时显示） */}
+              {modelResolutions.length > 0 && (
+                <>
+                  <div className="mb-2 text-[10px] font-medium text-neutral-500">画质</div>
+                  <div className="flex gap-1">
+                    {modelResolutions.map((r) => (
+                      <button key={r.id} onClick={() => update(node.id, { videoResolution: r.id })}
+                        className={cn('flex-1 rounded-md border py-1.5 text-[11px] font-medium', resolution === r.id ? 'border-amber-400 bg-amber-500/15 text-amber-200' : 'border-[#1f1f1f] bg-[#161616] text-neutral-500 hover:text-neutral-300')}>
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+              {/* 时长（仅当模型支持 duration 参数时显示） */}
+              {modelDurations.length > 0 && (
+                <>
+                  <div className={cn('text-[10px] font-medium text-neutral-500', modelResolutions.length > 0 && 'mt-2.5', 'mb-1.5')}>时长</div>
+                  <div className="flex gap-1">
+                    {modelDurations.map((d) => (
+                      <button key={d.id} onClick={() => update(node.id, { videoDuration: d.id })}
+                        className={cn('flex-1 rounded-md border py-1.5 text-[11px] font-medium', duration === d.id ? 'border-amber-400 bg-amber-500/15 text-amber-200' : 'border-[#1f1f1f] bg-[#161616] text-neutral-500 hover:text-neutral-300')}>
+                        {d.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+              {/* 比例（仅当模型 config 中有 ratios 时显示） */}
+              {modelRatios.length > 0 && (
+                <>
+                  <div className={cn('text-[10px] font-medium text-neutral-500', (modelResolutions.length > 0 || modelDurations.length > 0) && 'mt-2.5', 'mb-1.5')}>比例</div>
+                  <div className="grid grid-cols-4 gap-1">
+                    {modelRatios.map((rLabel) => {
+                      const parts = rLabel.split(':')
+                      const w = Number(parts[0]) || 1
+                      const h = Number(parts[1]) || 1
+                      return (
+                        <button key={rLabel} onClick={() => update(node.id, { videoRatio: rLabel })}
+                          className={cn('flex h-10 flex-col items-center justify-center rounded-md border', ratio === rLabel ? 'border-amber-400 bg-amber-500/10 text-amber-200' : 'border-[#1f1f1f] bg-[#161616] text-neutral-500 hover:text-neutral-300')}>
+                          <div className={cn('rounded-sm', ratio === rLabel ? 'bg-amber-400' : 'bg-neutral-700')}
+                            style={{ width: `${Math.max(5, Math.min(w, h) * 3)}px`, height: `${Math.max(5, Math.max(w, h) * 3)}px` }} />
+                          <span className="text-[9px]">{rLabel}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
               {/* 音频开关（仅支持音频的模型显示） */}
               {supportsAudio && (
                 <>
-                  <div className="mt-2.5 mb-1.5 text-[10px] font-medium text-neutral-500">音频</div>
+                  <div className={cn('text-[10px] font-medium text-neutral-500', (modelResolutions.length > 0 || modelDurations.length > 0 || modelRatios.length > 0) && 'mt-2.5', 'mb-1.5')}>音频</div>
                   <button
                     onClick={() => update(node.id, { videoAudio: !audio })}
                     className={cn(
@@ -2029,6 +2151,12 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
                   </button>
                 </>
               )}
+              {/* 所有参数项都不可见时的提示 */}
+              {modelResolutions.length === 0 && modelDurations.length === 0 && modelRatios.length === 0 && !supportsAudio && (
+                <div className="py-2 text-center text-[11px] text-neutral-500">
+                  该模型无可配置参数
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -2049,14 +2177,13 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
             <Languages className="h-4 w-4" />
           </button>
           {isBusy ? (
-            <button
-              onClick={() => cancelVideoGen(node.id)}
-              className="flex h-7 items-center gap-1.5 rounded-md bg-red-900/60 px-3 text-red-200 hover:bg-red-900/80 transition"
-              title="取消生成（积分将退还）"
+            <span
+              className="flex h-7 items-center gap-1.5 rounded-md bg-neutral-800/80 px-3 text-neutral-400"
+              title="生成中，请等待完成"
             >
-              <XCircle className="h-4 w-4" />
-              <span className="text-xs font-medium">取消</span>
-            </button>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-xs font-medium">生成中…</span>
+            </span>
           ) : (
             <button
               onClick={vidWrap.onClick}
@@ -2208,7 +2335,6 @@ function EstimatedTime({ model }: { model: string }) {
 export const VideoNode = memo(function VideoNode({ node }: { node: UCanvasNode }) {
   const update = useUnifiedCanvasStore((s) => s.updateNodeData)
   const runVideoGen = useUnifiedCanvasStore((s) => s.runVideoGen)
-  const cancelVideoGen = useUnifiedCanvasStore((s) => s.cancelVideoGen)
   const selectNode = useUnifiedCanvasStore((s) => s.selectNode)
   const selectedNodeId = useUnifiedCanvasStore((s) => s.selectedNodeId)
   const isSelected = selectedNodeId === node.id
@@ -2342,7 +2468,7 @@ export const VideoNode = memo(function VideoNode({ node }: { node: UCanvasNode }
           </div>
         )}
         {status === 'running' && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/60 px-4" onClick={(e) => e.stopPropagation()}>
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/60 px-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-2">
               <Loader2 className="h-5 w-5 animate-spin" style={{ color: meta.color }} />
               <span className="text-[11px] font-medium text-neutral-200">生成中</span>
@@ -2357,14 +2483,6 @@ export const VideoNode = memo(function VideoNode({ node }: { node: UCanvasNode }
                 <EstimatedTime model={model} />
               </div>
             </div>
-            <button
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={() => cancelVideoGen(node.id)}
-              className="flex items-center gap-1 rounded-full bg-red-900/70 px-3 py-1 text-[10px] text-red-200 hover:bg-red-900 transition"
-              title="取消生成（积分将退还）"
-            >
-              <XCircle className="h-3 w-3" /> 取消
-            </button>
           </div>
         )}
         {status === 'queued' && (
@@ -2372,14 +2490,6 @@ export const VideoNode = memo(function VideoNode({ node }: { node: UCanvasNode }
             <div className="flex items-center gap-1.5 text-[11px] text-neutral-300">
               <Clock className="h-4 w-4" /> 排队中...
             </div>
-            <button
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={() => cancelVideoGen(node.id)}
-              className="flex items-center gap-1 rounded-full bg-red-900/70 px-2.5 py-0.5 text-[10px] text-red-200 hover:bg-red-900 transition"
-              title="取消排队（积分将退还）"
-            >
-              <XCircle className="h-3 w-3" /> 取消
-            </button>
           </div>
         )}
         {status === 'error' && (

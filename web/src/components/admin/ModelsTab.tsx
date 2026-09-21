@@ -23,12 +23,13 @@ import {
   Coins,
   Cpu,
   Loader2,
+  Percent,
   Plus,
   RefreshCw,
   Server,
   ShieldAlert,
   ShieldCheck,
-  Trash2,
+  ShieldOff,
 } from 'lucide-react'
 import type { Provider, Model } from './types'
 import {
@@ -46,30 +47,41 @@ export function ModelRow({
   providerLabel,
   costEdits,
   setCostEdits,
+  marginEdits,
+  setMarginEdits,
   costSaving,
   costToast,
-  deletingModelId,
+  statusUpdating,
   onSaveCost,
-  onDelete,
+  onToggleStatus,
 }: {
   model: Model
   providerLabel: string
   costEdits: Record<string, number>
   setCostEdits: Dispatch<SetStateAction<Record<string, number>>>
+  marginEdits: Record<string, number>
+  setMarginEdits: Dispatch<SetStateAction<Record<string, number>>>
   costSaving: string | null
   costToast: { id: string; from: number; to: number; changed: boolean; unchanged?: boolean } | null
-  deletingModelId: string | null
+  statusUpdating: string | null
   onSaveCost: (m: Model) => void
-  onDelete: (id: string, name: string) => void
+  onToggleStatus: (m: Model) => void
 }) {
   const editVal = costEdits[model.id]
   const displayVal = editVal !== undefined ? editVal : (model.costTokens ?? 1000)
-  const dirty = editVal !== undefined && editVal !== (model.costTokens ?? 1000)
+  const marginVal = marginEdits[model.id]
+  const displayMargin = marginVal !== undefined ? marginVal : (model.margin ?? 0)
+  const costDirty = editVal !== undefined && editVal !== (model.costTokens ?? 1000)
+  const marginDirty = marginVal !== undefined && marginVal !== (model.margin ?? 0)
+  const dirty = costDirty || marginDirty
   const saving = costSaving === model.id
+  const statusBusy = statusUpdating === model.id
+  const isActive = (model.status ?? 'active') === 'active'
+  // margin 语义已改为"毛利率百分比"，直接存储 0/50/100 等值，无需转换
   const toast = costToast && costToast.id === model.id ? costToast : null
   const sectionInfo = MODEL_SECTION_OPTIONS.find((s) => s.key === model.type as 'novel' | 'image' | 'audio' | 'video')
   return (
-    <li className="flex flex-col gap-2.5 py-3 first:pt-1 last:pb-0 md:flex-row md:items-center md:justify-between md:gap-3">
+    <li className={`flex flex-col gap-2.5 py-3 first:pt-1 last:pb-0 md:flex-row md:items-center md:justify-between md:gap-3 ${isActive ? '' : 'opacity-60'}`}>
       <div className="flex min-w-0 items-start gap-2 md:items-center">
         <Box className="h-4 w-4 shrink-0 text-neutral-400 mt-0.5 md:mt-0" />
         <div className="min-w-0">
@@ -93,11 +105,16 @@ export function ModelRow({
               </span>
             )}
             <span className="text-[10px] text-neutral-400 truncate">供应商：{providerLabel}</span>
+            {!isActive && (
+              <span className="chip border border-neutral-300 bg-neutral-100 text-neutral-500 text-[10px]">
+                已禁用
+              </span>
+            )}
           </div>
           {model.desc && <div className="truncate text-xs text-neutral-400">{model.desc}</div>}
         </div>
       </div>
-      {/* 积分消耗内联编辑 + 同步全局按钮 */}
+      {/* 积分消耗 + 毛利率内联编辑 + 同步全局按钮 + 启用开关 */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1">
           <Coins className="h-3.5 w-3.5 text-amber-500" />
@@ -113,6 +130,22 @@ export function ModelRow({
             aria-label={`${model.displayName || model.name} 积分调用量`}
           />
           <span className="shrink-0 text-[11px] text-neutral-500">积分/次</span>
+        </div>
+        <div className="flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1">
+          <Percent className="h-3.5 w-3.5 text-violet-500" />
+          <input
+            type="number"
+            min={0}
+            max={99}
+            step={1}
+            value={displayMargin}
+            onChange={(e) =>
+              setMarginEdits((prev) => ({ ...prev, [model.id]: Math.max(0, Math.min(999, Number(e.target.value) || 0)) }))
+            }
+            className="w-16 border-0 bg-transparent p-0 text-xs font-medium tabular-nums text-neutral-800 focus:outline focus:ring-0"
+            aria-label={`${model.displayName || model.name} 毛利率`}
+          />
+          <span className="shrink-0 text-[11px] text-neutral-500">毛利率%</span>
         </div>
         <button
           onClick={() => onSaveCost(model)}
@@ -137,16 +170,23 @@ export function ModelRow({
           </span>
         )}
         <button
-          onClick={() => onDelete(model.id, model.name)}
-          disabled={deletingModelId === model.id}
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-rose-500 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+          onClick={() => onToggleStatus(model)}
+          disabled={statusBusy}
+          title={isActive ? '点击禁用该模型（画布将不再展示）' : '点击重新启用该模型'}
+          className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition disabled:opacity-50 ${
+            isActive
+              ? 'text-emerald-600 hover:bg-emerald-50'
+              : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700'
+          }`}
         >
-          {deletingModelId === model.id ? (
+          {statusBusy ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : isActive ? (
+            <ShieldCheck className="h-3.5 w-3.5" />
           ) : (
-            <Trash2 className="h-3.5 w-3.5" />
+            <ShieldOff className="h-3.5 w-3.5" />
           )}
-          删除
+          {isActive ? '启用中' : '已禁用'}
         </button>
       </div>
     </li>
@@ -169,14 +209,14 @@ export function useProviders(onError: (e: string) => void) {
   return { providers, reloadProviders: loadProviders }
 }
 
-// ===== 模型列表 hook（带 loading 状态 + reload）=====
+// ===== 模型列表 hook（带 loading 状态 + reload，管理后台需要看禁用模型）=====
 export function useModels(onError: (e: string) => void) {
   const [models, setModels] = useState<Model[]>([])
   const [loading, setLoading] = useState(false)
   const loadModels = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await api.get<{ models: Model[] }>('/api/models')
+      const res = await api.get<{ models: Model[] }>('/api/models?includeInactive=true')
       setModels(res.models ?? [])
     } catch (e) {
       onError((e as Error).message)
@@ -186,6 +226,12 @@ export function useModels(onError: (e: string) => void) {
     }
   }, [onError])
   useEffect(() => { loadModels() }, [loadModels])
+  // 监听全局批量更新事件（如 PollinationsSyncPanel 批量设置毛利率后），自动刷新模型列表
+  useEffect(() => {
+    const handler = () => { void loadModels() }
+    window.addEventListener('models-batch-updated', handler)
+    return () => window.removeEventListener('models-batch-updated', handler)
+  }, [loadModels])
   return { models, setModels, loading, reload: loadModels }
 }
 
@@ -195,16 +241,13 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
   const { models, setModels, loading, reload } = useModels(onError)
   const [providerModalOpen, setProviderModalOpen] = useState(false)
   const [modelModalOpen, setModelModalOpen] = useState(false)
-  const [deletingModelId, setDeletingModelId] = useState<string | null>(null)
-  // 板块过滤 + 视图切换（按板块分组 vs 按供应商分组）
+  const [statusUpdating, setStatusUpdating] = useState<string | null>(null)
+  // 板块过滤 + 状态过滤 + 视图切换（按板块分组 vs 按供应商分组）
   const [sectionFilter, setSectionFilter] = useState<'' | 'novel' | 'image' | 'audio' | 'video'>('')
+  const [statusFilter, setStatusFilter] = useState<'' | 'active' | 'disabled'>('')
   const [groupBy, setGroupBy] = useState<'section' | 'provider'>('section')
-  // 新增/删除模型需要密码确认
-  const [passwordPrompt, setPasswordPrompt] = useState<{
-    type: 'create' | 'delete'
-    modelId?: string
-    modelName?: string
-  } | null>(null)
+  // 新增模型需要密码确认（删除已改为启用开关,无需密码）
+  const [passwordPrompt, setPasswordPrompt] = useState<{ type: 'create' } | null>(null)
   const [confirmPassword, setConfirmPassword] = useState('')
   const [passwordSubmitting, setPasswordSubmitting] = useState(false)
 
@@ -227,21 +270,31 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
   const [mConfig, setMConfig] = useState('')
   const [mConfigError, setMConfigError] = useState('')
 
-  // 积分制度：按模型内联编辑 costTokens + 保存时同步全局
+  // 积分制度：按模型内联编辑 costTokens + margin + 保存时同步全局
   const [costEdits, setCostEdits] = useState<Record<string, number>>({})
+  const [marginEdits, setMarginEdits] = useState<Record<string, number>>({})
   const [costSaving, setCostSaving] = useState<string | null>(null) // 正在保存的 model id
   const [costToast, setCostToast] = useState<{ id: string; from: number; to: number; changed: boolean; unchanged?: boolean } | null>(null)
+  // 分类型批量毛利率：novel / image / video 各自独立输入
+  const [batchMarginByType, setBatchMarginByType] = useState<Record<string, number>>({})
+  const [batchMarginSaving, setBatchMarginSaving] = useState<string | null>(null)
 
-  // 模型按板块 / 供应商分组并按 sort / name 排序
+  // 模型按板块 / 状态 / 供应商分组并按 sort / name 排序
   const sectionMeta = new Map(MODEL_SECTION_OPTIONS.map((o) => [o.key, o]))
   const filteredModels = useMemo(() => {
+    let list = models
     // typeFilter 优先（从板块功能子导航传入，固定模型类型）
     if (typeFilter && typeFilter.length > 0) {
-      return models.filter((m) => typeFilter.includes(m.type))
+      list = list.filter((m) => typeFilter.includes(m.type))
+    } else if (sectionFilter) {
+      list = list.filter((m) => m.type === sectionFilter)
     }
-    if (!sectionFilter) return models
-    return models.filter((m) => m.type === sectionFilter)
-  }, [models, sectionFilter, typeFilter])
+    // 状态过滤(全部/启用/禁用)
+    if (statusFilter) {
+      list = list.filter((m) => (m.status ?? 'active') === statusFilter)
+    }
+    return list
+  }, [models, sectionFilter, statusFilter, typeFilter])
   const modelsBySection = useMemo(() => {
     const map = new Map<string, Model[]>()
     for (const m of filteredModels) {
@@ -342,10 +395,33 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
     if (mType) setMCostTokens(suggestedCostForType(mType))
   }, [mType])
 
-  // 积分制度：按模型单独 PATCH costTokens 并触发全局 invalidate
+  // 批量设置毛利率后清空本地未保存的内联编辑（避免覆盖新值）
+  useEffect(() => {
+    const handler = () => { setCostEdits({}); setMarginEdits({}) }
+    window.addEventListener('models-batch-updated', handler)
+    return () => window.removeEventListener('models-batch-updated', handler)
+  }, [])
+
+  // 积分制度：按模型单独 PATCH costTokens + margin 并触发全局 invalidate
+  // 关键:只传用户实际修改的字段,后端按需联动
+  //   - 只改 margin:后端反推 baseTokens 并按新 margin 联动 costTokens
+  //   - 只改 costTokens:后端直接设
+  //   - 两个都改:costTokens 优先级最高
   const handleSaveCost = async (model: Model) => {
-    const nextVal = Number(costEdits[model.id] ?? model.costTokens ?? 1000)
-    if (!Number.isFinite(nextVal) || nextVal < 0) return
+    const costEdited = costEdits[model.id] !== undefined
+    const marginEdited = marginEdits[model.id] !== undefined
+    if (!costEdited && !marginEdited) return // 两个字段都没改,不发请求
+    const payload: { costTokens?: number; margin?: number } = {}
+    if (costEdited) {
+      const nextVal = Number(costEdits[model.id])
+      if (!Number.isFinite(nextVal) || nextVal < 0) return
+      payload.costTokens = nextVal
+    }
+    if (marginEdited) {
+      const nextMargin = Number(marginEdits[model.id])
+      if (!Number.isFinite(nextMargin) || nextMargin < 0) return
+      payload.margin = nextMargin
+    }
     setCostSaving(model.id)
     try {
       const res = await api.patch<{
@@ -353,23 +429,49 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
         changed?: { from: number; to: number }
         unchanged?: boolean
         cacheInvalidated?: boolean
-      }>(`/api/models/${model.id}/cost`, { costTokens: nextVal })
+      }>(`/api/models/${model.id}/cost`, payload)
+      // 用后端返回的最终值更新本地缓存(可能含 margin 联动后的 costTokens)
+      const newCost = res.model.costTokens ?? model.costTokens
+      const newMargin = res.model.margin ?? model.margin
       setCostToast({
         id: model.id,
         from: model.costTokens ?? 0,
-        to: nextVal,
+        to: newCost ?? 0,
         changed: !res.unchanged,
         unchanged: res.unchanged,
       })
       setTimeout(() => setCostToast((cur) => (cur && cur.id === model.id ? null : cur)), 3500)
-      // 刷新本地 models 缓存为新值
-      setModels((prev) => prev.map((m) => (m.id === model.id ? { ...m, costTokens: nextVal } : m)))
-      // 同步刷新图片模型前端缓存（仅 image 类型变更有意义，video 走自身配置）
+      // 刷新本地 models 缓存为后端返回的最终值
+      setModels((prev) => prev.map((m) => (m.id === model.id ? { ...m, costTokens: newCost, margin: newMargin } : m)))
+      // 清除编辑态,显示后端最终值
+      setCostEdits((prev) => { const n = { ...prev }; delete n[model.id]; return n })
+      setMarginEdits((prev) => { const n = { ...prev }; delete n[model.id]; return n })
+      // 同步刷新图片模型前端缓存
       if (model.type === 'image') void refreshImageModels()
     } catch (e) {
       onError((e as Error).message)
     } finally {
       setCostSaving(null)
+    }
+  }
+
+  // 分类型批量设置毛利率：仅影响指定 type 的所有模型
+  const handleBatchMarginByType = async (type: 'novel' | 'image' | 'video') => {
+    const v = batchMarginByType[type]
+    if (!Number.isFinite(v) || v < 0) { onError('请输入 ≥ 0 的数字'); return }
+    setBatchMarginSaving(type)
+    try {
+      const res = await api.patch<{ ok: boolean; updated: number; skipped: number; total: number }>(
+        '/api/models/batch-margin',
+        { margin: v, typeFilter: type },
+      )
+      setCostEdits({}); setMarginEdits({})
+      window.dispatchEvent(new CustomEvent('models-batch-updated'))
+      alert(`已更新 ${res.updated} 个 ${type} 模型（跳过 ${res.skipped} 个）`)
+    } catch (e) {
+      onError((e as Error).message)
+    } finally {
+      setBatchMarginSaving(null)
     }
   }
 
@@ -401,13 +503,23 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
     setConfirmPassword('')
   }
 
-  // 删除模型 — 先弹密码确认
-  const handleDeleteModel = async (modelId: string, modelName: string) => {
-    setPasswordPrompt({ type: 'delete', modelId, modelName })
-    setConfirmPassword('')
+  // 启用/禁用模型 — 无需密码,直接调用 PATCH /status,后端三路缓存失效
+  const handleToggleStatus = async (model: Model) => {
+    const nextStatus = (model.status ?? 'active') === 'active' ? 'disabled' : 'active'
+    setStatusUpdating(model.id)
+    try {
+      await api.patch(`/api/models/${model.id}/status`, { status: nextStatus })
+      setModels((prev) => prev.map((m) => (m.id === model.id ? { ...m, status: nextStatus } : m)))
+      // 同步刷新前端图片模型缓存(画布下拉框 30s 内重新拉取)
+      if (model.type === 'image') void refreshImageModels()
+    } catch (e) {
+      onError((e as Error).message)
+    } finally {
+      setStatusUpdating(null)
+    }
   }
 
-  // 密码确认后执行实际操作
+  // 密码确认后执行实际操作（仅新增模型场景）
   const handlePasswordConfirm = async () => {
     if (!passwordPrompt || !confirmPassword) return
     setPasswordSubmitting(true)
@@ -429,12 +541,6 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
         await reload()
         // 新增的若是图片模型，刷新前端图片模型缓存
         if (mType.trim() === 'image') void refreshImageModels()
-      } else if (passwordPrompt.type === 'delete' && passwordPrompt.modelId) {
-        setDeletingModelId(passwordPrompt.modelId)
-        await api.delWithBody(`/api/models/${passwordPrompt.modelId}`, { password: confirmPassword })
-        setModels((prev) => prev.filter((m) => m.id !== passwordPrompt.modelId))
-        // 删除模型后刷新前端图片模型缓存（无论类型，确保列表一致性）
-        void refreshImageModels()
       }
       setPasswordPrompt(null)
       setConfirmPassword('')
@@ -442,7 +548,6 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
       onError((e as Error).message)
     } finally {
       setPasswordSubmitting(false)
-      setDeletingModelId(null)
     }
   }
 
@@ -502,6 +607,41 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
           ))}
         </div>
         )}
+        {/* 状态过滤 chip（全部/启用/禁用,始终可见）*/}
+        <div className={`flex flex-wrap items-center gap-1 ${typeFilter ? 'ml-2' : ''} border-l border-neutral-200 pl-2`}>
+          <button
+            onClick={() => setStatusFilter('')}
+            className={`rounded-full px-2.5 py-1 text-xs transition ${
+              statusFilter === ''
+                ? 'bg-neutral-900 text-white shadow-sm'
+                : 'bg-neutral-50 text-neutral-600 hover:bg-neutral-100'
+            }`}
+          >
+            全部状态
+          </button>
+          <button
+            onClick={() => setStatusFilter('active')}
+            className={`rounded-full px-2.5 py-1 text-xs transition ${
+              statusFilter === 'active'
+                ? 'border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm font-medium'
+                : 'bg-neutral-50 text-neutral-600 hover:bg-neutral-100'
+            }`}
+            title="只看启用中的模型"
+          >
+            启用
+          </button>
+          <button
+            onClick={() => setStatusFilter('disabled')}
+            className={`rounded-full px-2.5 py-1 text-xs transition ${
+              statusFilter === 'disabled'
+                ? 'border border-neutral-300 bg-neutral-100 text-neutral-600 shadow-sm font-medium'
+                : 'bg-neutral-50 text-neutral-600 hover:bg-neutral-100'
+            }`}
+            title="只看已禁用的模型"
+          >
+            禁用
+          </button>
+        </div>
         {/* 分组切换（typeFilter 模式下隐藏）*/}
         {!typeFilter && (
         <div className="ml-auto inline-flex overflow-hidden rounded-lg border border-neutral-200 bg-white p-0.5 text-xs">
@@ -549,7 +689,38 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold">{section.label}</span>
                   </div>
-                  <span className="chip border bg-white/70 text-neutral-600">{list.length} 模型</span>
+                  <div className="flex items-center gap-2">
+                    {(['novel', 'image', 'video'] as const).includes(section.key) && list.length > 0 && (
+                      <div className="flex items-center gap-1 rounded-md border border-neutral-200 bg-white/80 px-1.5 py-0.5">
+                        <Percent className="h-3 w-3 text-neutral-500" />
+                        <input
+                          type="number"
+                          min={0}
+                          max={999}
+                          step={5}
+                          value={batchMarginByType[section.key] ?? ''}
+                          onChange={(e) =>
+                            setBatchMarginByType((prev) => ({ ...prev, [section.key]: Math.max(0, Number(e.target.value) || 0) }))
+                          }
+                          placeholder="毛利率"
+                          className="w-14 border-0 bg-transparent p-0 text-xs tabular-nums text-neutral-700 focus:outline-none focus:ring-0"
+                          aria-label={`批量设置 ${section.key} 板块毛利率`}
+                        />
+                        <span className="text-[10px] text-neutral-400">%</span>
+                        <button
+                          onClick={() => handleBatchMarginByType(section.key as 'novel' | 'image' | 'video')}
+                          disabled={batchMarginSaving === section.key}
+                          title={`将本板块所有模型的毛利率设为左侧输入值（自动重算积分）`}
+                          className="inline-flex items-center rounded-md bg-neutral-100 px-1.5 py-0.5 text-[11px] text-neutral-700 hover:bg-neutral-200 disabled:opacity-50"
+                        >
+                          {batchMarginSaving === section.key
+                            ? <Loader2 className="h-3 w-3 animate-spin" />
+                            : <Check className="h-3 w-3" />}
+                        </button>
+                      </div>
+                    )}
+                    <span className="chip border bg-white/70 text-neutral-600">{list.length} 模型</span>
+                  </div>
                 </header>
                 <div className="px-4 py-3">
                   {list.length === 0 ? (
@@ -558,21 +729,23 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
                     <ul className="divide-y divide-neutral-100">
                       {list.map((m) => (
                         <ModelRow
-                          key={m.id}
-                          model={m}
-                          providerLabel={
-                            providers.find((p) => p.id === m.providerId)?.displayName ||
-                            providers.find((p) => p.id === m.providerId)?.name ||
-                            m.providerId
-                          }
-                          costEdits={costEdits}
-                          setCostEdits={setCostEdits}
-                          costSaving={costSaving}
-                          costToast={costToast}
-                          deletingModelId={deletingModelId}
-                          onSaveCost={handleSaveCost}
-                          onDelete={handleDeleteModel}
-                        />
+                key={m.id}
+                model={m}
+                providerLabel={
+                  providers.find((p) => p.id === m.providerId)?.displayName ||
+                  providers.find((p) => p.id === m.providerId)?.name ||
+                  m.providerId
+                }
+                costEdits={costEdits}
+                setCostEdits={setCostEdits}
+                marginEdits={marginEdits}
+                setMarginEdits={setMarginEdits}
+                costSaving={costSaving}
+                costToast={costToast}
+                statusUpdating={statusUpdating}
+                onSaveCost={handleSaveCost}
+                onToggleStatus={handleToggleStatus}
+              />
                       ))}
                     </ul>
                   )}
@@ -639,11 +812,13 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
                           providerLabel={p.displayName || p.name}
                           costEdits={costEdits}
                           setCostEdits={setCostEdits}
+                          marginEdits={marginEdits}
+                          setMarginEdits={setMarginEdits}
                           costSaving={costSaving}
                           costToast={costToast}
-                          deletingModelId={deletingModelId}
+                          statusUpdating={statusUpdating}
                           onSaveCost={handleSaveCost}
-                          onDelete={handleDeleteModel}
+                          onToggleStatus={handleToggleStatus}
                         />
                       ))}
                     </ul>
@@ -949,7 +1124,7 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
         </Modal>
       )}
 
-      {/* 密码确认弹窗（新增/删除模型） */}
+      {/* 密码确认弹窗（仅新增模型场景） */}
       {passwordPrompt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => !passwordSubmitting && setPasswordPrompt(null)}>
           <div
@@ -958,14 +1133,10 @@ export function ModelsTab({ onError, typeFilter }: { onError: (e: string) => voi
           >
             <div className="mb-4 flex items-center gap-2">
               <ShieldAlert className="h-5 w-5 text-amber-500" />
-              <h3 className="text-lg font-bold text-neutral-900">
-                {passwordPrompt.type === 'create' ? '确认新增模型' : '确认删除模型'}
-              </h3>
+              <h3 className="text-lg font-bold text-neutral-900">确认新增模型</h3>
             </div>
             <p className="mb-4 text-sm text-neutral-600">
-              {passwordPrompt.type === 'create'
-                ? '为安全起见，新增模型需要输入您的登录密码以确认操作。'
-                : `即将删除模型「${passwordPrompt.modelName ?? ''}」，此操作不可撤销。请输入您的登录密码以确认。`}
+              为安全起见，新增模型需要输入您的登录密码以确认操作。
             </p>
             <input
               type="password"
@@ -1007,12 +1178,8 @@ export function ModelsByType({ onError, typeFilter }: { onError: (e: string) => 
   const { providers } = useProviders(onError)
   const { models, setModels, loading, reload } = useModels(onError)
   const [modelModalOpen, setModelModalOpen] = useState(false)
-  const [deletingModelId, setDeletingModelId] = useState<string | null>(null)
-  const [passwordPrompt, setPasswordPrompt] = useState<{
-    type: 'create' | 'delete'
-    modelId?: string
-    modelName?: string
-  } | null>(null)
+  const [statusUpdating, setStatusUpdating] = useState<string | null>(null)
+  const [passwordPrompt, setPasswordPrompt] = useState<{ type: 'create' } | null>(null)
   const [confirmPassword, setConfirmPassword] = useState('')
   const [passwordSubmitting, setPasswordSubmitting] = useState(false)
 
@@ -1029,13 +1196,40 @@ export function ModelsByType({ onError, typeFilter }: { onError: (e: string) => 
   const typeLabel = typeFilter.map(t => MODEL_SECTION_OPTIONS.find(o => o.key === t)?.label.split(' ')[1]?.replace(/[()]/g, '') ?? t).join(' / ')
 
   // 积分内联编辑
+  // 积分 + 毛利率内联编辑
   const [costEdits, setCostEdits] = useState<Record<string, number>>({})
+  const [marginEdits, setMarginEdits] = useState<Record<string, number>>({})
   const [costSaving, setCostSaving] = useState<string | null>(null)
   const [costToast, setCostToast] = useState<{ id: string; from: number; to: number; changed: boolean; unchanged?: boolean } | null>(null)
+  // 模型列表排序方式：默认 / 积分高→低 / 积分低→高 / 首字母 A→Z
+  const [sortBy, setSortBy] = useState<'default' | 'cost-desc' | 'cost-asc' | 'name-asc'>('default')
 
   const filteredModels = useMemo(() => {
-    return models.filter((m) => typeFilter.includes(m.type))
-  }, [models, typeFilter])
+    const list = models.filter((m) => typeFilter.includes(m.type))
+    const sorted = [...list]
+    switch (sortBy) {
+      case 'cost-desc':
+        // 积分高 → 低（缺省值视为 0，放末尾）
+        sorted.sort((a, b) => (b.costTokens ?? 0) - (a.costTokens ?? 0))
+        break
+      case 'cost-asc':
+        // 积分低 → 高
+        sorted.sort((a, b) => (a.costTokens ?? 0) - (b.costTokens ?? 0))
+        break
+      case 'name-asc':
+        // 首字母 A→Z（中文按拼音首字母，英文按字母序；displayName 优先，回退 name）
+        sorted.sort((a, b) => {
+          const aName = (a.displayName || a.name || '').toLowerCase()
+          const bName = (b.displayName || b.name || '').toLowerCase()
+          return aName.localeCompare(bName, 'zh-Hans-CN')
+        })
+        break
+      default:
+        // 默认：保持后端返回顺序（通常按创建时间）
+        break
+    }
+    return sorted
+  }, [models, typeFilter, sortBy])
 
   const suggestedCostForType = (t: string): number => {
     switch (t) {
@@ -1088,6 +1282,13 @@ export function ModelsByType({ onError, typeFilter }: { onError: (e: string) => 
     }
   }, [typeFilter])
 
+  // 批量设置毛利率后清空本地未保存的内联编辑（避免覆盖新值）
+  useEffect(() => {
+    const handler = () => { setCostEdits({}); setMarginEdits({}) }
+    window.addEventListener('models-batch-updated', handler)
+    return () => window.removeEventListener('models-batch-updated', handler)
+  }, [])
+
   const resetModelForm = () => {
     setMName('')
     setMDisplayName('')
@@ -1134,9 +1335,26 @@ export function ModelsByType({ onError, typeFilter }: { onError: (e: string) => 
     }
   }
 
+  // 积分制度：按模型单独 PATCH costTokens + margin 并触发全局 invalidate
+  // 关键:只传用户实际修改的字段,后端按需联动
+  //   - 只改 margin:后端反推 baseTokens 并按新 margin 联动 costTokens
+  //   - 只改 costTokens:后端直接设
+  //   - 两个都改:costTokens 优先级最高
   const handleSaveCost = async (model: Model) => {
-    const nextVal = Number(costEdits[model.id] ?? model.costTokens ?? 1000)
-    if (!Number.isFinite(nextVal) || nextVal < 0) return
+    const costEdited = costEdits[model.id] !== undefined
+    const marginEdited = marginEdits[model.id] !== undefined
+    if (!costEdited && !marginEdited) return // 两个字段都没改,不发请求
+    const payload: { costTokens?: number; margin?: number } = {}
+    if (costEdited) {
+      const nextVal = Number(costEdits[model.id])
+      if (!Number.isFinite(nextVal) || nextVal < 0) return
+      payload.costTokens = nextVal
+    }
+    if (marginEdited) {
+      const nextMargin = Number(marginEdits[model.id])
+      if (!Number.isFinite(nextMargin) || nextMargin < 0) return
+      payload.margin = nextMargin
+    }
     setCostSaving(model.id)
     try {
       const res = await api.patch<{
@@ -1144,17 +1362,24 @@ export function ModelsByType({ onError, typeFilter }: { onError: (e: string) => 
         changed?: { from: number; to: number }
         unchanged?: boolean
         cacheInvalidated?: boolean
-      }>(`/api/models/${model.id}/cost`, { costTokens: nextVal })
+      }>(`/api/models/${model.id}/cost`, payload)
+      // 用后端返回的最终值更新本地缓存(可能含 margin 联动后的 costTokens)
+      const newCost = res.model.costTokens ?? model.costTokens
+      const newMargin = res.model.margin ?? model.margin
       setCostToast({
         id: model.id,
         from: model.costTokens ?? 0,
-        to: nextVal,
+        to: newCost ?? 0,
         changed: !res.unchanged,
         unchanged: res.unchanged,
       })
       setTimeout(() => setCostToast((cur) => (cur && cur.id === model.id ? null : cur)), 3500)
-      setModels((prev) => prev.map((m) => (m.id === model.id ? { ...m, costTokens: nextVal } : m)))
-      // 同步刷新图片模型前端缓存（仅 image 类型变更有意义）
+      // 刷新本地 models 缓存为后端返回的最终值
+      setModels((prev) => prev.map((m) => (m.id === model.id ? { ...m, costTokens: newCost, margin: newMargin } : m)))
+      // 清除编辑态,显示后端最终值
+      setCostEdits((prev) => { const n = { ...prev }; delete n[model.id]; return n })
+      setMarginEdits((prev) => { const n = { ...prev }; delete n[model.id]; return n })
+      // 同步刷新图片模型前端缓存
       if (model.type === 'image') void refreshImageModels()
     } catch (e) {
       onError((e as Error).message)
@@ -1169,9 +1394,19 @@ export function ModelsByType({ onError, typeFilter }: { onError: (e: string) => 
     setConfirmPassword('')
   }
 
-  const handleDeleteModel = async (modelId: string, modelName: string) => {
-    setPasswordPrompt({ type: 'delete', modelId, modelName })
-    setConfirmPassword('')
+  // 启用/禁用模型 — 无需密码,直接调用 PATCH /status
+  const handleToggleStatus = async (model: Model) => {
+    const nextStatus = (model.status ?? 'active') === 'active' ? 'disabled' : 'active'
+    setStatusUpdating(model.id)
+    try {
+      await api.patch(`/api/models/${model.id}/status`, { status: nextStatus })
+      setModels((prev) => prev.map((m) => (m.id === model.id ? { ...m, status: nextStatus } : m)))
+      if (model.type === 'image') void refreshImageModels()
+    } catch (e) {
+      onError((e as Error).message)
+    } finally {
+      setStatusUpdating(null)
+    }
   }
 
   const handlePasswordConfirm = async () => {
@@ -1197,12 +1432,6 @@ export function ModelsByType({ onError, typeFilter }: { onError: (e: string) => 
         await reload()
         // 新增的若是图片模型，刷新前端图片模型缓存
         if (modelType === 'image') void refreshImageModels()
-      } else if (passwordPrompt.type === 'delete' && passwordPrompt.modelId) {
-        setDeletingModelId(passwordPrompt.modelId)
-        await api.delWithBody(`/api/models/${passwordPrompt.modelId}`, { password: confirmPassword })
-        setModels((prev) => prev.filter((m) => m.id !== passwordPrompt.modelId))
-        // 删除模型后刷新前端图片模型缓存（无论类型，确保列表一致性）
-        void refreshImageModels()
       }
       setPasswordPrompt(null)
       setConfirmPassword('')
@@ -1210,7 +1439,6 @@ export function ModelsByType({ onError, typeFilter }: { onError: (e: string) => 
       onError((e as Error).message)
     } finally {
       setPasswordSubmitting(false)
-      setDeletingModelId(null)
     }
   }
 
@@ -1234,9 +1462,25 @@ export function ModelsByType({ onError, typeFilter }: { onError: (e: string) => 
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
           刷新
         </button>
-        <span className="ml-auto text-xs text-neutral-400">
-          {filteredModels.length} 个模型 · 类型：{typeLabel}
-        </span>
+        <div className="ml-auto flex items-center gap-3">
+          {/* 排序方式选择器：积分高/低/首字母 */}
+          <label className="flex items-center gap-1.5 text-xs text-neutral-500">
+            <span className="hidden sm:inline">排序</span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+              className="rounded-lg border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-700 transition hover:border-neutral-300 focus:outline-none focus:ring-1 focus:ring-violet-400"
+            >
+              <option value="default">默认</option>
+              <option value="cost-desc">积分 高 → 低</option>
+              <option value="cost-asc">积分 低 → 高</option>
+              <option value="name-asc">首字母 A → Z</option>
+            </select>
+          </label>
+          <span className="text-xs text-neutral-400">
+            {filteredModels.length} 个模型 · 类型：{typeLabel}
+          </span>
+        </div>
       </div>
 
       {/* 模型列表（平铺，不分组） */}
@@ -1268,12 +1512,14 @@ export function ModelsByType({ onError, typeFilter }: { onError: (e: string) => 
                 }
                 costEdits={costEdits}
                 setCostEdits={setCostEdits}
+                marginEdits={marginEdits}
+                setMarginEdits={setMarginEdits}
                 costSaving={costSaving}
-                costToast={costToast}
-                deletingModelId={deletingModelId}
-                onSaveCost={handleSaveCost}
-                onDelete={handleDeleteModel}
-              />
+          costToast={costToast}
+          statusUpdating={statusUpdating}
+          onSaveCost={handleSaveCost}
+          onToggleStatus={handleToggleStatus}
+        />
             ))}
           </ul>
         </div>
@@ -1394,14 +1640,10 @@ export function ModelsByType({ onError, typeFilter }: { onError: (e: string) => 
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-4 flex items-center gap-2">
               <ShieldAlert className="h-5 w-5 text-amber-500" />
-              <h3 className="text-lg font-bold text-neutral-900">
-                {passwordPrompt.type === 'create' ? '确认新增模型' : '确认删除模型'}
-              </h3>
+              <h3 className="text-lg font-bold text-neutral-900">确认新增模型</h3>
             </div>
             <p className="mb-4 text-sm text-neutral-600">
-              {passwordPrompt.type === 'create'
-                ? '为安全起见，新增模型需要输入您的登录密码以确认操作。'
-                : `即将删除模型「${passwordPrompt.modelName ?? ''}」，此操作不可撤销。请输入您的登录密码以确认。`}
+              为安全起见，新增模型需要输入您的登录密码以确认操作。
             </p>
             <input
               type="password"

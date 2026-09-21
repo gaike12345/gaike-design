@@ -3,10 +3,12 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   Users, Palette, MessageSquare, Heart, Coins, Zap, TrendingUp, Cpu,
   BookOpen, Image, Music, Video, FileText, RefreshCw, Loader2, Cloud, AlertCircle,
+  DollarSign, TrendingDown, PieChart, Wallet,
 } from 'lucide-react'
 import { api } from '../../services/api'
 import { formatCompact, pct, EmptyBar } from './common'
-import type { IconComponent, Stats } from './types'
+import type { IconComponent, Stats, RevenueStats } from './types'
+import { PollinationsSyncPanel } from './PollinationsSyncPanel'
 
 // ===== Pollinations 账户余额类型 =====
 interface PollinationsAccountInfo {
@@ -27,6 +29,7 @@ interface PollinationsAccountInfo {
   error?: string
   pollenPerUsd: number
   usdToCny: number
+  usdToCnySource: string
   tokensPerCny: number
   // 规范化双向换算链路
   usdToPollen: number
@@ -217,6 +220,57 @@ export function OverviewTab({
     return () => clearInterval(id)
   }, [loadApiBalance])
 
+  // ===== 毛利统计（差值对账，2026-09 升级） =====
+  const [revenue, setRevenue] = useState<RevenueStats | null>(null)
+  const [revenueLoading, setRevenueLoading] = useState(false)
+  const [revenueDays, setRevenueDays] = useState(30)
+  const [revenueType, setRevenueType] = useState<string>('')
+
+  const loadRevenue = useCallback(async (days: number, type: string) => {
+    setRevenueLoading(true)
+    try {
+      const params = new URLSearchParams()
+      params.set('days', String(days))
+      if (type) params.set('type', type)
+      const res = await api.get<RevenueStats | { data: RevenueStats }>(
+        `/api/admin/revenue/stats?${params.toString()}`
+      )
+      // 兼容 { data: ... } 包裹
+      const data = (res as { data?: RevenueStats })?.data ?? (res as RevenueStats)
+      setRevenue(data ?? null)
+    } catch {
+      setRevenue(null)
+    } finally {
+      setRevenueLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadRevenue(revenueDays, revenueType)
+  }, [loadRevenue, revenueDays, revenueType])
+
+  // 历史数据回填（一次性，需二次确认）
+  const [rebuilding, setRebuilding] = useState(false)
+  const [rebuildResult, setRebuildResult] = useState<{ processed: number; updated: number } | null>(null)
+
+  const handleRebuild = useCallback(async () => {
+    if (!window.confirm('确认执行历史数据回填？\n该操作幂等，仅处理未计算毛利字段的存量记录，可能耗时较长。')) return
+    setRebuilding(true)
+    try {
+      const res = await api.post<{ processed: number; updated: number } | { data: { processed: number; updated: number } }>(
+        '/api/admin/revenue/rebuild'
+      )
+      const result = (res as { data?: { processed: number; updated: number } })?.data ?? (res as { processed: number; updated: number })
+      setRebuildResult(result)
+      // 重新加载毛利数据
+      loadRevenue(revenueDays, revenueType)
+    } catch (e) {
+      alert('历史回填失败：' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setRebuilding(false)
+    }
+  }, [loadRevenue, revenueDays, revenueType])
+
   // 数据新鲜度信号：显示上次更新时间，60s 内为「新鲜」，超过为「陈旧」
   const freshnessLabel = (() => {
     if (!lastRefreshedAt) return null
@@ -346,7 +400,16 @@ export function OverviewTab({
                   {/* 换算公式 - 规范化双向链路 */}
                   {!packZero && pack !== null && (
                     <div className="mt-3 rounded-md bg-white/60 px-3 py-2.5 ring-1 ring-sky-100/80">
-                      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-sky-700/60">汇率换算链路</p>
+                      <p className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-sky-700/60">
+                        <span>汇率换算链路</span>
+                        <span className={`rounded px-1 py-0.5 text-[9px] font-medium normal-case tracking-normal ${
+                          apiBalance.usdToCnySource === 'frankfurter' ? 'bg-emerald-100 text-emerald-700' :
+                          apiBalance.usdToCnySource === 'env' ? 'bg-amber-100 text-amber-700' :
+                          'bg-rose-100 text-rose-700'
+                        }`} title={apiBalance.usdToCnySource === 'frankfurter' ? '实时汇率（欧洲央行数据）' : apiBalance.usdToCnySource === 'env' ? '环境变量覆盖' : '回退到默认常量'}>
+                          {apiBalance.usdToCnySource === 'frankfurter' ? '实时' : apiBalance.usdToCnySource === 'env' ? '环境变量' : '回退常量'}
+                        </span>
+                      </p>
                       {/* 1 USD 链路 */}
                       <div className="flex items-center gap-1 text-[11px] text-sky-700/80">
                         <span className="rounded bg-sky-100 px-1.5 py-0.5 font-semibold text-sky-900">1 USD</span>
@@ -359,7 +422,7 @@ export function OverviewTab({
                       <div className="mt-1 flex items-center gap-1 text-[11px] text-sky-700/80">
                         <span className="rounded bg-rose-100 px-1.5 py-0.5 font-semibold text-rose-900">1 CNY</span>
                         <span className="text-slate-400">=</span>
-                        <span className="rounded bg-slate-100 px-1.5 py-0.5">¥{apiBalance.cnyToUsd.toFixed(4)} USD</span>
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5">${apiBalance.cnyToUsd.toFixed(4)} USD</span>
                         <span className="text-slate-400">=</span>
                         <span className="rounded bg-slate-100 px-1.5 py-0.5">{apiBalance.cnyToPollen} pollen</span>
                         <span className="text-slate-400">=</span>
@@ -370,6 +433,9 @@ export function OverviewTab({
                 </div>
               )
             })()}
+
+            {/* 汇率换算链路调整入口 — 嵌入 PollinationsSyncPanel */}
+            <PollinationsSyncPanel />
 
             {/* QUEST + 合计 + 系统积分 */}
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -412,6 +478,214 @@ export function OverviewTab({
             </div>
           </div>
         ) : null}
+      </div>
+
+      {/* 毛利统计（差值对账）：用户支付积分 vs 官方成本积分 */}
+      <div className="rounded-xl border border-neutral-200/70 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-neutral-800">
+            <Wallet className="h-4 w-4 text-emerald-600" /> 毛利统计（差值对账）
+            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200/60">
+              近 {revenueDays} 天
+            </span>
+          </h3>
+          <div className="flex items-center gap-2">
+            {/* 时间范围筛选 */}
+            <select
+              value={revenueDays}
+              onChange={(e) => setRevenueDays(Number(e.target.value))}
+              className="rounded-md border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+              disabled={revenueLoading}
+            >
+              <option value={7}>近 7 天</option>
+              <option value={30}>近 30 天</option>
+              <option value={90}>近 90 天</option>
+              <option value={365}>近 1 年</option>
+            </select>
+            {/* 类型筛选 */}
+            <select
+              value={revenueType}
+              onChange={(e) => setRevenueType(e.target.value)}
+              className="rounded-md border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+              disabled={revenueLoading}
+            >
+              <option value="">全部板块</option>
+              <option value="novel">小说</option>
+              <option value="image">插画</option>
+              <option value="comic">漫画</option>
+              <option value="audio">音频</option>
+              <option value="video">视频</option>
+            </select>
+            {/* 历史回填（幂等） */}
+            <button
+              onClick={handleRebuild}
+              disabled={rebuilding}
+              className="btn-outline !px-2.5 !py-1 text-xs"
+              title="为存量调用记录反算毛利字段（幂等，仅处理未计算记录）"
+            >
+              {rebuilding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              历史回填
+            </button>
+          </div>
+        </div>
+
+        {revenueLoading && !revenue ? (
+          <div className="flex items-center justify-center py-8 text-sm text-neutral-400">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 正在聚合毛利数据...
+          </div>
+        ) : revenue && revenue.total ? (
+          <div className="space-y-4">
+            {/* 4 张核心 KPI：毛利 / 售价 / 成本 / 毛利率 */}
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {/* 毛利积分（核心） */}
+              <div className="rounded-lg bg-gradient-to-br from-emerald-50 to-green-50 p-3 ring-1 ring-emerald-100">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-emerald-700/80">毛利积分</p>
+                  <DollarSign className="h-3.5 w-3.5 text-emerald-500" />
+                </div>
+                <p className="mt-1.5 text-2xl font-bold tracking-tight text-emerald-900">
+                  {formatCompact(revenue.total.revenue)}
+                </p>
+                <p className="mt-0.5 text-[11px] text-emerald-600/70">
+                  = 售价 − 成本 · {revenue.total.calls} 次调用
+                </p>
+              </div>
+              {/* 售价积分 */}
+              <div className="rounded-lg bg-gradient-to-br from-sky-50 to-blue-50 p-3 ring-1 ring-sky-100">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-sky-700/80">售价积分</p>
+                  <Coins className="h-3.5 w-3.5 text-sky-500" />
+                </div>
+                <p className="mt-1.5 text-2xl font-bold tracking-tight text-sky-900">
+                  {formatCompact(revenue.total.tokens)}
+                </p>
+                <p className="mt-0.5 text-[11px] text-sky-600/70">
+                  用户实际支付
+                </p>
+              </div>
+              {/* 成本积分 */}
+              <div className="rounded-lg bg-gradient-to-br from-rose-50 to-red-50 p-3 ring-1 ring-rose-100">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-rose-700/80">成本积分</p>
+                  <TrendingDown className="h-3.5 w-3.5 text-rose-500" />
+                </div>
+                <p className="mt-1.5 text-2xl font-bold tracking-tight text-rose-900">
+                  {formatCompact(revenue.total.cost)}
+                </p>
+                <p className="mt-0.5 text-[11px] text-rose-600/70">
+                  官方 Pollinations 计费
+                </p>
+              </div>
+              {/* 毛利率 */}
+              <div className="rounded-lg bg-gradient-to-br from-violet-50 to-purple-50 p-3 ring-1 ring-violet-100">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-violet-700/80">毛利率</p>
+                  <PieChart className="h-3.5 w-3.5 text-violet-500" />
+                </div>
+                <p className="mt-1.5 text-2xl font-bold tracking-tight text-violet-900">
+                  {(revenue.total.marginPct ?? 0).toFixed(1)}%
+                </p>
+                <p className="mt-0.5 text-[11px] text-violet-600/70">
+                  毛利 ÷ 售价 × 100
+                </p>
+              </div>
+            </div>
+
+            {/* 按类型分布 + 按模型 Top N */}
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {/* 按板块（类型）毛利 */}
+              <div>
+                <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-neutral-700">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" /> 按板块毛利分布
+                </p>
+                <div className="space-y-1.5">
+                  {Object.keys(revenue.byType ?? {}).length === 0 ? (
+                    <p className="py-3 text-center text-xs text-neutral-400">暂无数据</p>
+                  ) : (
+                    Object.entries(revenue.byType)
+                      .sort((a, b) => (b[1].revenue ?? 0) - (a[1].revenue ?? 0))
+                      .map(([type, v]) => {
+                        const meta = AI_META[type] ?? { label: type, color: '#64748b' }
+                        const maxRev = Math.max(1, ...Object.values(revenue.byType).map(x => x.revenue ?? 0))
+                        const rev = v.revenue ?? 0
+                        const widthPct = (rev / maxRev) * 100
+                        return (
+                          <div key={type} className="flex items-center gap-2 text-xs">
+                            <div className="flex w-16 shrink-0 items-center gap-1 text-neutral-600">
+                              <span className="h-2 w-2 rounded-full" style={{ background: meta.color }} />
+                              <span className="truncate">{meta.label}</span>
+                            </div>
+                            <div className="relative h-4 flex-1 overflow-hidden rounded bg-neutral-100">
+                              <div
+                                className="h-full rounded"
+                                style={{ width: `${widthPct}%`, background: `linear-gradient(90deg, ${meta.color}, ${meta.color}aa)` }}
+                              />
+                            </div>
+                            <span className="w-12 shrink-0 text-right font-medium text-emerald-700">{formatCompact(rev)}</span>
+                            <span className="w-12 shrink-0 text-right text-neutral-500">{(v.marginPct ?? 0).toFixed(0)}%</span>
+                          </div>
+                        )
+                      })
+                  )}
+                </div>
+              </div>
+
+              {/* 按模型 Top N */}
+              <div>
+                <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-neutral-700">
+                  <span className="h-2 w-2 rounded-full bg-violet-500" /> 模型毛利贡献 Top {(revenue.byModel ?? []).slice(0, 5).length}
+                </p>
+                <div className="space-y-1.5">
+                  {(!revenue.byModel || revenue.byModel.length === 0) ? (
+                    <p className="py-3 text-center text-xs text-neutral-400">暂无模型维度数据</p>
+                  ) : (
+                    (revenue.byModel ?? [])
+                      .slice()
+                      .sort((a, b) => (b.revenue ?? 0) - (a.revenue ?? 0))
+                      .slice(0, 5)
+                      .map((m) => {
+                        const maxRev = Math.max(1, ...(revenue.byModel ?? []).map(x => x.revenue ?? 0))
+                        const widthPct = ((m.revenue ?? 0) / maxRev) * 100
+                        return (
+                          <div key={m.modelId} className="flex items-center gap-2 text-xs">
+                            <div className="flex w-28 shrink-0 truncate font-mono text-neutral-600" title={m.modelId}>
+                              <span className="truncate">{m.modelId || '—'}</span>
+                            </div>
+                            <div className="relative h-4 flex-1 overflow-hidden rounded bg-neutral-100">
+                              <div
+                                className="h-full rounded bg-gradient-to-r from-violet-500 to-fuchsia-400"
+                                style={{ width: `${widthPct}%` }}
+                              />
+                            </div>
+                            <span className="w-12 shrink-0 text-right font-medium text-violet-700">{formatCompact(m.revenue ?? 0)}</span>
+                            <span className="w-12 shrink-0 text-right text-neutral-500">{(m.marginPct ?? 0).toFixed(0)}%</span>
+                          </div>
+                        )
+                      })
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* 历史回填结果提示（一次性，自动消失） */}
+            {rebuildResult && (
+              <div className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700 ring-1 ring-emerald-200">
+                ✓ 历史回填完成：扫描 {rebuildResult.processed} 条，更新 {rebuildResult.updated} 条毛利字段
+              </div>
+            )}
+
+            {/* 说明小字 */}
+            <p className="text-[10px] leading-relaxed text-neutral-400">
+              统计口径：仅聚合 <code className="rounded bg-neutral-100 px-1">status=success</code> 且
+              <code className="rounded bg-neutral-100 px-1">tokensUsed&gt;0</code> 的 AI 调用记录（即用户管理 / 生成记录中的有效调用）。
+              成本积分 = 售价 ÷ 调用时 margin 快照；毛利 = 售价 − 成本。margin 调整后，新生成的记录按新 margin 计算成本，历史记录保持原值。
+            </p>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center py-8 text-sm text-neutral-400">
+            <AlertCircle className="mr-2 h-4 w-4" /> 暂无毛利数据，可尝试执行「历史回填」补全存量记录
+          </div>
+        )}
       </div>
 
       {/* 图表区：上2下1布局 */}

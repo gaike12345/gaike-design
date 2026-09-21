@@ -25,6 +25,7 @@
 import { taskQueue, TaskInfo, TaskType, TaskResult } from '../../mank-infra/queue/taskQueue'
 import { logGeneration } from './generation'
 import { settleTokens, refundTokens } from '../billing/tokenService'
+import { getModelCost, getModelMargin } from '../billing/modelCost'
 import logger from '../../mank-infra/logging/logger'
 import { getVideoProviderForModel, DEFAULT_VIDEO_MODEL } from '../video/videoModels'
 import { BusinessError } from '../../mank-common/errors'
@@ -214,13 +215,11 @@ async function processTask(task: TaskInfo): Promise<void> {
     // 执行处理器
     const result = await handler(task.payload, ctx)
 
-    // 标记完成
-    await taskQueue.updateStatus(task.id, 'completed', {
-      result,
-      progress: 100,
-    })
-
-    // 积分结算：成功 → 结算预扣为已用
+    // P0-3 修复：积分结算必须在标记 task=completed 之前！
+    // 原来的顺序是先 updateStatus('completed') 再 settleTokens，
+    // 如果 settleTokens 失败被吞掉（P0-3 之前的问题），会出现"任务已完成但积分没结算"的白嫖漏洞。
+    // 现在 settleTokens rethrow，放在 completed 之前 → 失败时 task 状态仍是 processing，
+    // catch 块可以正确走 refundTokens 退还路径。
     const tokensCost = (task.payload as any)?._tokensCost || 0
     if (tokensCost > 0) {
       await settleTokens({
@@ -231,14 +230,55 @@ async function processTask(task: TaskInfo): Promise<void> {
       })
     }
 
-    // 更新生成日志状态
+    // 标记完成（积分结算成功后再标记）
+    await taskQueue.updateStatus(task.id, 'completed', {
+      result,
+      progress: 100,
+    })
+
+    // 毛利对账：读取任务入队时的 margin 和 costTokens 快照
+    // 异步任务的快照时机：任务完成时复核（与入队时一致），用于事后审计
+    const taskModelId = (task.payload as any)?.model || (task.payload as any)?.modelId || DEFAULT_VIDEO_MODEL
+    let taskMargin = (task.payload as any)?._marginAtCall  // 入队时的快照
+    let taskCostTokens = (task.payload as any)?._costTokens // 入队时的快照
+
+    // 入队时未写入快照 → 任务完成时实时读取（兜底）
+    if ((taskMargin === undefined || taskCostTokens === undefined) && taskModelId) {
+      try {
+        // task.type 为异步任务类型（如 text2video/img2video/tts/music/comic/lora_train），归一化到 getModelCost 支持的板块类型
+        const mapTaskType = (t: string): 'novel' | 'image' | 'audio' | 'video' | 'comic' => {
+          if (t === 'text2video' || t === 'img2video') return 'video'
+          if (t === 'tts' || t === 'music') return 'audio'
+          if (t === 'comic') return 'comic'
+          if (t === 'novel') return 'novel'
+          return 'image'
+        }
+        const taskTypeForCost = mapTaskType(String(task.type))
+        const [liveCost, liveMargin] = await Promise.all([
+          getModelCost(taskModelId, taskTypeForCost, 1000),
+          getModelMargin(taskModelId),
+        ])
+        if (taskMargin === undefined) taskMargin = liveMargin
+        if (taskCostTokens === undefined && liveMargin > 0) {
+          taskCostTokens = Math.max(0, Math.round(liveCost / liveMargin))
+        }
+      } catch (e) {
+        log.warn('任务完成时读取 margin/costTokens 失败', { taskId: task.id, model: taskModelId, error: e instanceof Error ? e.message : String(e) })
+      }
+    }
+
+    // 更新生成日志状态（异步任务在任务完成时写入真实毛利）
     await logGeneration({
       userId: task.userId,
       type: task.type,
+      modelId: taskModelId,
       input: JSON.stringify(task.payload || {}).slice(0, 500),
       tokensUsed: tokensCost,
       duration: Date.now() - startTime,
       status: 'success',
+      // 毛利对账字段
+      costTokens: taskCostTokens,
+      marginAtCall: taskMargin,
     }).catch(() => {}) // 日志失败不影响主流程
 
     const duration = Date.now() - startTime

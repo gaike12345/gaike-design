@@ -118,6 +118,8 @@ export async function generateViaBackend(opts: {
   seed?: number
   model?: string
   resolution?: string
+  quality?: string
+  transparent?: boolean
 }): Promise<BackendGenResult> {
   try {
     return await api.post<BackendGenResult>('/api/image/generate', opts)
