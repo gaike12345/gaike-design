@@ -254,19 +254,15 @@ export default function UnifiedCanvas() {
 
   // ===== 外部图片拖入画布 =====
   const handleDragOver = useCallback((e: React.DragEvent) => {
-    // 只处理包含文件或图片URL的拖拽
-    const hasFiles = e.dataTransfer.types.includes('Files')
-    const hasUrl = e.dataTransfer.types.includes('text/uri-list') || e.dataTransfer.types.includes('text/plain')
-    if (hasFiles || hasUrl) {
-      e.preventDefault()
-      e.dataTransfer.dropEffect = 'copy'
-      setExternalDragOver(true)
-    }
+    // 始终 preventDefault 允许 drop，否则浏览器会拒绝拖放
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+    setExternalDragOver(true)
   }, [])
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
-    // 只在离开画布根容器时清除（防止子元素进出触发）
-    if (e.currentTarget === e.target) setExternalDragOver(false)
+    // 只在离开画布根容器时清除（relatedTarget 为 null 表示离开了容器）
+    if (!e.relatedTarget) setExternalDragOver(false)
   }, [])
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
