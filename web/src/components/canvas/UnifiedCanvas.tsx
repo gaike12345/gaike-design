@@ -272,7 +272,10 @@ export default function UnifiedCanvas() {
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault()
     setExternalDragOver(false)
-    const pos = toCanvas(e.clientX, e.clientY)
+    // 鼠标位置 → 画布坐标，再减去节点半宽半高使图片中心对齐鼠标
+    const raw = toCanvas(e.clientX, e.clientY)
+    const cx = raw.x - UNODE_SIZE.image.width / 2
+    const cy = raw.y - UNODE_SIZE.image.height / 2
 
     // 优先处理文件拖入
     const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'))
@@ -291,7 +294,7 @@ export default function UnifiedCanvas() {
           })
           const data = await res.json()
           if (!res.ok) throw new Error(data.error || '上传失败')
-          addExternalImage(data.url, { x: pos.x + offset, y: pos.y + offset })
+          addExternalImage(data.url, { x: cx + offset, y: cy + offset })
         } catch (err) {
           console.error('图片拖入上传失败:', file.name, err)
         }
@@ -302,7 +305,7 @@ export default function UnifiedCanvas() {
     // 处理图片URL拖入（从浏览器其他标签页）
     const imgUrl = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain')
     if (imgUrl && /^https?:\/\//.test(imgUrl)) {
-      addExternalImage(imgUrl, pos)
+      addExternalImage(imgUrl, { x: cx, y: cy })
     }
   }, [toCanvas, addExternalImage])
 
