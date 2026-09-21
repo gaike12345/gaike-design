@@ -1327,7 +1327,7 @@ export function ImageSettingsPanel({ node }: { node: UCanvasNode }) {
                   </button>
                 ))}
               </div>
-              <div className="max-h-[110px] overflow-y-auto">
+              <div key={imageSortMode} className="max-h-[110px] overflow-y-auto">
               {sortedImageModels.map((m) => (
                 <button
                   key={m.id}
@@ -1785,9 +1785,10 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
       return true
     })
     const copy = [...filteredByMode]
-    if (videoSortMode === 'price-desc') copy.sort((a, b) => b.costTokens - a.costTokens)
-    else if (videoSortMode === 'price-asc') copy.sort((a, b) => a.costTokens - a.costTokens)
-    else copy.sort((a, b) => a.label.localeCompare(b.label, 'zh'))
+    if (videoSortMode === 'price-desc') copy.sort((a, b) => (b.costTokens || 0) - (a.costTokens || 0))
+    else if (videoSortMode === 'price-asc') copy.sort((a, b) => (a.costTokens || 0) - (b.costTokens || 0))
+    else copy.sort((a, b) => (a.label || '').localeCompare(b.label || '', 'zh'))
+    console.log('[videoSort] mode=%s order=%j', videoSortMode, copy.map(m => `${m.label}:${m.costTokens}`))
     return copy
   }, [videoModelList, videoSortMode, node.data.videoRefMode])
 
@@ -1973,7 +1974,7 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
                   </button>
                 ))}
               </div>
-              <div className="max-h-[110px] overflow-y-auto">
+              <div key={videoSortMode} className="max-h-[110px] overflow-y-auto">
               {sortedVideoModels.map((m) => (
                 <button
                   key={m.id}
