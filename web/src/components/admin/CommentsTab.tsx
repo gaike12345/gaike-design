@@ -60,7 +60,6 @@ export function CommentsTab({ onError }: { onError: (e: string) => void }) {
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="font-medium text-neutral-800">{c.user?.nickname ?? '匿名'}</span>
-                <span className="text-neutral-400">{c.user?.email}</span>
                 <span className="chip !border-pink-200 bg-pink-50 !text-pink-700">评论</span>
                 <span className="text-neutral-400">{formatDateTime(c.createdAt)}</span>
                 <span className="ml-auto text-xs text-neutral-500">

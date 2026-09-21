@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI漫剧圈 · 全方位多维度代码审查报告</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #0a0a0f;
+    color: #e5e5e5;
+    line-height: 1.6;
+    padding: 40px 20px;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    border-radius: 16px;
+    padding: 48px 40px;
+    margin-bottom: 32px;
+    border: 1px solid #2a2a4a;
+    position: relative;
+    overflow: hidden;
+  }
+  .header::before {
+    content: '';
+    position: absolute;
+    top: -50%; right: -20%;
+    width: 500px; height: 500px;
+    background: radial-gradient(circle, rgba(99,102,241,0.15) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+  .header h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; position: relative; }
+  .header .subtitle { color: #94a3b8; font-size: 14px; position: relative; }
+  .header .meta { display: flex; gap: 24px; margin-top: 20px; position: relative; flex-wrap: wrap; }
+  .header .meta-item { font-size: 13px; color: #94a3b8; }
+  .header .meta-item strong { color: #e5e5e5; font-weight: 600; }
+  .header .methodology {
+    margin-top: 16px;
+    padding: 12px 16px;
+    background: rgba(99,102,241,0.1);
+    border-radius: 8px;
+    border: 1px solid rgba(99,102,241,0.2);
+    font-size: 13px;
+    color: #c7d2fe;
+    position: relative;
+  }
+
+  /* Score Cards */
+  .score-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+  .score-card {
+    background: #13131a;
+    border: 1px solid #1f1f2e;
+    border-radius: 12px;
+    padding: 24px;
+    text-align: center;
+  }
+  .score-card .label { font-size: 13px; color: #94a3b8; margin-bottom: 8px; }
+  .score-card .score { font-size: 36px; font-weight: 700; margin-bottom: 4px; }
+  .score-card .score.green { color: #10b981; }
+  .score-card .score.amber { color: #f59e0b; }
+  .score-card .score.red { color: #ef4444; }
+  .score-card .desc { font-size: 12px; color: #64748b; }
+
+  /* Section */
+  .section {
+    background: #13131a;
+    border: 1px solid #1f1f2e;
+    border-radius: 12px;
+    padding: 28px;
+    margin-bottom: 24px;
+  }
+  .section h2 {
+    font-size: 20px; font-weight: 600; margin-bottom: 16px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .section h2 .icon { font-size: 22px; }
+  .section h3 { font-size: 16px; margin: 20px 0 12px; color: #e5e5e5; }
+
+  /* Issue Table */
+  .issue-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  .issue-table th {
+    text-align: left; font-size: 12px; color: #64748b; font-weight: 500;
+    padding: 10px 12px; border-bottom: 1px solid #1f1f2e;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .issue-table td {
+    padding: 12px; border-bottom: 1px solid #1a1a24; font-size: 13px; vertical-align: top;
+  }
+  .issue-table tr:hover { background: #16161f; }
+  .issue-table td:last-child { width: 80px; text-align: right; }
+
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 999px;
+    font-size: 11px; font-weight: 600;
+  }
+  .badge-p0 { background: #7f1d1d; color: #fca5a5; }
+  .badge-p1 { background: #7c2d12; color: #fdba74; }
+  .badge-p2 { background: #713f12; color: #fcd34d; }
+  .badge-p3 { background: #14532d; color: #86efac; }
+
+  /* Severity bar */
+  .severity-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin: 16px 0; }
+  .sev-p0 { background: #ef4444; }
+  .sev-p1 { background: #f97316; }
+  .sev-p2 { background: #eab308; }
+  .sev-p3 { background: #22c55e; }
+
+  code {
+    background: #1e1e2e; padding: 2px 6px; border-radius: 4px;
+    font-size: 12px; font-family: "JetBrains Mono", "Fira Code", monospace; color: #a5b4fc;
+  }
+
+  /* Summary Box */
+  .summary-box {
+    background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+    border: 1px solid #4338ca; border-radius: 12px; padding: 24px; margin-bottom: 24px;
+  }
+  .summary-box h3 { font-size: 16px; margin-bottom: 12px; color: #c7d2fe; }
+  .summary-box ul { list-style: none; padding: 0; }
+  .summary-box li { padding: 6px 0 6px 24px; position: relative; font-size: 14px; }
+  .summary-box li::before { content: '→'; position: absolute; left: 0; color: #818cf8; }
+
+  /* Roadmap */
+  .roadmap-item { display: flex; gap: 16px; padding: 16px 0; border-bottom: 1px solid #1a1a24; }
+  .roadmap-item:last-child { border-bottom: none; }
+  .roadmap-priority { flex-shrink: 0; width: 60px; text-align: center; }
+  .roadmap-content { flex: 1; }
+  .roadmap-content h4 { font-size: 14px; margin-bottom: 4px; }
+  .roadmap-content p { font-size: 13px; color: #94a3b8; }
+  .roadmap-content .file { font-size: 12px; color: #64748b; margin-top: 4px; }
+
+  /* File list */
+  .file-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 8px; margin-top: 12px;
+  }
+  .file-item {
+    font-size: 12px; padding: 8px 12px; background: #1a1a24;
+    border-radius: 6px; font-family: "JetBrains Mono", monospace; color: #94a3b8;
+  }
+  .file-item.high { border-left: 3px solid #ef4444; }
+  .file-item.medium { border-left: 3px solid #f59e0b; }
+  .file-item.low { border-left: 3px solid #22c55e; }
+
+  /* Stats Grid */
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px; margin: 16px 0;
+  }
+  .stat-item {
+    padding: 16px; background: #1a1a24; border-radius: 8px; text-align: center;
+  }
+  .stat-item .num { font-size: 28px; font-weight: 700; }
+  .stat-item .label { font-size: 13px; color: #94a3b8; margin-top: 4px; }
+
+  /* Callout */
+  .callout {
+    padding: 12px 16px; border-radius: 8px; margin: 12px 0; font-size: 13px;
+  }
+  .callout.red { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; }
+  .callout.amber { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); color: #fcd34d; }
+  .callout.green { background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); color: #86efac; }
+
+  @media (max-width: 768px) {
+    .header { padding: 32px 20px; }
+    .header h1 { font-size: 24px; }
+    .section { padding: 20px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>🔍 全方位多维度代码审查报告</h1>
+    <p class="subtitle">AI漫剧圈 · 基于实际源码阅读的深度审查 · Staff Engineer Mode</p>
+    <div class="meta">
+      <div class="meta-item"><strong>审查日期</strong><br/>2026-09-18</div>
+      <div class="meta-item"><strong>审查范围</strong><br/>后端 + 前端 + 部署 + 架构 + 文档</div>
+      <div class="meta-item"><strong>问题总数</strong><br/>73 个</div>
+      <div class="meta-item"><strong>实际读取文件</strong><br/>100+ 份源文件</div>
+    </div>
+    <div class="methodology">
+      审查方法论：Staff Engineer Mode → 路由到 <code>dependency-and-code-hygiene</code> 专业审查框架 → 3 个并行代理分别深入阅读后端/前端/部署代码 → 基于 Iron Law "NO MAINTENANCE CHANGE WITHOUT SCOPE, REVERSIBILITY, AND NON-REGRESSION CHECKS" 进行分类评估
+    </div>
+  </div>
+
+  <!-- Score Overview -->
+  <div class="score-grid">
+    <div class="score-card">
+      <div class="label">总体健康度</div>
+      <div class="score amber">5.8</div>
+      <div class="desc">/ 10 分</div>
+    </div>
+    <div class="score-card">
+      <div class="label">后端代码</div>
+      <div class="score amber">6.0</div>
+      <div class="desc">49 any, multer CVE</div>
+    </div>
+    <div class="score-card">
+      <div class="label">前端代码</div>
+      <div class="score red">4.5</div>
+      <div class="desc">44 TS 错误, 无 strict</div>
+    </div>
+    <div class="score-card">
+      <div class="label">安全</div>
+      <div class="score red">4.2</div>
+      <div class="desc">弱密钥 + 端口暴露</div>
+    </div>
+    <div class="score-card">
+      <div class="label">架构</div>
+      <div class="score amber">6.5</div>
+      <div class="desc">分层好, arch-check 失效</div>
+    </div>
+    <div class="score-card">
+      <div class="label">测试覆盖</div>
+      <div class="score red">2.5</div>
+      <div class="desc">~15%, 路由层 0 覆盖</div>
+    </div>
+    <div class="score-card">
+      <div class="label">部署运维</div>
+      <div class="score red">4.0</div>
+      <div class="desc">无 CI/CD, root 运行</div>
+    </div>
+    <div class="score-card">
+      <div class="label">文档</div>
+      <div class="score amber">6.5</div>
+      <div class="desc">ADR 好, 路径全过时</div>
+    </div>
+  </div>
+
+  <!-- Severity Overview -->
+  <div class="section">
+    <h2><span class="icon">📊</span>问题严重度分布</h2>
+    <div class="severity-bar">
+      <div class="sev-p0" style="width: 8%"></div>
+      <div class="sev-p1" style="width: 22%"></div>
+      <div class="sev-p2" style="width: 41%"></div>
+      <div class="sev-p3" style="width: 29%"></div>
+    </div>
+    <div style="display:flex; gap:24px; font-size:13px; flex-wrap:wrap;">
+      <span><span class="badge badge-p0">P0 紧急</span> 6 个</span>
+      <span><span class="badge badge-p1">P1 高危</span> 16 个</span>
+      <span><span class="badge badge-p2">P2 中危</span> 30 个</span>
+      <span><span class="badge badge-p3">P3 低危</span> 21 个</span>
+    </div>
+  </div>
+
+  <!-- Top Critical -->
+  <div class="summary-box">
+    <h3>🔥 最紧急的 12 项修复（立即处理）</h3>
+    <ul>
+      <li><strong>轮换所有泄露密钥</strong> — server/.env 含真实 Pollinations API Key (sk_Cx9Zc...) 和智谱 API Key，JWT_SECRET 为弱可预测值</li>
+      <li><strong>Docker 端口全部关闭公网映射</strong> — PostgreSQL 5432、Redis 6379、后端 3000 直接暴露宿主机</li>
+      <li><strong>multer 升级到 2.x</strong> — multer 1.x 存在已知 CVE (CVE-2024-29149)，multipart 解析拒绝服务</li>
+      <li><strong>JWT verify 显式指定 algorithms</strong> — 未限制算法，存在 alg=none / HS→RS 降级攻击风险</li>
+      <li><strong>修复 AudioPage token key 不匹配</strong> — 3 处读 'token' 而非 'mank_tv_token'，音频上传无认证</li>
+      <li><strong>修复 PollinationsSyncPanel 未定义 token 变量</strong> — 管理后台 API 认证形同虚设</li>
+      <li><strong>前端 44 个 TS 编译错误</strong> — tsc -b 失败，含 JSX 重复属性、类型不匹配、未定义引用</li>
+      <li><strong>useUnifiedCanvasStore window 暴露</strong> — 生产构建也挂载 store 到 window.__ucs，泄露内部状态</li>
+      <li><strong>注册 UID 生成 TOCTOU 竞态</strong> — 两步操作非原子，与 ADR-004 不符</li>
+      <li><strong>配置 Express trust proxy</strong> — 限流中间件直接信任 X-Forwarded-For，IP 可伪造</li>
+      <li><strong>Docker/PM2 不以 root 运行</strong> — 容器逃逸直接获得 root 权限</li>
+      <li><strong>建立基础 CI/CD</strong> — 完全无 CI 配置，lint/test/arch-check 均不自动执行</li>
+    </ul>
+  </div>
+
+  <!-- Stats Grid -->
+  <div class="section">
+    <h2><span class="icon">📈</span>关键指标</h2>
+    <div class="stats-grid">
+      <div class="stat-item"><div class="num red">49</div><div class="label">后端 any 类型</div></div>
+      <div class="stat-item"><div class="num red">44</div><div class="label">前端 TS 编译错误</div></div>
+      <div class="stat-item"><div class="num red">257</div><div class="label">前端 lint warning 阈值</div></div>
+      <div class="stat-item"><div class="num red">163</div><div class="label">后端 lint warning 阈值</div></div>
+      <div class="stat-item"><div class="num red">~15%</div><div class="label">测试覆盖率</div></div>
+      <div class="stat-item"><div class="num red">0</div><div class="label">CI/CD 配置文件</div></div>
+      <div class="stat-item"><div class="num amber">8</div><div class="label">测试文件数</div></div>
+      <div class="stat-item"><div class="num amber">4</div><div class="label">ADR 文档</div></div>
+      <div class="stat-item"><div class="num red">6</div><div class="label">死代码文件</div></div>
+      <div class="stat-item"><div class="num red">119KB</div><div class="label">UnifiedNodes.tsx 单文件</div></div>
+    </div>
+  </div>
+
+  <!-- Backend Security -->
+  <div class="section">
+    <h2><span class="icon">🔒</span>后端安全审查 · 12 项</h2>
+    <p style="font-size:14px; color:#94a3b8; margin-bottom:16px;">
+      安全是本项目最大短板。真实 API Key 明文存储在 .env 中，JWT 实现有算法降级风险，限流可被 IP 伪造绕过。
+    </p>
+    <table class="issue-table">
+      <thead><tr><th>问题</th><th>位置</th><th>影响</th><th>级别</th></tr></thead>
+      <tbody>
+        <tr><td>真实 API Key 明文存储</td><td><code>server/.env L24,L36</code></td><td>Pollinations Key (sk_Cx9Zc...) 和智谱 Key 明文，泄露即丢失所有第三方密钥</td><td><span class="badge badge-p0">P0</span></td></tr>
+        <tr><td>JWT_SECRET 为弱可预测值</td><td><code>server/.env L13</code></td><td>可伪造任意用户 Token，包括管理员</td><td><span class="badge badge-p0">P0</span></td></tr>
+        <tr><td>JWT verify 未限制算法</td><td><code>jwt.ts:26</code></td><td>未传 algorithms 选项，存在 alg=none / HS→RS 降级攻击</td><td><span class="badge badge-p0">P0</span></td></tr>
+        <tr><td>multer 1.x 已知 CVE</td><td><code>package.json multer@1.4.5</code></td><td>CVE-2024-29149，multipart 解析拒绝服务</td><td><span class="badge badge-p0">P0</span></td></tr>
+        <tr><td>JWT Payload 自带 role 无反查</td><td><code>auth.ts:24</code></td><td>用户被封禁/降级后 7 天内 Token 仍有效且带原角色</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>IP 限流信任 X-Forwarded-For</td><td><code>rate-limit.ts:51</code></td><td>直接信任 XFF 第一值，Express trust proxy 未设置，IP 可伪造</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>图片代理 SSRF 白名单过宽</td><td><code>imageSigner.ts:73-76</code></td><td>所有 *.aliyuncs.com 子域放行，攻击者可注册自己的 OSS bucket</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>签名密钥硬编码 fallback</td><td><code>imageSigner.ts:16</code></td><td>未设置时 fallback 到 'img-sign-key-change-in-prod'，开发态可被伪造签名</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>CORS 子域通配放行</td><td><code>index.ts:78</code></td><td>endsWith('.gaike.xyz') 放行所有子域，被攻击者控制的子域可发起带 cookie 请求</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>文件上传白名单含可执行类型</td><td><code>upload.ts:80</code></td><td>允许 pdf/epub/txt，魔数校验仅覆盖图片，PDF 可触发浏览器漏洞</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>Helmet CSP 关闭</td><td><code>index.ts:113</code></td><td>根路径返回完整 HTML 但无 CSP 保护</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>微信 access_token 通过 query 传递</td><td><code>wechatLogin.ts:61</code></td><td>appSecret 在 URL query 中，被中间代理记录</td><td><span class="badge badge-p2">P2</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Frontend Security -->
+  <div class="section">
+    <h2><span class="icon">🖥️</span>前端安全审查 · 6 项</h2>
+    <table class="issue-table">
+      <thead><tr><th>问题</th><th>位置</th><th>影响</th><th>级别</th></tr></thead>
+      <tbody>
+        <tr><td>AudioPage token key 不匹配</td><td><code>AudioPage.tsx:353,379,510</code></td><td>读 'token' 而非 'mank_tv_token'，音频上传无认证</td><td><span class="badge badge-p0">P0</span></td></tr>
+        <tr><td>PollinationsSyncPanel 未定义 token</td><td><code>PollinationsSyncPanel.tsx:86,95,111</code></td><td>token 变量从未声明，管理后台 API 认证形同虚设</td><td><span class="badge badge-p0">P0</span></td></tr>
+        <tr><td>AuthGuard dev bypass 无角色校验</td><td><code>AuthGuard.tsx:39-64</code></td><td>DEV 模式设 localStorage 即可绕过登录，仅检查登录不检查角色</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>store 挂载到 window 无环境守卫</td><td><code>useUnifiedCanvasStore.ts:810-811</code></td><td>注释说"开发模式"但代码未检查 import.meta.env.DEV，生产也暴露</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>第三方翻译 API 无认证</td><td><code>UnifiedNodes.tsx:42-43</code></td><td>直接调用 mymemory.translated.net，用户输入直发第三方</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>Prompt 明文在 URL path</td><td><code>imageApi.ts:81</code></td><td>用户 prompt 编码在 URL 路径中，代理日志/CDN 可能记录</td><td><span class="badge badge-p3">P3</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Docker & Deployment -->
+  <div class="section">
+    <h2><span class="icon">🐳</span>Docker 与部署安全 · 14 项</h2>
+    <table class="issue-table">
+      <thead><tr><th>问题</th><th>位置</th><th>影响</th><th>级别</th></tr></thead>
+      <tbody>
+        <tr><td>PostgreSQL 端口公网暴露</td><td><code>docker-compose.yml:123</code></td><td>5432:5432 直接映射，未授权访问/爆破风险</td><td><span class="badge badge-p0">P0</span></td></tr>
+        <tr><td>Redis 端口公网暴露无密码</td><td><code>docker-compose.yml:152</code></td><td>6379:6379 无认证，可被未授权访问和数据篡改</td><td><span class="badge badge-p0">P0</span></td></tr>
+        <tr><td>后端端口公网暴露</td><td><code>docker-compose.yml:62</code></td><td>3000:3000 直接映射，应仅通过 Nginx 反代</td><td><span class="badge badge-p0">P0</span></td></tr>
+        <tr><td>Docker 默认弱密钥/弱密码</td><td><code>docker-compose.yml:38,119</code></td><td>JWT_SECRET 和 PG 密码均为弱占位值，用户未配置即使用</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>容器以 root 运行</td><td><code>server/Dockerfile, web/Dockerfile</code></td><td>未创建非 root 用户，容器逃逸直接获得 root</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>PM2 以 root 运行</td><td><code>server-deploy.sh:207</code></td><td>pm2 startup systemd -u root --hp /root</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>curl pipe bash 安装 Node</td><td><code>deploy.sh:35</code></td><td>供应链攻击风险，来源不可控</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>备份包含明文 .env</td><td><code>backup.sh:49-52</code></td><td>所有 API Key 随备份泄露，仅 chmod 600</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>无部署回滚机制</td><td><code>update.sh</code></td><td>git pull 无签名验证，失败无法快速回退</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>仅本地备份无异地</td><td><code>backup.sh</code></td><td>S3/OSS 同步被注释，服务器故障数据全丢</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>certbot 无注册邮箱</td><td><code>server-deploy.sh:293</code></td><td>--register-unsafely-without-email，证书过期无通知</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>Nginx HSTS/速率限制被注释</td><td><code>nginx/conf.d/manktv.conf</code></td><td>HSTS 和速率限制配置存在但被注释掉</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>Swagger 文档公开无认证</td><td><code>index.ts:325</code></td><td>/api/docs 公开，暴露所有 API 结构</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>SERVER_DEPLOY.md 含真实 IP 和密码</td><td><code>deploy/SERVER_DEPLOY.md</code></td><td>暴露服务器 IP 8.163.72.234 和演示账号密码</td><td><span class="badge badge-p2">P2</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Code Quality -->
+  <div class="section">
+    <h2><span class="icon">💻</span>代码质量 · 前后端对比</h2>
+
+    <h3>后端代码质量</h3>
+    <table class="issue-table">
+      <thead><tr><th>问题</th><th>详情</th><th>影响</th><th>级别</th></tr></thead>
+      <tbody>
+        <tr><td>any 类型泛滥</td><td>49 处 / 22 文件，重灾区：llmRoute.ts、models.route.ts</td><td>类型安全失效，运行时错误风险</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>lint warning 阈值过高</td><td>--max-warnings=163，等于放行 163 个警告</td><td>增量质量门禁形同虚设</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>Express 4 + @types/express 5 不一致</td><td>package.json express@4.21 / @types/express@5.0</td><td>类型推断与运行时不一致</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>swagger-jsdoc 6.x 严重过时</td><td>6.x vs 最新 8.x</td><td>API 文档生成可能有兼容性问题</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>vitest coverage 路径错误</td><td>vitest.config.ts include 指向不存在的 src/lib/</td><td>覆盖率统计实际为 0 也不报警</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>入口文件 9 项职责</td><td>index.ts 408 行，含 76 行内联 HTML</td><td>职责过多，难以维护</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>@types/compression 放错依赖</td><td>在 dependencies 而非 devDependencies</td><td>类型包进入生产，增加包体积</td><td><span class="badge badge-p3">P3</span></td></tr>
+        <tr><td>node-fetch 双轨使用</td><td>node-fetch 和全局 fetch 并存</td><td>依赖冗余，维护混乱</td><td><span class="badge badge-p3">P3</span></td></tr>
+      </tbody>
+    </table>
+
+    <h3>前端代码质量</h3>
+    <table class="issue-table">
+      <thead><tr><th>问题</th><th>详情</th><th>影响</th><th>级别</th></tr></thead>
+      <tbody>
+        <tr><td>TS strict 未启用</td><td>tsconfig.app.json 无 strict: true</td><td>隐式 any、空值不安全，类型防护形同虚设</td><td><span class="badge badge-p0">P0</span></td></tr>
+        <tr><td>44 个 TS 编译错误</td><td>tsc -b 失败：JSX 重复属性、类型不匹配、未定义引用</td><td>类型系统完全失效</td><td><span class="badge badge-p0">P0</span></td></tr>
+        <tr><td>UnifiedNodes.tsx 119KB / ~2200 行</td><td>所有节点类型+设置面板+渲染逻辑在单文件</td><td>严重违反单一职责，维护困难</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>UnifiedCanvas.tsx 66KB</td><td>画布渲染+事件处理+工具栏+菜单混合</td><td>同上</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>lucide-react 版本号可疑</td><td>^1.46.0 但官方历史版本为 0.x</td><td>来源可疑，可能供应链风险</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>lint warning 阈值 257</td><td>--max-warnings=257</td><td>前端技术债务极高</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>API 调用不一致</td><td>6 处直接 fetch 绕过统一封装</td><td>401/402 处理缺失，错误处理不一致</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>store 重复类型定义</td><td>GenStatus/ImageStatus 在多文件独立定义</td><td>类型不一致风险</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>oxlint 规则极度宽松</td><td>仅 2 条规则，无 no-explicit-any</td><td>代码质量无门禁</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>ErrorBoundary 未使用</td><td>main.tsx 未用 ErrorBoundary 包裹</td><td>渲染异常导致白屏</td><td><span class="badge badge-p3">P3</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Architecture -->
+  <div class="section">
+    <h2><span class="icon">🏗️</span>架构审查 · 分层清晰但校验失效</h2>
+    <div class="callout green">
+      ✅ 三层分层（mank-common → mank-infra → mank-core）设计清晰，依赖方向正确，无循环依赖。AI 供应商 providers 子目录模式可扩展性好。
+    </div>
+    <table class="issue-table">
+      <thead><tr><th>问题</th><th>详情</th><th>影响</th><th>级别</th></tr></thead>
+      <tbody>
+        <tr><td>arch-check 脚本路径全部过时</td><td>扫描 src/routes 和 src/lib，这些目录已不存在</td><td>架构适应度函数无法运行，FF-008~014 形同虚设</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>arch-check-db.ts 导入路径崩溃</td><td>import from '../src/lib/prisma' 不存在</td><td>脚本直接崩溃</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>ADR Evidence 路径全部过时</td><td>4 份 ADR 全部引用旧的 src/lib/、src/routes/ 路径</td><td>文档与代码脱节，误导新成员</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>ADR-004 与代码不一致</td><td>要求原子操作，实际两步 generateNextUid + user.create</td><td>TOCTOU 竞态风险</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>ADR-001 启动纠偏未实现</td><td>规定服务启动校验 superadmin 唯一性，实际无</td><td>核心不变量无自动保护</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>中间件反向依赖业务层</td><td>generation.ts 依赖 mank-core 计费逻辑</td><td>违反依赖倒置</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>Prisma 全部硬删除</td><td>所有表 Cascade，无软删除</td><td>误删不可恢复，审计困难</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>状态字段无枚举约束</td><td>User.role、Project.status 等用 String</td><td>数据库层可写入任意字符串</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>UserQuota.remainingTokens 冗余</td><td>计算字段持久化，increment/decrement 更新</td><td>数据不一致风险</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>PaymentOrder.tradeNo 无 unique</td><td>第三方交易号无唯一约束</td><td>重复回调可能导致重复处理</td><td><span class="badge badge-p2">P2</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Dead Code -->
+  <div class="section">
+    <h2><span class="icon">🗑️</span>死代码与无用文件 · 10 项</h2>
+    <p style="font-size:14px; color:#94a3b8; margin-bottom:12px;">以下文件定义后从未被引用，或大部分代码从未被调用：</p>
+    <div class="file-grid">
+      <div class="file-item high">web/src/store/useFeatureStore.ts — 整个文件从未被导入</div>
+      <div class="file-item high">web/src/components/admin/CommentsTab.tsx — 整个文件从未被导入</div>
+      <div class="file-item high">web/src/store/useLayoutStore.ts — 95% 死代码，400+ 行仅 initFromScript 被调用一次</div>
+      <div class="file-item high">web/src/store/useStudioStore.ts — 大部分死代码，generate() 等核心方法从未被调用</div>
+      <div class="file-item medium">server/src/mank-infra/index.ts — barrel 文件从未被使用</div>
+      <div class="file-item medium">server/src/mank-common/index.ts — 同上</div>
+      <div class="file-item medium">server/recharge-test-user.js — 根目录调试脚本</div>
+      <div class="file-item medium">server/test-writing-chain.js — 同上</div>
+      <div class="file-item medium">server/shadow.db — 360KB 调试产物 SQLite 文件</div>
+      <div class="file-item low">server/src/mank-infra/logging/logger.ts — setTraceId/clearTraceId/getTraceId 标注 deprecated 且无调用</div>
+    </div>
+  </div>
+
+  <!-- Test Coverage -->
+  <div class="section">
+    <h2><span class="icon">🧪</span>测试覆盖率 · 严重不足</h2>
+    <div class="callout red">
+      ⚠️ 后端覆盖率约 15%，前端无测试。路由层、中间件、任务队列、AI 生成链路、计费、内容审核均无测试覆盖。vitest.config.ts 的 coverage include 路径指向不存在的目录，覆盖率统计为 0 也不报警。
+    </div>
+    <table class="issue-table">
+      <thead><tr><th>模块</th><th>测试状态</th><th>风险</th><th>级别</th></tr></thead>
+      <tbody>
+        <tr><td>后端路由层 (17 个路由文件)</td><td>0 覆盖</td><td>API 行为无验证，回归风险极高</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>后端中间件 (7 个)</td><td>0 覆盖</td><td>认证/限流/上传/校验无验证</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>任务队列 (taskQueue 531 行)</td><td>0 覆盖</td><td>任务调度无验证，退款逻辑无保障</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>AI Provider (pollinations/kling/dashscope)</td><td>0 覆盖</td><td>第三方集成无验证</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>内容审核链路</td><td>0 覆盖</td><td>安全关键路径无验证</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>前端组件</td><td>0 测试文件</td><td>UI 回归完全靠人工</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>vitest coverage 路径错误</td><td>include 指向 src/lib/ (不存在)</td><td>覆盖率统计为 0 不报警</td><td><span class="badge badge-p2">P2</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- CI/CD -->
+  <div class="section">
+    <h2><span class="icon">⚙️</span>CI/CD · 完全缺失</h2>
+    <div class="callout red">
+      ⚠️ 项目没有任何 CI/CD 配置。检查了 .github/workflows/、.gitlab-ci.yml、Jenkinsfile、.circleci/ 均不存在。lint、test、arch-check、Docker 构建验证、依赖漏洞扫描全部依赖人工执行。
+    </div>
+    <table class="issue-table">
+      <thead><tr><th>缺失能力</th><th>当前状态</th><th>影响</th><th>级别</th></tr></thead>
+      <tbody>
+        <tr><td>自动 lint</td><td>oxlint 配置存在但不会自动执行</td><td>代码质量无门禁</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>自动测试</td><td>8 个测试文件不会自动运行</td><td>回归无法自动发现</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>架构检查</td><td>arch-check 脚本路径过时且无 CI</td><td>分层约束无自动验证</td><td><span class="badge badge-p1">P1</span></td></tr>
+        <tr><td>依赖漏洞扫描</td><td>无 npm audit 配置</td><td>已知 CVE 无法自动发现</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>构建验证</td><td>Docker 构建仅部署时验证</td><td>构建失败到部署时才发现</td><td><span class="badge badge-p2">P2</span></td></tr>
+        <tr><td>分支保护/合并门禁</td><td>无</td><td>无代码质量门禁</td><td><span class="badge badge-p2">P2</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Positives -->
+  <div class="section" style="border-color: #14532d; background: #0a1510;">
+    <h2 style="color: #86efac;"><span class="icon">✅</span>做得好的地方</h2>
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:16px; margin-top:12px;">
+      <div style="padding:16px; background:#0f1f15; border-radius:8px; border:1px solid #14532d;">
+        <h4 style="font-size:14px; color:#86efac; margin-bottom:8px;">🏛️ 三层分层架构</h4>
+        <p style="font-size:13px; color:#94a3b8;">mank-common / mank-infra / mank-core 依赖方向正确，无循环依赖，每层有 barrel export</p>
+      </div>
+      <div style="padding:16px; background:#0f1f15; border-radius:8px; border:1px solid #14532d;">
+        <h4 style="font-size:14px; color:#86efac; margin-bottom:8px;">📋 ADR 体系完善</h4>
+        <p style="font-size:13px; color:#94a3b8;">4 份 ADR 格式完整，配套领域上下文地图、19 个适应度函数、27 项风险登记</p>
+      </div>
+      <div style="padding:16px; background:#0f1f15; border-radius:8px; border:1px solid #14532d;">
+        <h4 style="font-size:14px; color:#86efac; margin-bottom:8px;">🛡️ 安全措施覆盖面</h4>
+        <p style="font-size:13px; color:#94a3b8;">CORS 白名单、Helmet、JWT+RBAC、限流、内容审核、文件上传魔数校验、图片签名防 SSRF</p>
+      </div>
+      <div style="padding:16px; background:#0f1f15; border-radius:8px; border:1px solid #14532d;">
+        <h4 style="font-size:14px; color:#86efac; margin-bottom:8px;">💾 数据模型设计</h4>
+        <p style="font-size:13px; color:#94a3b8;">外键显式 Cascade、索引覆盖关键查询、append-only 双表审核日志、流水表保留 balanceBefore/After</p>
+      </div>
+      <div style="padding:16px; background:#0f1f15; border-radius:8px; border:1px solid #14532d;">
+        <h4 style="font-size:14px; color:#86efac; margin-bottom:8px;">🐳 Docker 多阶段构建</h4>
+        <p style="font-size:13px; color:#94a3b8;">builder + runtime 分离，tini init 进程，healthcheck 全覆盖，资源限制配置</p>
+      </div>
+      <div style="padding:16px; background:#0f1f15; border-radius:8px; border:1px solid #14532d;">
+        <h4 style="font-size:14px; color:#86efac; margin-bottom:8px;">📝 文档体系</h4>
+        <p style="font-size:13px; color:#94a3b8;">docs/README.md 统一索引，真相来源映射表，文档生命周期规则，缺失文档清单</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Roadmap -->
+  <div class="section">
+    <h2><span class="icon">🗺️</span>修复路线图</h2>
+
+    <h3 style="color:#fca5a5;">P0 · 本周内必须修复（6 项）</h3>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p0">P0</span></div>
+      <div class="roadmap-content">
+        <h4>轮换所有密钥 + JWT 算法限制</h4>
+        <p>生成新 JWT_SECRET（32+ 字节随机），轮换 Pollinations/智谱 API Key。jwt.verify 显式传 algorithms: ['HS256']。Docker 和 .env.example 移除弱默认值，未配置拒绝启动。</p>
+        <div class="file">server/.env · jwt.ts:26 · docker-compose.yml:38</div>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p0">P0</span></div>
+      <div class="roadmap-content">
+        <h4>Docker 关闭所有公网端口映射</h4>
+        <p>移除 PostgreSQL 5432、Redis 6379、后端 3000 的 ports 映射，仅通过内部网络通信。后端经 Nginx 反代。Redis 添加 --requirepass。</p>
+        <div class="file">docker-compose.yml:62,123,152</div>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p0">P0</span></div>
+      <div class="roadmap-content">
+        <h4>multer 升级到 2.x</h4>
+        <p>修复 CVE-2024-29149，multipart 解析拒绝服务漏洞。</p>
+        <div class="file">server/package.json</div>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p0">P0</span></div>
+      <div class="roadmap-content">
+        <h4>修复前端认证 Bug</h4>
+        <p>AudioPage.tsx 3 处 'token' → getToken()。PollinationsSyncPanel.tsx 导入 getToken。useUnifiedCanvasStore.ts window 暴露加 import.meta.env.DEV 守卫。</p>
+        <div class="file">AudioPage.tsx:353,379,510 · PollinationsSyncPanel.tsx:86 · useUnifiedCanvasStore.ts:811</div>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p0">P0</span></div>
+      <div class="roadmap-content">
+        <h4>修复 44 个 TS 编译错误</h4>
+        <p>JSX 重复属性（UnifiedNodes.tsx:393）、类型不匹配（App.tsx:61 LoginTrigger mode）、未定义引用（PollinationsSyncPanel token）。</p>
+        <div class="file">web/src — tsc -b 报告</div>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p0">P0</span></div>
+      <div class="roadmap-content">
+        <h4>修复注册 UID 竞态</h4>
+        <p>按 ADR-004 实现原子 createUserWithUid()，使用数据库事务或唯一约束+重试。</p>
+        <div class="file">server/src/mank-core/auth/auth.service.ts:37</div>
+      </div>
+    </div>
+
+    <h3 style="color:#fdba74; margin-top:24px;">P1 · 两周内修复（16 项）</h3>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p1">P1</span></div>
+      <div class="roadmap-content">
+        <h4>建立基础 CI/CD pipeline</h4>
+        <p>GitHub Actions：lint + test + tsc + arch-check + Docker 构建验证。分支保护，合并门禁。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p1">P1</span></div>
+      <div class="roadmap-content">
+        <h4>修复 arch-check 脚本路径</h4>
+        <p>更新扫描路径为 mank-core/mank-infra/mank-common。修复 arch-check-db.ts 导入路径。确保适应度函数可运行。</p>
+        <div class="file">server/scripts/arch-check-code.ts:56 · arch-check-db.ts:21</div>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p1">P1</span></div>
+      <div class="roadmap-content">
+        <h4>配置 Express trust proxy + 限流修复</h4>
+        <p>app.set('trust proxy', true)，限流 IP 提取仅当 trust proxy 开启时信任 XFF。</p>
+        <div class="file">server/src/index.ts · rate-limit.ts:51</div>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p1">P1</span></div>
+      <div class="roadmap-content">
+        <h4>JWT 增加撤销机制</h4>
+        <p>引入 Redis 黑名单或 JWT 版本号，登出/改密码/封禁时立即使旧 Token 失效。</p>
+        <div class="file">server/src/mank-common/utils/jwt.ts</div>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p1">P1</span></div>
+      <div class="roadmap-content">
+        <h4>Docker/PM2 非 root 运行</h4>
+        <p>Dockerfile 创建非 root 用户。ecosystem.config.js 指定运行用户。server-deploy.sh 移除 root 强制要求。</p>
+        <div class="file">server/Dockerfile · web/Dockerfile · ecosystem.config.js</div>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p1">P1</span></div>
+      <div class="roadmap-content">
+        <h4>前端启用 TS strict + 拆分超大文件</h4>
+        <p>tsconfig.app.json 添加 strict: true。拆分 UnifiedNodes.tsx (119KB) 和 UnifiedCanvas.tsx (66KB) 为独立组件文件。</p>
+        <div class="file">web/tsconfig.app.json · UnifiedNodes.tsx · UnifiedCanvas.tsx</div>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p1">P1</span></div>
+      <div class="roadmap-content">
+        <h4>验证 lucide-react 版本来源</h4>
+        <p>确认 ^1.46.0 是否为官方版本，来源可疑则降级到 0.x 最新稳定版。</p>
+        <div class="file">web/package.json</div>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p1">P1</span></div>
+      <div class="roadmap-content">
+        <h4>补充核心模块测试</h4>
+        <p>优先覆盖：路由层、中间件、任务队列、AI Provider、内容审核。修复 vitest.config.ts coverage 路径。目标 50%+。</p>
+        <div class="file">server/tests/ · vitest.config.ts:14-17</div>
+      </div>
+    </div>
+
+    <h3 style="color:#fcd34d; margin-top:24px;">P2 · 一月内修复（30 项，节选）</h3>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p2">P2</span></div>
+      <div class="roadmap-content">
+        <h4>更新所有 ADR Evidence 路径</h4>
+        <p>将 src/lib/、src/routes/ 更新为 src/mank-core/、src/mank-infra/。同步更新 bounded-context-map.md 和 fitness-functions.md。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p2">P2</span></div>
+      <div class="roadmap-content">
+        <h4>Prisma schema 改用 enum</h4>
+        <p>User.role、Project.status、Work.type、PaymentOrder.status 等改为 Prisma enum 类型。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p2">P2</span></div>
+      <div class="roadmap-content">
+        <h4>统一前端 API 调用</h4>
+        <p>AudioPage、PollinationsSyncPanel、ModerationPanel、SettingsBanner、HomePage、useSiteConfig 全部改用 services/api.ts。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p2">P2</span></div>
+      <div class="roadmap-content">
+        <h4>重要数据增加软删除</h4>
+        <p>用户、作品、项目等核心表增加 deletedAt 字段。PaymentOrder.tradeNo 加 @unique。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p2">P2</span></div>
+      <div class="roadmap-content">
+        <h4>Nginx 启用 HSTS 和速率限制</h4>
+        <p>取消注释 nginx/conf.d/manktv.conf 中的 HSTS 和速率限制配置。</p>
+      </div>
+    </div>
+
+    <h3 style="color:#86efac; margin-top:24px;">P3 · 长期优化（21 项，节选）</h3>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p3">P3</span></div>
+      <div class="roadmap-content">
+        <h4>清理死代码</h4>
+        <p>删除 useFeatureStore.ts、CommentsTab.tsx、评估 useLayoutStore.ts 和 useStudioStore.ts 是否可整体删除。清理 logger deprecated 函数、shadow.db、调试脚本。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p3">P3</span></div>
+      <div class="roadmap-content">
+        <h4>收敛 any 类型</h4>
+        <p>后端 49 处 any → unknown 或具体类型。前端 10 处 any 同步清理。逐步降低 lint warning 阈值（163→0, 257→0）。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p3">P3</span></div>
+      <div class="roadmap-content">
+        <h4>拆分入口文件</h4>
+        <p>index.ts 拆分为 health.ts、root-html.ts、scheduler.ts 等模块。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p3">P3</span></div>
+      <div class="roadmap-content">
+        <h4>localStorage 统一管理</h4>
+        <p>创建 constants 文件统一管理所有 key，命名空间统一为 mank_tv_*。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div style="text-align:center; padding: 24px; color: #475569; font-size: 12px;">
+    本报告基于 Staff Engineer Mode · dependency-and-code-hygiene 专业审查框架生成<br/>
+    审查日期 2026-09-18 · 3 个并行代理实际读取 100+ 份源文件 · 共 73 个问题（6 P0 + 16 P1 + 30 P2 + 21 P3）
+  </div>
+
+</div>
+</body>
+</html>

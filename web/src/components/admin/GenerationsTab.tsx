@@ -140,7 +140,6 @@ export function GenerationLogsTable({ onError }: { onError: (e: string) => void 
                       <div className="text-sm font-medium text-neutral-800">
                         {l.user?.nickname || '—'}
                       </div>
-                      <div className="text-xs text-neutral-400">{l.user?.email}</div>
                     </td>
                     <td className="px-4 py-3 text-neutral-700">
                       {WORK_TYPE_LABELS[l.type] ?? l.type}

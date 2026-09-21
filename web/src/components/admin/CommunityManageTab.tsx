@@ -326,7 +326,6 @@ export function CommunityManageTab({ role, onError }: { role?: Role; onError: (e
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-center gap-2 text-xs">
                                 <span className="font-medium text-neutral-800">{c.user?.nickname ?? '匿名'}</span>
-                                <span className="text-neutral-400">{c.user?.email ?? ''}</span>
                                 <span className="ml-auto text-neutral-400">{formatDateTime(c.createdAt)}</span>
                               </div>
                               <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-neutral-700">{c.content}</p>

@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI漫剧圈 · 全方位多维度审查报告</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #0a0a0f;
+    color: #e5e5e5;
+    line-height: 1.6;
+    padding: 40px 20px;
+  }
+  .container { max-width: 1100px; margin: 0 auto; }
+
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    border-radius: 16px;
+    padding: 48px 40px;
+    margin-bottom: 32px;
+    border: 1px solid #2a2a4a;
+    position: relative;
+    overflow: hidden;
+  }
+  .header::before {
+    content: '';
+    position: absolute;
+    top: -50%; right: -20%;
+    width: 500px; height: 500px;
+    background: radial-gradient(circle, rgba(99,102,241,0.15) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+  .header h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; position: relative; }
+  .header .subtitle { color: #94a3b8; font-size: 14px; position: relative; }
+  .header .meta { display: flex; gap: 24px; margin-top: 20px; position: relative; flex-wrap: wrap; }
+  .header .meta-item { font-size: 13px; color: #94a3b8; }
+  .header .meta-item strong { color: #e5e5e5; font-weight: 600; }
+
+  /* Score Cards */
+  .score-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+  .score-card {
+    background: #13131a;
+    border: 1px solid #1f1f2e;
+    border-radius: 12px;
+    padding: 24px;
+    text-align: center;
+  }
+  .score-card .label { font-size: 13px; color: #94a3b8; margin-bottom: 8px; }
+  .score-card .score {
+    font-size: 36px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .score-card .score.green { color: #10b981; }
+  .score-card .score.amber { color: #f59e0b; }
+  .score-card .score.red { color: #ef4444; }
+  .score-card .desc { font-size: 12px; color: #64748b; }
+
+  /* Section */
+  .section {
+    background: #13131a;
+    border: 1px solid #1f1f2e;
+    border-radius: 12px;
+    padding: 28px;
+    margin-bottom: 24px;
+  }
+  .section h2 {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section h2 .icon { font-size: 22px; }
+
+  /* Issue Table */
+  .issue-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  .issue-table th {
+    text-align: left;
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 500;
+    padding: 10px 12px;
+    border-bottom: 1px solid #1f1f2e;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .issue-table td {
+    padding: 12px;
+    border-bottom: 1px solid #1a1a24;
+    font-size: 13px;
+    vertical-align: top;
+  }
+  .issue-table tr:hover { background: #16161f; }
+  .issue-table td:last-child { width: 90px; text-align: right; }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge-p0 { background: #7f1d1d; color: #fca5a5; }
+  .badge-p1 { background: #7c2d12; color: #fdba74; }
+  .badge-p2 { background: #713f12; color: #fcd34d; }
+  .badge-p3 { background: #14532d; color: #86efac; }
+
+  /* Stats bar */
+  .severity-bar {
+    display: flex;
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 16px 0;
+  }
+  .sev-p0 { background: #ef4444; }
+  .sev-p1 { background: #f97316; }
+  .sev-p2 { background: #eab308; }
+  .sev-p3 { background: #22c55e; }
+
+  /* Code block */
+  code {
+    background: #1e1e2e;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    color: #a5b4fc;
+  }
+
+  /* Summary Box */
+  .summary-box {
+    background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+    border: 1px solid #4338ca;
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .summary-box h3 { font-size: 16px; margin-bottom: 12px; color: #c7d2fe; }
+  .summary-box ul { list-style: none; padding: 0; }
+  .summary-box li {
+    padding: 6px 0 6px 24px;
+    position: relative;
+    font-size: 14px;
+  }
+  .summary-box li::before {
+    content: '→';
+    position: absolute;
+    left: 0;
+    color: #818cf8;
+  }
+
+  /* Roadmap */
+  .roadmap-item {
+    display: flex;
+    gap: 16px;
+    padding: 16px 0;
+    border-bottom: 1px solid #1a1a24;
+  }
+  .roadmap-item:last-child { border-bottom: none; }
+  .roadmap-priority {
+    flex-shrink: 0;
+    width: 60px;
+    text-align: center;
+  }
+  .roadmap-content { flex: 1; }
+  .roadmap-content h4 { font-size: 14px; margin-bottom: 4px; }
+  .roadmap-content p { font-size: 13px; color: #94a3b8; }
+
+  /* File list */
+  .file-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .file-item {
+    font-size: 12px;
+    padding: 8px 12px;
+    background: #1a1a24;
+    border-radius: 6px;
+    font-family: "JetBrains Mono", monospace;
+    color: #94a3b8;
+  }
+  .file-item.high { border-left: 3px solid #ef4444; }
+  .file-item.medium { border-left: 3px solid #f59e0b; }
+  .file-item.low { border-left: 3px solid #22c55e; }
+
+  @media (max-width: 768px) {
+    .header { padding: 32px 20px; }
+    .header h1 { font-size: 24px; }
+    .section { padding: 20px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>🔍 全方位多维度审查报告</h1>
+    <p class="subtitle">AI漫剧圈 · 代码质量 / 安全 / 架构 / 可维护性 综合审查</p>
+    <div class="meta">
+      <div class="meta-item"><strong>审查日期</strong><br/>2026-09-17</div>
+      <div class="meta-item"><strong>审查范围</strong><br/>后端 + 前端 + 部署 + 文档</div>
+      <div class="meta-item"><strong>审查维度</strong><br/>7 大维度 · 86 项检查</div>
+      <div class="meta-item"><strong>问题总数</strong><br/>62 个</div>
+    </div>
+  </div>
+
+  <!-- Score Overview -->
+  <div class="score-grid">
+    <div class="score-card">
+      <div class="label">总体健康度</div>
+      <div class="score amber">6.2</div>
+      <div class="desc">/ 10 分</div>
+    </div>
+    <div class="score-card">
+      <div class="label">代码质量</div>
+      <div class="score amber">6.5</div>
+      <div class="desc">any 类型泛滥，TS 宽松</div>
+    </div>
+    <div class="score-card">
+      <div class="label">安全</div>
+      <div class="score red">4.8</div>
+      <div class="desc">弱密钥 + 端口暴露</div>
+    </div>
+    <div class="score-card">
+      <div class="label">架构</div>
+      <div class="score amber">7.0</div>
+      <div class="desc">分层清晰，少量违规</div>
+    </div>
+    <div class="score-card">
+      <div class="label">测试覆盖</div>
+      <div class="score red">3.5</div>
+      <div class="desc">约 15-25%，严重不足</div>
+    </div>
+    <div class="score-card">
+      <div class="label">可维护性</div>
+      <div class="score amber">6.8</div>
+      <div class="desc">文档较全，ADR 优秀</div>
+    </div>
+  </div>
+
+  <!-- Severity Overview -->
+  <div class="section">
+    <h2><span class="icon">📊</span>问题严重度分布</h2>
+    <div class="severity-bar">
+      <div class="sev-p0" style="width: 6%"></div>
+      <div class="sev-p1" style="width: 24%"></div>
+      <div class="sev-p2" style="width: 39%"></div>
+      <div class="sev-p3" style="width: 31%"></div>
+    </div>
+    <div style="display:flex; gap:24px; font-size:13px;">
+      <span><span class="badge badge-p0">P0 紧急</span> 4 个</span>
+      <span><span class="badge badge-p1">P1 高危</span> 15 个</span>
+      <span><span class="badge badge-p2">P2 中危</span> 24 个</span>
+      <span><span class="badge badge-p3">P3 低危</span> 19 个</span>
+    </div>
+  </div>
+
+  <!-- Top 10 Critical -->
+  <div class="summary-box">
+    <h3>🔥 最紧急的 10 项修复（立即处理）</h3>
+    <ul>
+      <li><strong>轮换所有密钥</strong> — JWT_SECRET 弱值可伪造任意用户 Token，API Key 可能已泄露</li>
+      <li><strong>关闭 Docker 端口映射</strong> — PostgreSQL、Redis、后端端口直接暴露公网，极易被入侵</li>
+      <li><strong>生产环境强制强密钥</strong> — Docker 默认 JWT_SECRET 和数据库密码为弱值，必须要求用户配置</li>
+      <li><strong>配置 Express trust proxy</strong> — 攻击者可伪造 X-Forwarded-For 绕过 IP 限流</li>
+      <li><strong>修复注册 UID 竞态</strong> — 当前实现与 ADR-004 不符，存在 TOCTOU 竞态漏洞</li>
+      <li><strong>启用前端 TS strict 模式</strong> — 当前无 strict，类型安全形同虚设</li>
+      <li><strong>修复 AudioPage token key 不一致</strong> — 生产环境鉴权可能失效</li>
+      <li><strong>JWT 增加撤销机制</strong> — 登出/改密码/封禁后原 Token 仍有效</li>
+      <li><strong>PM2/Docker 不以 root 运行</strong> — 容器逃逸风险</li>
+      <li><strong>Swagger 增加认证保护</strong> — API 文档公开暴露所有接口细节</li>
+    </ul>
+  </div>
+
+  <!-- Security -->
+  <div class="section">
+    <h2><span class="icon">🔒</span>安全审查 · 4 个 P0 + 13 个 P1</h2>
+    <p style="font-size:14px; color:#94a3b8; margin-bottom:16px;">
+      安全是本项目最大的短板。弱密钥 + 端口暴露 + 无 JWT 撤销，组合起来风险极高。
+    </p>
+    <table class="issue-table">
+      <thead>
+        <tr><th>问题</th><th>位置</th><th>影响</th><th>级别</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>JWT_SECRET 为弱可预测值</td>
+          <td><code>server/.env</code></td>
+          <td>可伪造任意用户 Token，包括管理员</td>
+          <td><span class="badge badge-p0">P0</span></td>
+        </tr>
+        <tr>
+          <td>Docker 数据库/缓存端口公网暴露</td>
+          <td><code>docker-compose.yml</code></td>
+          <td>PostgreSQL 5432、Redis 6379 直接映射，极易被扫描攻击</td>
+          <td><span class="badge badge-p0">P0</span></td>
+        </tr>
+        <tr>
+          <td>Docker 默认弱密码/弱密钥</td>
+          <td><code>docker-compose.yml</code></td>
+          <td>用户未配置即使用弱默认值，一键部署即漏洞</td>
+          <td><span class="badge badge-p0">P0</span></td>
+        </tr>
+        <tr>
+          <td>注册接口 UID 生成 TOCTOU 竞态</td>
+          <td><code>auth.service.ts</code></td>
+          <td>并发注册可能生成相同 UID，违反 ADR-004</td>
+          <td><span class="badge badge-p0">P0</span></td>
+        </tr>
+        <tr>
+          <td>API Key 明文存储在 .env</td>
+          <td><code>server/.env</code></td>
+          <td>文件泄露即丢失所有第三方服务密钥</td>
+          <td><span class="badge badge-p1">P1</span></td>
+        </tr>
+        <tr>
+          <td>Express 未配置 trust proxy</td>
+          <td><code>server/src/index.ts</code></td>
+          <td>可伪造 X-Forwarded-For 绕过 IP 限流</td>
+          <td><span class="badge badge-p1">P1</span></td>
+        </tr>
+        <tr>
+          <td>JWT 无撤销机制</td>
+          <td><code>server/src/lib/jwt.ts</code></td>
+          <td>登出/改密码/封禁后原 Token 仍可使用至过期</td>
+          <td><span class="badge badge-p1">P1</span></td>
+        </tr>
+        <tr>
+          <td>容器和 PM2 以 root 运行</td>
+          <td><code>Dockerfile</code> / <code>ecosystem.config.js</code></td>
+          <td>容器逃逸或 RCE 时直接获得 root 权限</td>
+          <td><span class="badge badge-p1">P1</span></td>
+        </tr>
+        <tr>
+          <td>Swagger 文档公开无认证</td>
+          <td><code>server/src/server/swagger.ts</code></td>
+          <td>暴露所有 API 细节，辅助攻击者寻找漏洞</td>
+          <td><span class="badge badge-p1">P1</span></td>
+        </tr>
+        <tr>
+          <td>前端 AuthGuard dev bypass</td>
+          <td><code>web/src/components/AuthGuard.tsx</code></td>
+          <td>生产构建中未禁用，可通过 localStorage 绕过登录</td>
+          <td><span class="badge badge-p1">P1</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Code Quality -->
+  <div class="section">
+    <h2><span class="icon">💻</span>代码质量审查 · 49 处 any + 测试覆盖率不足</h2>
+    <p style="font-size:14px; color:#94a3b8; margin-bottom:16px;">
+      前后端均存在 TypeScript 类型宽松问题，后端 49 处 any，前端 10 处 any。测试覆盖率严重不足（估计 15-25%）。
+    </p>
+
+    <h3 style="font-size:15px; margin: 20px 0 12px; color:#e5e5e5;">后端代码质量</h3>
+    <table class="issue-table">
+      <thead>
+        <tr><th>问题</th><th>数量</th><th>影响</th><th>级别</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>any 类型泛滥</td>
+          <td>49 处 / 22 文件</td>
+          <td>类型安全失效，运行时错误风险高</td>
+          <td><span class="badge badge-p1">P1</span></td>
+        </tr>
+        <tr>
+          <td>测试覆盖率严重不足</td>
+          <td>~15-25%</td>
+          <td>路由层、AI 生成链路、计费、中间件均无测试</td>
+          <td><span class="badge badge-p1">P1</span></td>
+        </tr>
+        <tr>
+          <td>@types/compression 放错依赖</td>
+          <td>1 个</td>
+          <td>类型包进入生产依赖，增加包体积</td>
+          <td><span class="badge badge-p3">P3</span></td>
+        </tr>
+        <tr>
+          <td>console.error 未统一为 logger</td>
+          <td>7 处</td>
+          <td>日志格式不统一，不利于排查</td>
+          <td><span class="badge badge-p2">P2</span></td>
+        </tr>
+        <tr>
+          <td>Barrel 文件形同虚设</td>
+          <td>2 个</td>
+          <td>所有导入都走深层路径，barrel 文件无意义</td>
+          <td><span class="badge badge-p2">P2</span></td>
+        </tr>
+        <tr>
+          <td>调试脚本散落在根目录</td>
+          <td>2 个</td>
+          <td>recharge-test-user.js、test-writing-chain.js 应移入 scripts/</td>
+          <td><span class="badge badge-p3">P3</span></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3 style="font-size:15px; margin: 20px 0 12px; color:#e5e5e5;">前端代码质量</h3>
+    <table class="issue-table">
+      <thead>
+        <tr><th>问题</th><th>详情</th><th>影响</th><th>级别</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>TS 未启用 strict 模式</td>
+          <td><code>tsconfig.app.json</code></td>
+          <td>隐式 any、空值不安全，类型防护大幅削弱</td>
+          <td><span class="badge badge-p1">P1</span></td>
+        </tr>
+        <tr>
+          <td>AudioPage token key 不一致</td>
+          <td>3 处直接用 <code>'token'</code> 而非 <code>'mank_tv_token'</code></td>
+          <td>生产环境鉴权可能失效</td>
+          <td><span class="badge badge-p1">P1</span></td>
+        </tr>
+        <tr>
+          <td>oxlint 规则严重不足</td>
+          <td>仅启用 2 条规则</td>
+          <td>缺少 no-explicit-any、eqeqeq、no-unused-vars 等</td>
+          <td><span class="badge badge-p2">P2</span></td>
+        </tr>
+        <tr>
+          <td>死代码文件</td>
+          <td>3 个：ErrorBoundary、useFeatureStore、CommentsTab</td>
+          <td>增加维护成本和心智负担</td>
+          <td><span class="badge badge-p2">P2</span></td>
+        </tr>
+        <tr>
+          <td>any 类型</td>
+          <td>10 处</td>
+          <td>类型安全漏洞</td>
+          <td><span class="badge badge-p2">P2</span></td>
+        </tr>
+        <tr>
+          <td>API 调用方式不统一</td>
+          <td>AudioPage 3 处直接用 fetch</td>
+          <td>绕过统一错误处理和拦截器</td>
+          <td><span class="badge badge-p2">P2</span></td>
+        </tr>
+        <tr>
+          <td>store 目录命名模式不统一</td>
+          <td>16 个文件 / 3 种性质</td>
+          <td>标准 store、组合 Hook、工具模块混杂</td>
+          <td><span class="badge badge-p3">P3</span></td>
+        </tr>
+        <tr>
+          <td>localStorage key 分散硬编码</td>
+          <td>至少 6 个 key</td>
+          <td>缺乏集中管理，易冲突或写错</td>
+          <td><span class="badge badge-p3">P3</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Architecture -->
+  <div class="section">
+    <h2><span class="icon">🏗️</span>架构审查 · 分层清晰，少量违规</h2>
+    <p style="font-size:14px; color:#94a3b8; margin-bottom:16px;">
+      整体架构分层合理（mank-common / mank-core / mank-infra），但存在几处依赖方向违规和 ADR 与代码不一致的问题。
+    </p>
+    <table class="issue-table">
+      <thead>
+        <tr><th>问题</th><th>详情</th><th>影响</th><th>级别</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>中间件反向依赖业务层</td>
+          <td><code>generation.ts</code> 依赖 mank-core 的计费逻辑</td>
+          <td>违反依赖倒置原则，infra 层不应依赖 core 层</td>
+          <td><span class="badge badge-p2">P2</span></td>
+        </tr>
+        <tr>
+          <td>ADR-004 与代码不一致</td>
+          <td>注册用两步操作而非原子的 createUserWithUid()</td>
+          <td>文档承诺与实现不符，存在竞态风险</td>
+          <td><span class="badge badge-p1">P1</span></td>
+        </tr>
+        <tr>
+          <td>ADR-001 与代码不一致</td>
+          <td>启动时不校验 superadmin 唯一性</td>
+          <td>核心不变量无自动保护</td>
+          <td><span class="badge badge-p2">P2</span></td>
+        </tr>
+        <tr>
+          <td>入口文件职责过多</td>
+          <td><code>src/index.ts</code> 约 410 行</td>
+          <td>路由注册 + 定时任务 + 内联 HTML 混在一起</td>
+          <td><span class="badge badge-p2">P2</span></td>
+        </tr>
+        <tr>
+          <td>ADR 文档路径引用过时</td>
+          <td>多处写 <code>lib/</code> 实际为 <code>mank-core/</code></td>
+          <td>文档误导新成员</td>
+          <td><span class="badge badge-p3">P3</span></td>
+        </tr>
+        <tr>
+          <td>Prisma 全部硬删除</td>
+          <td>重要业务数据无软删除</td>
+          <td>误删数据不可恢复，审计困难</td>
+          <td><span class="badge badge-p2">P2</span></td>
+        </tr>
+        <tr>
+          <td>状态字段无枚举约束</td>
+          <td>所有状态/类型字段用 String</td>
+          <td>数据库层面无约束，易写入非法值</td>
+          <td><span class="badge badge-p2">P2</span></td>
+        </tr>
+        <tr>
+          <td>UserQuota.remainingTokens 冗余</td>
+          <td>计算字段持久化存储</td>
+          <td>存在数据不一致风险</td>
+          <td><span class="badge badge-p2">P2</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Dependencies -->
+  <div class="section">
+    <h2><span class="icon">📦</span>依赖健康度</h2>
+    <p style="font-size:14px; color:#94a3b8; margin-bottom:16px;">
+      后端 33 个依赖（19 运行时 + 14 开发），前端依赖更多。整体依赖较新，但存在版本异常和配置错误。
+    </p>
+    <table class="issue-table">
+      <thead>
+        <tr><th>问题</th><th>位置</th><th>详情</th><th>级别</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>lucide-react 版本号异常</td>
+          <td><code>web/package.json</code></td>
+          <td>标注 ^1.46.0，官方版本号格式为 0.4xx.0，来源可疑</td>
+          <td><span class="badge badge-p1">P1</span></td>
+        </tr>
+        <tr>
+          <td>@types/compression 位置错误</td>
+          <td><code>server/package.json</code></td>
+          <td>类型包放在 dependencies 而非 devDependencies</td>
+          <td><span class="badge badge-p3">P3</span></td>
+        </tr>
+        <tr>
+          <td>多依赖使用最新主版本</td>
+          <td>后端</td>
+          <td>Prisma 6、Zod 4、Helmet 8、Vitest 5、ioredis 6，生产部署前建议锁定 patch</td>
+          <td><span class="badge badge-p2">P2</span></td>
+        </tr>
+        <tr>
+          <td>无依赖漏洞扫描</td>
+          <td>CI/CD</td>
+          <td>缺少 npm audit 或类似工具集成到 CI</td>
+          <td><span class="badge badge-p2">P2</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Deployment -->
+  <div class="section">
+    <h2><span class="icon">🚀</span>部署与运维</h2>
+    <table class="issue-table">
+      <thead>
+        <tr><th>问题</th><th>详情</th><th>影响</th><th>级别</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>curl pipe bash 安装 Node.js</td>
+          <td><code>deploy/deploy.sh</code></td>
+          <td>供应链攻击风险，来源不可控</td>
+          <td><span class="badge badge-p1">P1</span></td>
+        </tr>
+        <tr>
+          <td>无部署回滚机制</td>
+          <td>部署脚本</td>
+          <td>上线出问题无法快速回退</td>
+          <td><span class="badge badge-p1">P1</span></td>
+        </tr>
+        <tr>
+          <td>仅本地备份，无异地</td>
+          <td><code>deploy/backup.sh</code></td>
+          <td>服务器故障或被入侵时数据全丢</td>
+          <td><span class="badge badge-p1">P1</span></td>
+        </tr>
+        <tr>
+          <td>certbot 无注册邮箱</td>
+          <td>nginx 配置</td>
+          <td>证书过期无通知，可能导致服务中断</td>
+          <td><span class="badge badge-p2">P2</span></td>
+        </tr>
+        <tr>
+          <td>上传大小限制不一致</td>
+          <td>代码 50MB vs .env 10MB</td>
+          <td>配置混乱，行为不可预测</td>
+          <td><span class="badge badge-p2">P2</span></td>
+        </tr>
+        <tr>
+          <td>备份包含明文 .env</td>
+          <td><code>deploy/backup.sh</code></td>
+          <td>密钥随备份一同泄露风险</td>
+          <td><span class="badge badge-p1">P1</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Dead Code -->
+  <div class="section">
+    <h2><span class="icon">🗑️</span>死代码与无用文件</h2>
+    <p style="font-size:14px; color:#94a3b8; margin-bottom:12px;">以下文件定义后从未被引用，建议清理：</p>
+    <div class="file-grid">
+      <div class="file-item high">web/src/components/ErrorBoundary.tsx</div>
+      <div class="file-item high">web/src/store/useFeatureStore.ts</div>
+      <div class="file-item high">web/src/components/admin/CommentsTab.tsx</div>
+      <div class="file-item medium">server/src/mank-common/index.ts</div>
+      <div class="file-item medium">server/src/mank-infra/index.ts</div>
+      <div class="file-item medium">server/recharge-test-user.js</div>
+      <div class="file-item medium">server/test-writing-chain.js</div>
+      <div class="file-item low">server/scripts/snapshot_aimodel_*.json (2份)</div>
+    </div>
+  </div>
+
+  <!-- Positives -->
+  <div class="section" style="border-color: #14532d; background: #0a1510;">
+    <h2 style="color: #86efac;"><span class="icon">✅</span>做得好的地方</h2>
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:16px; margin-top:12px;">
+      <div style="padding:16px; background:#0f1f15; border-radius:8px; border:1px solid #14532d;">
+        <h4 style="font-size:14px; color:#86efac; margin-bottom:8px;">🏛️ ADR 体系完善</h4>
+        <p style="font-size:13px; color:#94a3b8;">4 份 ADR + 领域上下文地图 + 适应度函数 + 风险登记册 + 核心不变量，架构治理意识强</p>
+      </div>
+      <div style="padding:16px; background:#0f1f15; border-radius:8px; border:1px solid #14532d;">
+        <h4 style="font-size:14px; color:#86efac; margin-bottom:8px;">🛡️ 安全措施较全面</h4>
+        <p style="font-size:13px; color:#94a3b8;">CORS、Helmet、JWT+RBAC、限流、内容审核、文件上传魔数校验、图片签名防 SSRF</p>
+      </div>
+      <div style="padding:16px; background:#0f1f15; border-radius:8px; border:1px solid #14532d;">
+        <h4 style="font-size:14px; color:#86efac; margin-bottom:8px;">📚 文档体系完整</h4>
+        <p style="font-size:13px; color:#94a3b8;">部署文档、安全加固、迁移指南、法律协议均有，且有统一 docs/ 门户</p>
+      </div>
+      <div style="padding:16px; background:#0f1f15; border-radius:8px; border:1px solid #14532d;">
+        <h4 style="font-size:14px; color:#86efac; margin-bottom:8px;">🧪 有测试基础</h4>
+        <p style="font-size:13px; color:#94a3b8;">8 个测试文件覆盖认证、工具函数、错误处理等基础模块，有 Vitest 配置</p>
+      </div>
+      <div style="padding:16px; background:#0f1f15; border-radius:8px; border:1px solid #14532d;">
+        <h4 style="font-size:14px; color:#86efac; margin-bottom:8px;">🏗️ 分层架构清晰</h4>
+        <p style="font-size:13px; color:#94a3b8;">mank-common / mank-core / mank-infra 三层划分，职责明确</p>
+      </div>
+      <div style="padding:16px; background:#0f1f15; border-radius:8px; border:1px solid #14532d;">
+        <h4 style="font-size:14px; color:#86efac; margin-bottom:8px;">🔧 工程化工具齐全</h4>
+        <p style="font-size:13px; color:#94a3b8;">oxlint、Prisma、Docker、PM2、Vitest、架构检查脚本，工具链较完善</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Roadmap -->
+  <div class="section">
+    <h2><span class="icon">🗺️</span>修复路线图（按优先级）</h2>
+
+    <h3 style="font-size:15px; margin: 20px 0 12px; color:#fca5a5;">P0 · 本周内必须修复（4项）</h3>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p0">P0</span></div>
+      <div class="roadmap-content">
+        <h4>轮换所有密钥并强制强密钥策略</h4>
+        <p>生成新的强 JWT_SECRET（32+ 字节随机），更新所有 API Key。Docker 和 .env.example 中移除弱默认值，改为启动时强制校验，未配置则拒绝启动。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p0">P0</span></div>
+      <div class="roadmap-content">
+        <h4>关闭 Docker 公网端口映射</h4>
+        <p>从 docker-compose.yml 中移除 PostgreSQL、Redis 的 ports 映射，仅保留内部网络连通。后端端口如非必要也不映射，通过 Nginx 反向代理。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p0">P0</span></div>
+      <div class="roadmap-content">
+        <h4>修复注册接口 UID 竞态</h4>
+        <p>按 ADR-004 实现原子的 createUserWithUid()，使用数据库事务或唯一约束 + 重试，杜绝 TOCTOU 竞态。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p0">P0</span></div>
+      <div class="roadmap-content">
+        <h4>修复前端 AudioPage token key 不一致</h4>
+        <p>统一使用 'mank_tv_token'，并将所有 localStorage key 集中到常量文件管理。</p>
+      </div>
+    </div>
+
+    <h3 style="font-size:15px; margin: 24px 0 12px; color:#fdba74;">P1 · 两周内修复（15项）</h3>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p1">P1</span></div>
+      <div class="roadmap-content">
+        <h4>配置 Express trust proxy</h4>
+        <p>app.set('trust proxy', true)，确保 IP 限流和日志获取真实客户端 IP。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p1">P1</span></div>
+      <div class="roadmap-content">
+        <h4>JWT 增加撤销机制</h4>
+        <p>引入 Redis 黑名单或 JWT 版本号，登出/改密码/封禁时立即使旧 Token 失效。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p1">P1</span></div>
+      <div class="roadmap-content">
+        <h4>PM2 和 Docker 不以 root 运行</h4>
+        <p>Dockerfile 中创建非 root 用户，PM2 ecosystem 配置运行用户。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p1">P1</span></div>
+      <div class="roadmap-content">
+        <h4>Swagger 增加认证保护</h4>
+        <p>生产环境默认关闭 Swagger，或增加管理员认证才能访问。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p1">P1</span></div>
+      <div class="roadmap-content">
+        <h4>前端启用 TS strict 模式</h4>
+        <p>tsconfig.app.json 中添加 strict: true，逐步修复所有类型错误。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p1">P1</span></div>
+      <div class="roadmap-content">
+        <h4>验证 lucide-react 版本来源</h4>
+        <p>确认版本号 1.46.0 是否正确，如来源可疑则降级到官方最新稳定版。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p1">P1</span></div>
+      <div class="roadmap-content">
+        <h4>部署脚本替换 curl pipe bash</h4>
+        <p>改用官方包源或固定版本的二进制包，消除供应链风险。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p1">P1</span></div>
+      <div class="roadmap-content">
+        <h4>增加部署回滚机制</h4>
+        <p>保留上一版本代码和数据库迁移记录，支持一键回滚。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p1">P1</span></div>
+      <div class="roadmap-content">
+        <h4>备份加密并增加异地备份</h4>
+        <p>.env 等敏感文件不进入备份或加密存储，增加异地备份（如云存储）。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p1">P1</span></div>
+      <div class="roadmap-content">
+        <h4>前端 AuthGuard 生产禁用 bypass</h4>
+        <p>通过 import.meta.env.DEV 控制，仅开发环境可用。</p>
+      </div>
+    </div>
+
+    <h3 style="font-size:15px; margin: 24px 0 12px; color:#fcd34d;">P2 · 一月内修复（24项）</h3>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p2">P2</span></div>
+      <div class="roadmap-content">
+        <h4>消除后端 49 处 any 类型</h4>
+        <p>分批替换为具体类型或 unknown，提升类型安全。重点：llmRoute.ts、models.route.ts、adminContent.service.ts。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p2">P2</span></div>
+      <div class="roadmap-content">
+        <h4>补充核心模块测试</h4>
+        <p>优先覆盖：计费、认证中间件、内容审核、AI 生成任务队列、配额管理。目标覆盖率 50%+。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p2">P2</span></div>
+      <div class="roadmap-content">
+        <h4>修复中间件反向依赖</h4>
+        <p>将 generation 中间件的计费逻辑通过依赖注入或事件方式解耦，infra 层不直接依赖 core 层。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p2">P2</span></div>
+      <div class="roadmap-content">
+        <h4>superadmin 唯一性启动校验</h4>
+        <p>按 ADR-001 在服务启动时检查并纠偏，确保核心不变量。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p2">P2</span></div>
+      <div class="roadmap-content">
+        <h4>重要数据增加软删除</h4>
+        <p>用户、作品、项目等核心表增加 deletedAt 字段，误删可恢复。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p2">P2</span></div>
+      <div class="roadmap-content">
+        <h4>状态字段改用枚举</h4>
+        <p>Prisma schema 中状态/类型字段用 enum 类型，数据库层面保证约束。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p2">P2</span></div>
+      <div class="roadmap-content">
+        <h4>引入依赖漏洞扫描</h4>
+        <p>CI 中集成 npm audit 或 snyk，高危漏洞阻断合并。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p2">P2</span></div>
+      <div class="roadmap-content">
+        <h4>清理死代码</h4>
+        <p>移除未使用的 ErrorBoundary、useFeatureStore、CommentsTab、无用 barrel 文件等。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p2">P2</span></div>
+      <div class="roadmap-content">
+        <h4>统一前端 API 调用方式</h4>
+        <p>AudioPage 中直接 fetch 的地方改用统一封装的 api.ts。</p>
+      </div>
+    </div>
+
+    <h3 style="font-size:15px; margin: 24px 0 12px; color:#86efac;">P3 · 长期优化（19项）</h3>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p3">P3</span></div>
+      <div class="roadmap-content">
+        <h4>统一 store 命名和结构</h4>
+        <p>整理 16 个 store 文件，区分标准 store、组合 Hook、工具模块，统一命名模式。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p3">P3</span></div>
+      <div class="roadmap-content">
+        <h4>localStorage key 集中管理</h4>
+        <p>创建 constants 文件统一管理所有 localStorage key。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p3">P3</span></div>
+      <div class="roadmap-content">
+        <h4>调试脚本移入 scripts/ 目录</h4>
+        <p>recharge-test-user.js、test-writing-chain.js 移到 scripts/ 并加 .gitignore。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p3">P3</span></div>
+      <div class="roadmap-content">
+        <h4>更新 ADR 文档中的路径引用</h4>
+        <p>将 lib/ 改为 mank-core/ 等实际路径，保持文档与代码一致。</p>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="roadmap-priority"><span class="badge badge-p3">P3</span></div>
+      <div class="roadmap-content">
+        <h4>入口文件拆分</h4>
+        <p>src/index.ts 拆分为路由注册、定时任务、服务器启动等模块。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Files -->
+  <div class="section">
+    <h2><span class="icon">📁</span>相关审查文件索引</h2>
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:12px; margin-top:12px;">
+      <div style="padding:12px; background:#1a1a24; border-radius:8px;">
+        <div style="font-size:13px; font-weight:500; margin-bottom:4px;">后端代码质量审查</div>
+        <div style="font-size:12px; color:#64748b;">详细的依赖、代码异味、测试覆盖分析</div>
+      </div>
+      <div style="padding:12px; background:#1a1a24; border-radius:8px;">
+        <div style="font-size:13px; font-weight:500; margin-bottom:4px;">前端代码质量审查</div>
+        <div style="font-size:12px; color:#64748b;">TS 配置、组件质量、store 一致性分析</div>
+      </div>
+      <div style="padding:12px; background:#1a1a24; border-radius:8px;">
+        <div style="font-size:13px; font-weight:500; margin-bottom:4px;">安全与架构审查</div>
+        <div style="font-size:12px; color:#64748b;">38 个安全/架构/部署/配置问题</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div style="text-align:center; padding: 24px; color: #475569; font-size: 12px;">
+    本报告由 Staff Engineer Mode 生成 · 审查日期 2026-09-17 · 共 7 大维度 62 个问题
+  </div>
+
+</div>
+</body>
+</html>

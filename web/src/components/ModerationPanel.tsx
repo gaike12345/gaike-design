@@ -295,7 +295,7 @@ export default function ModerationPanel() {
                       {log.handled && <span className="chip bg-emerald-50 text-emerald-700">已处理</span>}
                     </div>
                     <div className="mt-1 text-ink-600">
-                      <span className="text-ink-400">用户：</span>{log.user?.nickname || log.user?.email || log.userId}
+                      <span className="text-ink-400">用户：</span>{log.user?.nickname || log.userId}
                       <span className="mx-1 text-ink-300">|</span>
                       <span className="text-ink-400">接口：</span>{log.endpoint}
                     </div>
@@ -335,7 +335,7 @@ export default function ModerationPanel() {
                     <span className="text-ink-400">违规 {u.violationCount} 次</span>
                     {!u.enabled && <span className="chip bg-red-50 text-red-700">已停用</span>}
                   </div>
-                  <div className="mt-0.5 text-ink-400">{u.email} · {u.riskUpdatedAt ? `更新于 ${new Date(u.riskUpdatedAt).toLocaleString('zh-CN')}` : '无记录'}</div>
+                  <div className="mt-0.5 text-ink-400">{u.riskUpdatedAt ? `更新于 ${new Date(u.riskUpdatedAt).toLocaleString('zh-CN')}` : '无记录'}</div>
                   {u.riskNote && <div className="mt-0.5 text-ink-500">备注：{u.riskNote}</div>}
                 </div>
                 <button onClick={() => openRiskModal(u)} className="shrink-0 rounded border border-ink-200 px-2 py-1 text-ink-600 hover:bg-ink-50">

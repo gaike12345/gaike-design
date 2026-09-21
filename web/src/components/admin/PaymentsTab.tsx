@@ -73,7 +73,6 @@ export function PaymentsTab({ onError }: { onError: (e: string) => void }) {
                       <UserAvatar user={{ nickname: o.user?.nickname ?? '—', avatar: o.user?.avatar ?? null }} size="h-6 w-6" />
                       <div className="min-w-0">
                         <div className="truncate text-neutral-800">{o.user?.nickname ?? '—'}</div>
-                        <div className="truncate text-xs text-neutral-400">{o.user?.email}</div>
                       </div>
                     </div>
                   </td>

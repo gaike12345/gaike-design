@@ -3,7 +3,7 @@
 
 import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { User, Settings, LogOut, Copy, Check, Mail, Hash, Sparkles } from 'lucide-react'
+import { User, Settings, LogOut, Copy, Check, Hash, Sparkles } from 'lucide-react'
 import { useAuthStore } from '../../store/useAuthStore'
 import { useState } from 'react'
 
@@ -61,7 +61,7 @@ export default function ProfilePopover({ open, onClose }: ProfilePopoverProps) {
   ]
 
   // 取昵称首字作为头像文字
-  const avatarText = user.nickname?.[0] || user.email?.[0]?.toUpperCase() || 'U'
+  const avatarText = user.nickname?.[0] || 'U'
 
   return (
     <div
@@ -106,11 +106,6 @@ export default function ProfilePopover({ open, onClose }: ProfilePopoverProps) {
                 <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
               )}
             </button>
-            {/* 邮箱 */}
-            <div className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500">
-              <Mail className="h-3 w-3" />
-              <span className="truncate">{user.email}</span>
-            </div>
           </div>
         </div>
       </div>

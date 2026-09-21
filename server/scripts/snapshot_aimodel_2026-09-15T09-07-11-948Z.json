@@ -1,0 +1,226 @@
+{
+  "snapshotAt": "2026-09-15T09:07:11.948Z",
+  "count": 22,
+  "rows": [
+    {
+      "id": "cmu2dbmpe02lbrego1tpiiuug",
+      "name": "tts-pro",
+      "displayName": "TTS Pro",
+      "type": "audio",
+      "costTokens": 25,
+      "margin": 1,
+      "status": "active",
+      "sort": 1
+    },
+    {
+      "id": "cmu2dbmpp02ldrego6hxh7ast",
+      "name": "voice-clone",
+      "displayName": "声音克隆",
+      "type": "audio",
+      "costTokens": 100,
+      "margin": 1,
+      "status": "active",
+      "sort": 2
+    },
+    {
+      "id": "cmu2dbmox02l7regolhfa3cgk",
+      "name": "comic-pro",
+      "displayName": "漫画 Pro",
+      "type": "comic",
+      "costTokens": 150,
+      "margin": 1,
+      "status": "active",
+      "sort": 1
+    },
+    {
+      "id": "cmu2dbmp702l9regosduigyc5",
+      "name": "guoman-comic",
+      "displayName": "国漫专用",
+      "type": "comic",
+      "costTokens": 240,
+      "margin": 1,
+      "status": "active",
+      "sort": 2
+    },
+    {
+      "id": "cmu2dbmmf02kpregoonnyif30",
+      "name": "community/CloudCompile/sdxl-lightning",
+      "displayName": "SDXL Lightning",
+      "type": "image",
+      "costTokens": 20,
+      "margin": 1,
+      "status": "active",
+      "sort": 1
+    },
+    {
+      "id": "cmu2dbmmp02krregolymxok4u",
+      "name": "tongyi-mai/z-image-turbo",
+      "displayName": "Z-Image Turbo",
+      "type": "image",
+      "costTokens": 30,
+      "margin": 1,
+      "status": "active",
+      "sort": 2
+    },
+    {
+      "id": "cmu2dbmmz02ktrego1zrdqwib",
+      "name": "black-forest-labs/flux.1-schnell",
+      "displayName": "FLUX.1 Schnell",
+      "type": "image",
+      "costTokens": 40,
+      "margin": 1,
+      "status": "active",
+      "sort": 3
+    },
+    {
+      "id": "cmu2dbmn902kvregoid5t591z",
+      "name": "black-forest-labs/flux.2-flex",
+      "displayName": "FLUX.2 Flex",
+      "type": "image",
+      "costTokens": 60,
+      "margin": 1,
+      "status": "active",
+      "sort": 4
+    },
+    {
+      "id": "cmu2dbmnj02kxregotolxf9uj",
+      "name": "ideogram-ai/ideogram-v4-quality",
+      "displayName": "Ideogram 4.0",
+      "type": "image",
+      "costTokens": 80,
+      "margin": 1,
+      "status": "active",
+      "sort": 5
+    },
+    {
+      "id": "cmu2dbmnt02kzregon8fq1px7",
+      "name": "bytedance/seedream-5.0-pro",
+      "displayName": "Seedream 5.0 Pro",
+      "type": "image",
+      "costTokens": 100,
+      "margin": 1,
+      "status": "active",
+      "sort": 6
+    },
+    {
+      "id": "cmu2dbmo302l1rego7b1tfg5j",
+      "name": "glm-4",
+      "displayName": "GLM-4",
+      "type": "novel",
+      "costTokens": 20,
+      "margin": 1,
+      "status": "active",
+      "sort": 1
+    },
+    {
+      "id": "cmu2dbmod02l3regol9ze0k7e",
+      "name": "qwen-max",
+      "displayName": "通义千问 Max",
+      "type": "novel",
+      "costTokens": 30,
+      "margin": 1,
+      "status": "active",
+      "sort": 2
+    },
+    {
+      "id": "cmu2dbmon02l5regoatiaex4j",
+      "name": "gpt-4o",
+      "displayName": "GPT-4o",
+      "type": "novel",
+      "costTokens": 50,
+      "margin": 1,
+      "status": "active",
+      "sort": 3
+    },
+    {
+      "id": "cmu2dbmpz02lfregoa4wmomfx",
+      "name": "wan-fast",
+      "displayName": "Wan 快速版",
+      "type": "video",
+      "costTokens": 75,
+      "margin": 1,
+      "status": "active",
+      "sort": 1
+    },
+    {
+      "id": "cmu2dbmq902lhrego2stxsq3s",
+      "name": "p-video",
+      "displayName": "Pruna Video",
+      "type": "video",
+      "costTokens": 150,
+      "margin": 1,
+      "status": "active",
+      "sort": 2
+    },
+    {
+      "id": "cmu2dbmqj02ljregonjz0stz3",
+      "name": "seedance-pro",
+      "displayName": "Seedance Pro",
+      "type": "video",
+      "costTokens": 180,
+      "margin": 1,
+      "status": "active",
+      "sort": 3
+    },
+    {
+      "id": "cmu2dbmqt02llrego67qc2p4w",
+      "name": "minimax-h3",
+      "displayName": "MiniMax H3",
+      "type": "video",
+      "costTokens": 360,
+      "margin": 1,
+      "status": "active",
+      "sort": 4
+    },
+    {
+      "id": "cmu2dbmr302lnregowruckkkb",
+      "name": "veo",
+      "displayName": "Veo 3.1 Fast",
+      "type": "video",
+      "costTokens": 460,
+      "margin": 1,
+      "status": "active",
+      "sort": 5
+    },
+    {
+      "id": "cmu2dbmrd02lpregomu3ld1t3",
+      "name": "wan-pro",
+      "displayName": "Wan Pro",
+      "type": "video",
+      "costTokens": 720,
+      "margin": 1,
+      "status": "active",
+      "sort": 6
+    },
+    {
+      "id": "cmu2dbmrn02lrrego3ss8zrxo",
+      "name": "kling-v3-turbo",
+      "displayName": "可灵 Turbo",
+      "type": "video",
+      "costTokens": 80,
+      "margin": 1,
+      "status": "active",
+      "sort": 11
+    },
+    {
+      "id": "cmu2dbmrx02ltrego5ruvodu3",
+      "name": "kling-v3",
+      "displayName": "可灵 V3",
+      "type": "video",
+      "costTokens": 120,
+      "margin": 1,
+      "status": "active",
+      "sort": 12
+    },
+    {
+      "id": "cmu2dbms702lvrego9qlb7hyd",
+      "name": "kling-v3-omni",
+      "displayName": "可灵 Omni",
+      "type": "video",
+      "costTokens": 200,
+      "margin": 1,
+      "status": "active",
+      "sort": 13
+    }
+  ]
+}

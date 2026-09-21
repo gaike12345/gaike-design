@@ -74,12 +74,11 @@ export function UsersTab({ currentUserId, role, onError }: { currentUserId: stri
   const [deleteUserPrompt, setDeleteUserPrompt] = useState<AdminUser | null>(null)
 
   // 可拖拽调整列宽
-  const COL_KEYS = ['uid', 'nickname', 'email', 'role', 'status', 'works', 'comments', 'createdAt', 'actions'] as const
+  const COL_KEYS = ['uid', 'nickname', 'role', 'status', 'works', 'comments', 'createdAt', 'actions'] as const
   type ColKey = typeof COL_KEYS[number]
   const DEFAULT_WIDTHS: Record<ColKey, number> = {
     uid: 80,
     nickname: 140,
-    email: 200,
     role: 90,
     status: 90,
     works: 70,
@@ -144,7 +143,7 @@ export function UsersTab({ currentUserId, role, onError }: { currentUserId: stri
   }
 
   // 保存编辑的下级用户信息
-  const handleSaveEdit = async (data: { nickname: string; email: string; bio: string }) => {
+  const handleSaveEdit = async (data: { nickname: string; bio: string }) => {
     if (!editingUser) return
     setUpdatingId(editingUser.id)
     try {
@@ -313,10 +312,6 @@ export function UsersTab({ currentUserId, role, onError }: { currentUserId: stri
                     昵称
                     <ResizableHandle onMouseDown={(e) => handleMouseDown(e, 'nickname')} />
                   </th>
-                  <th className="relative px-4 py-3 whitespace-nowrap" style={{ width: colWidths.email }}>
-                    邮箱
-                    <ResizableHandle onMouseDown={(e) => handleMouseDown(e, 'email')} />
-                  </th>
                   <th className="relative px-4 py-3 whitespace-nowrap" style={{ width: colWidths.role }}>
                     角色
                     <ResizableHandle onMouseDown={(e) => handleMouseDown(e, 'role')} />
@@ -379,9 +374,6 @@ export function UsersTab({ currentUserId, role, onError }: { currentUserId: stri
                             {u.bio && <div className="truncate text-xs text-neutral-400">{u.bio}</div>}
                           </div>
                         </div>
-                      </td>
-                      <td className="px-4 py-3 text-neutral-600">
-                        <div className="min-w-[180px] truncate" title={u.email}>{u.email}</div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-2">
@@ -571,10 +563,6 @@ export function UsersTab({ currentUserId, role, onError }: { currentUserId: stri
                   {ROLE_LABELS[deleteUserPrompt.role] ?? deleteUserPrompt.role}
                 </span>
               </div>
-              <div className="truncate">
-                <span className="font-semibold">邮箱：</span>
-                <span className="font-mono">{deleteUserPrompt.email}</span>
-              </div>
               <div className="mt-3 border-t border-rose-200/70 pt-2 text-xs leading-relaxed text-rose-800">
                 <div className="mb-1 font-semibold">将同时清除以下关联数据：</div>
                 <ul className="list-disc pl-5 space-y-0.5">
@@ -639,11 +627,10 @@ export function EditUserDialog({
 }: {
   user: AdminUser
   saving: boolean
-  onSave: (data: { nickname: string; email: string; bio: string }) => void
+  onSave: (data: { nickname: string; bio: string }) => void
   onClose: () => void
 }) {
   const [nickname, setNickname] = useState(user.nickname || '')
-  const [email, setEmail] = useState(user.email || '')
   const [bio, setBio] = useState(user.bio || '')
 
   return (
@@ -670,16 +657,6 @@ export function EditUserDialog({
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-neutral-700">邮箱</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="input"
-              placeholder="用户邮箱"
-            />
-          </div>
-          <div>
             <label className="mb-1 block text-sm font-medium text-neutral-700">简介</label>
             <textarea
               value={bio}
@@ -695,7 +672,7 @@ export function EditUserDialog({
             取消
           </button>
           <button
-            onClick={() => onSave({ nickname, email, bio })}
+            onClick={() => onSave({ nickname, bio })}
             disabled={saving}
             className="btn-primary !px-4 !py-2 text-sm disabled:opacity-50"
           >
@@ -1049,7 +1026,6 @@ export function UserDetailDrawer({
                     )}
                   </span>
                 </div>
-                <div className="mt-1 text-sm text-neutral-500">{detail.user.email}</div>
                 <div className="mt-0.5 text-xs text-neutral-400">
                   注册于 {formatDateTime(detail.user.createdAt)} · 更新于 {formatDateTime(detail.user.updatedAt)}
                 </div>
