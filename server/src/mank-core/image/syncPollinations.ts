@@ -50,6 +50,29 @@ interface PollinationsImageModel {
   alpha?: boolean                                // 是否 alpha 阶段
   title?: string                                 // 显示名
   description?: string                           // 描述
+  // pricing_variants: 按分辨率/画质分层的差异费率
+  // 数组形态（多个 variant）或单对象形态（一个 variant）
+  pricing_variants?: Array<{
+    name: string                                 // variant 标识，如 "2k" / "2048" / "low_1k" / "medium_2k" / "edit"
+    label: string
+    description: string
+    pricing: {
+      currency: string
+      completionImageTokens?: string             // 该 variant 的 pollen/张
+      promptImageTokens?: string
+      promptTextTokens?: string
+    }
+  }> | {
+    name: string
+    label: string
+    description: string
+    pricing: {
+      currency: string
+      completionImageTokens?: string
+      promptImageTokens?: string
+      promptTextTokens?: string
+    }
+  }
 }
 
 /**
@@ -245,28 +268,149 @@ const WIDTH_MULTIPLE_16_MODELS = new Set([
 ])
 
 /**
+ * 解析 pricing_variants → 每个 resolution 的倍率（相对 baseRate）
+ *
+ * 公式：multiplier = variantRate / baseRate
+ *   - baseRate = pricing.completionImageTokens（对应 pricing_default_label 的费率）
+ *   - 仅匹配分辨率 variant（如 "2k" / "2048" / "low_1k" / "medium_2k"）
+ *   - 跳过非分辨率 variant（如 "edit" — 表示图像编辑模式，不是分辨率档）
+ *
+ * 解析 default_label 提取 quality：
+ *   - "Medium · 1K" → quality="medium", resId="1k"
+ *   - "1K" → quality="" (无 quality 区分), resId="1k"
+ *   - "Image generation" → quality="", resId="" (无分辨率)
+ *
+ * 对每个 variant：
+ *   - 提取 variant name 中的 resolution 部分（"low_2k" → "2k"；"2048" → "2k"）
+ *   - 提取 variant name 中的 quality（"low_2k" → "low"）
+ *   - 仅当 variant quality 与 default quality 匹配时，使用该 variant 计算 multiplier
+ *     （确保 multiplier 只反映分辨率差异，不叠加 quality 差异）
+ *
+ * 返回 Record<resolutionId, multiplier>，默认分辨率不在此 map 中（由 buildConfig 默认设为 1.0）
+ */
+function buildImageResolutionMultipliers(model: PollinationsImageModel): Record<string, number> {
+  const result: Record<string, number> = {}
+  if (!model.pricing_variants) return result
+
+  const variants = Array.isArray(model.pricing_variants) ? model.pricing_variants : [model.pricing_variants]
+  const baseRate = parseFloat(model.pricing?.completionImageTokens || '0')
+  if (!baseRate || baseRate <= 0) return result
+
+  // 解析 default_label 提取 quality 和默认分辨率
+  // 形如 "Medium · 1K" / "1K" / "1024 tier" / "Image generation"
+  const defaultLabel = model.pricing_default_label || ''
+  const defaultQualityMatch = defaultLabel.match(/^(low|medium|high|hd)\b/i)
+  const defaultQuality = defaultQualityMatch ? defaultQualityMatch[1].toLowerCase() : ''
+  const defaultResMatch = defaultLabel.match(/\b(1k|2k|4k|1024|2048|4096)\b/i)
+  const defaultResRaw = defaultResMatch ? defaultResMatch[1].toLowerCase() : ''
+  // 把 1024/2048/4096 归一化到 1k/2k/4k
+  const defaultResId = defaultResRaw === '1024' ? '1k'
+    : defaultResRaw === '2048' ? '2k'
+    : defaultResRaw === '4096' ? '4k'
+    : defaultResRaw
+
+  for (const v of variants) {
+    const rate = parseFloat(v.pricing?.completionImageTokens || '0')
+    if (!rate || rate <= 0) continue
+
+    const name = (v.name || '').toLowerCase()
+    if (!name) continue
+
+    // 跳过非分辨率 variant（如 "edit"）
+    if (!/\d/.test(name) && !/(?:^|_)(1k|2k|4k)(?:_|$)/.test(name)) continue
+
+    // 提取 variant 中的分辨率
+    let resId = ''
+    // 1) 匹配 1k/2k/4k（边界用 ^|_ 和 _|$，因为 \b 不识别下划线边界）
+    const kMatch = name.match(/(?:^|_)(1k|2k|4k)(?:_|$)/)
+    if (kMatch) {
+      resId = kMatch[1]
+    } else {
+      // 2) 匹配纯数字像素 1024/2048/4096
+      const pxMatch = name.match(/(?:^|_)(\d{4})(?:_|$)/)
+      if (pxMatch) {
+        const px = parseInt(pxMatch[1])
+        resId = px >= 4096 ? '4k' : px >= 2048 ? '2k' : '1k'
+      }
+    }
+    if (!resId) continue
+
+    // 提取 variant 中的 quality（如有）
+    const qualityMatch = name.match(/^(low|medium|high|hd)_/i)
+    const variantQuality = qualityMatch ? qualityMatch[1].toLowerCase() : ''
+
+    // 仅当 quality 与 default quality 匹配时使用该 variant 计算 multiplier
+    // - 如果 default 无 quality（如 "1K"），则只使用无 quality 前缀的 variant（如 "2k"）
+    // - 如果 default 有 quality（如 "medium"），则只使用匹配该 quality 的 variant（如 "medium_2k"）
+    // - 默认分辨率（resId === defaultResId）跳过，由 buildConfig 设为 1.0
+    if (resId === defaultResId) continue  // 默认分辨率 multiplier=1.0
+    if (defaultQuality && variantQuality !== defaultQuality) continue
+    if (!defaultQuality && variantQuality) continue  // default 无 quality 但 variant 有 quality → 跳过
+
+    result[resId] = rate / baseRate
+  }
+
+  return result
+}
+
+/**
  * 为单个 Pollinations 图片模型构建 config JSON
  *
  * 严格按 Pollinations API 返回字段 + 文档标注的参数支持范围填充；
  * 空字段则空数组/默认值（前端会按 config 真实能力隐藏对应参数项）
+ *
+ * 关键：根据 pricing_variants 为每个 resolution 计算真实 multiplier（替代旧的硬编码 1/2/4）
+ *   - 默认分辨率 multiplier = 1.0（baseRate 即对应默认分辨率的费率）
+ *   - 其他分辨率 multiplier = variantRate / baseRate
+ *   - 无 pricing_variants → 保留旧的按像素估算（1k=1, 2k=2, 4k=4）
  */
 function buildConfig(model: PollinationsImageModel): Record<string, unknown> {
   const inputModalities = model.input_modalities || []
   const supportsImageToImage = inputModalities.includes('image')
   const maxReferenceImages = model.max_reference_images ?? 0
 
+  // 计算 pricing_variants 提供的真实倍率
+  const variantMultipliers = buildImageResolutionMultipliers(model)
+  const hasVariantMultipliers = Object.keys(variantMultipliers).length > 0
+
+  // 解析 default_label 提取默认分辨率
+  const defaultLabel = model.pricing_default_label || ''
+  const defaultResMatch = defaultLabel.match(/\b(1k|2k|4k|1024|2048|4096)\b/i)
+  const defaultResRaw = defaultResMatch ? defaultResMatch[1].toLowerCase() : ''
+  const defaultResId = defaultResRaw === '1024' ? '1k'
+    : defaultResRaw === '2048' ? '2k'
+    : defaultResRaw === '4096' ? '4k'
+    : defaultResRaw
+
   // 分辨率：使用 Pollinations resolutions 字段；无则用标准 2 档
   let resolutions: Array<{ id: string; label: string; quality: string; desc: string; multiplier: number }>
   if (model.resolutions && model.resolutions.length > 0) {
-    resolutions = model.resolutions.map(r => RESOLUTION_MAP[r] || {
-      id: r,
-      label: r.toUpperCase(),
-      quality: r,
-      desc: '',
-      multiplier: r === '2k' ? 2 : (r === '4k' ? 4 : 1),
+    resolutions = model.resolutions.map(r => {
+      const base = RESOLUTION_MAP[r] || {
+        id: r,
+        label: r.toUpperCase(),
+        quality: r,
+        desc: '',
+        multiplier: r === '2k' ? 2 : (r === '4k' ? 4 : 1),
+      }
+      // 应用 pricing_variants 真实倍率
+      // 默认分辨率 → 1.0；其他 → variant multiplier 或回退到像素估算
+      if (r === defaultResId) {
+        return { ...base, multiplier: 1.0 }
+      }
+      if (hasVariantMultipliers && variantMultipliers[r] != null) {
+        return { ...base, multiplier: variantMultipliers[r] }
+      }
+      return base  // 回退：使用像素估算
     })
   } else {
-    resolutions = STANDARD_RESOLUTIONS
+    resolutions = STANDARD_RESOLUTIONS.map(r => {
+      if (r.id === defaultResId) return { ...r, multiplier: 1.0 }
+      if (hasVariantMultipliers && variantMultipliers[r.id] != null) {
+        return { ...r, multiplier: variantMultipliers[r.id] }
+      }
+      return r  // 无 pricing_variants → 保留旧的 1k=1, 2k=2
+    })
   }
 
   // widthMultiple: 仅 flux.2-pro/flux.2-flex/mai-image-2.5-flash 需要 16 对齐，其他默认 8
@@ -285,7 +429,7 @@ function buildConfig(model: PollinationsImageModel): Record<string, unknown> {
     ratios: STANDARD_RATIOS,
     defaultRatio: '1:1',
     resolutions,
-    defaultResolution: resolutions[0]?.id || '1k',
+    defaultResolution: defaultResId || resolutions[0]?.id || '1k',
     maxBatch: 4,
     widthMultiple,
     features: {
@@ -310,6 +454,7 @@ function buildConfig(model: PollinationsImageModel): Record<string, unknown> {
       pricingDefaultLabel: model.pricing_default_label ?? null,
       inputModalities,
       supportedEndpoints: model.supported_endpoints || [],
+      pricingVariantsCount: Array.isArray(model.pricing_variants) ? model.pricing_variants.length : (model.pricing_variants ? 1 : 0),
     },
   }
 }

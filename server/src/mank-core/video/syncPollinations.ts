@@ -37,7 +37,24 @@ interface PollinationsVideoModel {
   video_capabilities?: string[]                 // start_frame / end_frame / audio_output / reference_images / reference_videos / reference_audios
   pricing_default_label?: string                // 默认分辨率标签（如 "720p"）
   pricing?: {
-    completionVideoSeconds?: string             // pollen/秒
+    completionVideoSeconds?: string             // pollen/秒（基础费率，对应默认分辨率）
+  }
+  pricing_variants?: Array<{
+    name: string                                // variant 标识（如 "768p", "1080p", "video_in_480p"）
+    label: string
+    description: string
+    pricing: {
+      currency: string
+      completionVideoSeconds?: string           // 该 variant 的 pollen/秒
+    }
+  }> | {                                         // 单个 variant（非数组）
+    name: string
+    label: string
+    description: string
+    pricing: {
+      currency: string
+      completionVideoSeconds?: string
+    }
   }
 }
 
@@ -126,20 +143,113 @@ function buildDurations(model: PollinationsVideoModel): Array<{ id: string; labe
 }
 
 /**
+ * 解析 pricing_variants → 每个 resolution 的倍率（相对 baseRate）
+ *
+ * 公式：multiplier = variantRate / baseRate
+ *   - baseRate = pricing.completionVideoSeconds（对应 pricing_default_label 的费率）
+ *   - 仅匹配纯分辨率 variant（如 "720p" / "1080p" / "2k"）
+ *   - 跳过 img2video 专用 variant（"video_in_480p" / "video_in" / "1080p_image"）— 这些是图生视频倍率，
+ *     estimateVideoCost 中已有 imgFactor=1.15 兜底，未来可扩展到 config.img2videoMultipliers
+ *
+ * 返回 Record<resolutionId, multiplier>，默认分辨率不在此 map 中（由 buildConfig 默认设为 1.0）
+ */
+function buildResolutionMultipliers(model: PollinationsVideoModel): Record<string, number> {
+  const result: Record<string, number> = {}
+  if (!model.pricing_variants) return result
+
+  const variants = Array.isArray(model.pricing_variants) ? model.pricing_variants : [model.pricing_variants]
+  const baseRate = parseFloat(model.pricing?.completionVideoSeconds || '0')
+  if (!baseRate || baseRate <= 0) return result
+
+  for (const v of variants) {
+    const rate = parseFloat(v.pricing?.completionVideoSeconds || '0')
+    if (!rate || rate <= 0) continue
+
+    const name = v.name
+    // 跳过 img2video 专用 variant（前缀 video_in / 后缀 _image）
+    if (name.startsWith('video_in') || name.endsWith('_image')) continue
+
+    // 直接作为分辨率 ID 写入（"480p" / "720p" / "1080p" / "768p" / "2k" 等）
+    result[name] = rate / baseRate
+  }
+
+  return result
+}
+
+/**
+ * 从 img2video 专用 variant 计算 img2video 倍率（相对 baseRate）
+ *
+ * 模式匹配：
+ *   - "video_in"        → 单一 img2video 倍率
+ *   - "video_in_480p"   → 480p 专属 img2video 倍率（按 resolution 存入 img2videoMultipliers）
+ *   - "1080p_image"     → 1080p 专属 img2video 倍率
+ *
+ * 无匹配 variant 时返回 null（estimateVideoCost 使用兜底 1.15）
+ */
+function buildImg2VideoMultipliers(model: PollinationsVideoModel): {
+  img2videoFactor: number | null
+  img2videoMultipliers: Record<string, number>
+} {
+  const img2videoMultipliers: Record<string, number> = {}
+  let img2videoFactor: number | null = null
+
+  if (!model.pricing_variants) return { img2videoFactor, img2videoMultipliers }
+
+  const variants = Array.isArray(model.pricing_variants) ? model.pricing_variants : [model.pricing_variants]
+  const baseRate = parseFloat(model.pricing?.completionVideoSeconds || '0')
+  if (!baseRate || baseRate <= 0) return { img2videoFactor, img2videoMultipliers }
+
+  for (const v of variants) {
+    const rate = parseFloat(v.pricing?.completionVideoSeconds || '0')
+    if (!rate || rate <= 0) continue
+
+    const name = v.name
+    // "video_in" → 通用 img2video 倍率
+    if (name === 'video_in') {
+      img2videoFactor = rate / baseRate
+      continue
+    }
+    // "video_in_480p" / "video_in_720p" → 按分辨率专属 img2video 倍率
+    const match = name.match(/^video_in_(.+)$/)
+    if (match) {
+      img2videoMultipliers[match[1]] = rate / baseRate
+      continue
+    }
+    // "1080p_image" / "720p_image" → 后缀 _image 表示 img2video
+    const imageMatch = name.match(/^(.+)_image$/)
+    if (imageMatch) {
+      img2videoMultipliers[imageMatch[1]] = rate / baseRate
+    }
+  }
+
+  return { img2videoFactor, img2videoMultipliers }
+}
+
+/**
  * 为单个 Pollinations 模型构建 config JSON
  *
  * 严格按 Pollinations API 返回字段填充；空字段则空数组/默认值（前端会按 config 真实能力隐藏对应参数项）
+ *
+ * 关键：根据 pricing_variants 为每个 resolution 计算真实 multiplier（替代旧的硬编码 1）
+ *   - 默认分辨率 multiplier = 1.0（baseRate 即对应默认分辨率的费率）
+ *   - 其他分辨率 multiplier = variantRate / baseRate
+ *   - 无 pricing_variants → 所有分辨率 multiplier = 1.0
  */
 function buildConfig(model: PollinationsVideoModel): Record<string, unknown> {
   const capabilities = model.video_capabilities || []
+  const resolutionMultipliers = buildResolutionMultipliers(model)
+  const { img2videoFactor, img2videoMultipliers } = buildImg2VideoMultipliers(model)
+
+  const defaultResolution = model.pricing_default_label || model.resolutions?.[0] || '720p'
   const resolutions = (model.resolutions || []).map(r => ({
     id: r,
     label: r,
-    multiplier: 1,
+    // 默认分辨率 multiplier=1.0；其他分辨率从 pricing_variants 读取，无则 1.0
+    multiplier: r === defaultResolution ? 1.0 : (resolutionMultipliers[r] ?? 1.0),
   }))
+
   const durations = buildDurations(model)
   const defaultDuration = model.default_duration || 5
-  const defaultResolution = model.pricing_default_label || model.resolutions?.[0] || '720p'
   const completionVideoSeconds = parseFloat(model.pricing?.completionVideoSeconds || '0')
   const baseCostPerSecond = Math.round(completionVideoSeconds * 1000) // pollen/秒 → tokens/秒（1 pollen = 1000 tokens）
 
@@ -157,6 +267,10 @@ function buildConfig(model: PollinationsVideoModel): Record<string, unknown> {
     supportsReferenceVideos: capabilities.includes('reference_videos'),
     supportsReferenceAudios: capabilities.includes('reference_audios'),
     baseCostPerSecond,
+    // img2video 倍率（来自 pricing_variants 中的 video_in / _image variant）
+    // estimateVideoCost 优先使用此值；为空时回退到默认 1.15
+    img2videoFactor: img2videoFactor ?? 1.15,
+    img2videoMultipliers: Object.keys(img2videoMultipliers).length > 0 ? img2videoMultipliers : undefined,
     // 原始字段保留（调试用，且方便未来按需扩展）
     _pollinations: {
       name: model.name,
@@ -166,6 +280,7 @@ function buildConfig(model: PollinationsVideoModel): Record<string, unknown> {
       durationStep: model.duration_step ?? null,
       pricingDefaultLabel: model.pricing_default_label ?? null,
       completionVideoSeconds: completionVideoSeconds || null,
+      pricingVariantsCount: Array.isArray(model.pricing_variants) ? model.pricing_variants.length : (model.pricing_variants ? 1 : 0),
     },
   }
 }

@@ -17,6 +17,9 @@ interface VideoModelRuntimeConfig {
   resolutions?: Array<{ id: string; multiplier?: number }>
   defaultDuration?: string
   defaultResolution?: string
+  // img2video 倍率（来自 pricing_variants 中的 video_in / _image variant）
+  img2videoFactor?: number
+  img2videoMultipliers?: Record<string, number>
 }
 
 function getResolutionMultiplier(
@@ -29,6 +32,27 @@ function getResolutionMultiplier(
   return res?.multiplier ?? 1.0
 }
 
+/**
+ * 获取 img2video 倍率
+ * 优先级：
+ *   1. config.img2videoMultipliers[resolutionId] — 按分辨率专属 img2video 倍率
+ *   2. config.img2videoFactor — 通用 img2video 倍率
+ *   3. 兜底 1.15
+ */
+function getImg2VideoFactor(
+  config: VideoModelRuntimeConfig | null | undefined,
+  resolutionId: string | undefined,
+): number {
+  if (!config) return 1.15
+  if (resolutionId && config.img2videoMultipliers && config.img2videoMultipliers[resolutionId] != null) {
+    return config.img2videoMultipliers[resolutionId]
+  }
+  if (typeof config.img2videoFactor === 'number' && config.img2videoFactor > 0) {
+    return config.img2videoFactor
+  }
+  return 1.15
+}
+
 export async function estimateVideoCost(params: {
   model?: string
   duration?: number
@@ -37,7 +61,6 @@ export async function estimateVideoCost(params: {
 }): Promise<number> {
   const modelName = params.model || DEFAULT_VIDEO_MODEL
   const duration = Math.max(1, Number(params.duration) || 5)
-  const imgFactor = params.img2video ? 1.15 : 1
 
   try {
     const modelData = await prisma.aIModel.findFirst({
@@ -50,6 +73,8 @@ export async function estimateVideoCost(params: {
       // 这样 margin 变化 → costTokens 变化 → perSecond 变化 → 画布显示同步更新
       const config: VideoModelRuntimeConfig | null = modelData.config ? JSON.parse(modelData.config) : null
       const resMultiplier = config ? getResolutionMultiplier(config, params.resolution || config.defaultResolution) : 1.0
+      // img2video 倍率：优先用 config 中的真实值（来自 pricing_variants），无则兜底 1.15
+      const imgFactor = params.img2video ? getImg2VideoFactor(config, params.resolution) : 1
       // config.defaultDuration 形如 "5s" / "10s"，反推默认时长；失败用 5
       const defaultDurationSec = config?.defaultDuration
         ? Number(String(config.defaultDuration).replace(/\D/g, '')) || 5
@@ -62,6 +87,7 @@ export async function estimateVideoCost(params: {
     // 数据库查询失败，走 fallback
   }
 
+  const imgFactor = params.img2video ? 1.15 : 1
   const durFactor = duration >= 30 ? 3.0 : duration >= 15 ? 2.2 : duration >= 10 ? 1.6 : duration >= 5 ? 1.0 : Math.max(0.5, duration / 5)
   const base = await getModelCost(modelName, 'video', VIDEO_FALLBACK_DEFAULT)
   return Math.max(1, Math.round(base * durFactor * imgFactor))
