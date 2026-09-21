@@ -539,13 +539,15 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
 
   addExternalImage: (url, position) => {
     // 外部图片拖入画布：创建带预填结果的图片节点
+    // 必须先展开 defaultNodeData('image') 作为 base，否则节点缺少 imageModel 等必需字段
     const fullUrl = url.startsWith('http') ? url : `${window.location.origin}${url}`
-    const displayUrl = url.startsWith('http') ? url : url
     const imgId = uid('img')
+    const base = defaultNodeData('image')
     const newNodeId = get().addNode('image', position, {
+      ...base,
       imageResults: [{
         id: imgId,
-        url: displayUrl,
+        url: url,
         originalUrl: fullUrl,
         prompt: '',
         seed: 0,
