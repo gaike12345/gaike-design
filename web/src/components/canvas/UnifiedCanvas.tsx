@@ -22,6 +22,7 @@ import { Plus, Trash2, Maximize2, Wand2, Move, Wrench, Library, Users, History, 
 
 import { cn } from '../../lib/utils'
 import { toast } from '../community/types'
+import { getToken } from '../../services/api'
 import logo from '../../assets/logo.png'
 import QuotaDropdown from './QuotaDropdown'
 import ProfilePopover from './ProfilePopover'
@@ -277,7 +278,7 @@ export default function UnifiedCanvas() {
     // 优先处理文件拖入
     const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'))
     if (files.length > 0) {
-      const token = localStorage.getItem('token')
+      const token = getToken()
       if (!token) {
         toast('请先登录后再拖入图片', 'error')
         return
