@@ -21,6 +21,7 @@ import { CanvasNode } from './CanvasNode'
 import { Plus, Trash2, Maximize2, Wand2, Move, Wrench, Library, Users, History, Keyboard, BookOpen, Save, Shuffle, Link2Off, Grid3x3, ZoomIn, ZoomOut, Share2, AlignHorizontalJustifyCenter, CircleHelp, Sparkles, Eye, EyeOff, X, RotateCcw, Minus, Type, FileText, Image as ImageIcon, Film, Music, Ban, SlidersHorizontal, Layers, Upload, Clock, RefreshCw, Box, GalleryHorizontalEnd, ChevronRight, ChevronDown, Home, FolderOpen } from 'lucide-react'
 
 import { cn } from '../../lib/utils'
+import { toast } from '../community/types'
 import logo from '../../assets/logo.png'
 import QuotaDropdown from './QuotaDropdown'
 import ProfilePopover from './ProfilePopover'
@@ -276,23 +277,28 @@ export default function UnifiedCanvas() {
     // 优先处理文件拖入
     const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'))
     if (files.length > 0) {
+      const token = localStorage.getItem('token')
+      if (!token) {
+        toast('请先登录后再拖入图片', 'error')
+        return
+      }
       for (let i = 0; i < files.length; i++) {
         const file = files[i]
         const offset = i * 40 // 多图错开
         try {
           const formData = new FormData()
           formData.append('file', file)
-          const token = localStorage.getItem('token')
           const res = await fetch('/api/upload/image', {
             method: 'POST',
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            headers: { Authorization: `Bearer ${token}` },
             body: formData,
           })
           const data = await res.json()
           if (!res.ok) throw new Error(data.error || '上传失败')
           addExternalImage(data.url, { x: cx + offset, y: cy + offset })
         } catch (err) {
-          console.error('图片拖入上传失败:', file.name, err)
+          const msg = err instanceof Error ? err.message : '上传失败'
+          toast(`图片上传失败：${msg}`, 'error')
         }
       }
       return
