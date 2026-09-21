@@ -113,5 +113,9 @@ oh-story-claudecode-main/
 architecture-review/
 NUL
 
+# ---------- 服务器恢复/调试临时产物（不进版本库） ----------
+deploy/server-only-backup/
+*.tar.gz
+
 # ---------- Trae 工作区 ----------
 .trae/
