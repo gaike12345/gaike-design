@@ -244,7 +244,7 @@ export function UsersTab({ currentUserId, role, onError }: { currentUserId: stri
             type="text"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
-            placeholder="搜索邮箱 / 昵称"
+            placeholder="搜索昵称 / UID"
             className="input !w-64 !pl-8 !py-1.5 text-sm"
             disabled={!!deleteUserPrompt}
           />

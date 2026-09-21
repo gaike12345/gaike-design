@@ -95,6 +95,7 @@ if [ "$DEPLOY_MODE" = "pm2" ]; then
   npm run build
   npx prisma generate
   npx prisma migrate deploy
+  npx prisma db push --accept-data-loss
   pm2 reload ecosystem.config.js --env production
   pm2 save
   cd ..

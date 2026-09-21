@@ -173,6 +173,10 @@ mkdir -p data uploads logs
 echo "  执行数据库迁移..."
 npx prisma migrate deploy 2>/dev/null || echo "  (跳过迁移，可能是全新数据库)"
 
+# 强制同步 schema（补齐缺失列/表，防止 schema 漂移）
+echo "  同步数据库 schema..."
+npx prisma db push --accept-data-loss 2>/dev/null || echo "  (db push 跳过)"
+
 # 初始化种子数据（如果没有用户的话）
 echo "  检查并初始化种子数据..."
 node -e "
