@@ -40,6 +40,52 @@ type IconComponent = ComponentType<SVGProps<SVGSVGElement> & { size?: number | s
 
 const NODE_BORDER = 1
 
+/**
+ * 客户端图片压缩：大图缩到 maxSize 边内，转 JPEG quality
+ * PNG 透明背景会保留为 PNG 格式
+ * 34MB PNG → ~500KB，上传速度提升数十倍
+ */
+async function compressImage(file: File, maxSize = 1920, quality = 0.85): Promise<File> {
+  // 小文件（< 1MB）直接返回，不压缩
+  if (file.size < 1 * 1024 * 1024) return file
+  const isPng = file.type === 'image/png'
+  const isTransparent = isPng // PNG 可能有透明通道，保留格式
+
+  return new Promise((resolve) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      let { width, height } = img
+      // 缩放到 maxSize 内
+      if (width > maxSize || height > maxSize) {
+        const ratio = Math.min(maxSize / width, maxSize / height)
+        width = Math.round(width * ratio)
+        height = Math.round(height * ratio)
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(img, 0, 0, width, height)
+      // PNG 保留透明通道，其他转 JPEG
+      const type = isTransparent ? 'image/png' : 'image/jpeg'
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) { resolve(file); return }
+          const ext = isTransparent ? '.png' : '.jpg'
+          const baseName = file.name.replace(/\.[^.]+$/, '')
+          resolve(new File([blob], baseName + ext, { type, lastModified: Date.now() }))
+        },
+        type,
+        quality,
+      )
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file) }
+    img.src = url
+  })
+}
+
 // 端口 DOM 真实坐标（优先）：从 data-port-id 热区元素直接读屏幕中心，再反算画布坐标
 // 让连线端点与可见 + 号锚点视觉严格重合，不再依赖 size.height / NODE_BORDER 等常量猜测
 function getNodeRealHeight(nodeId: string, fallback: number): number {
@@ -283,12 +329,16 @@ export default function UnifiedCanvas() {
         toast('请先登录后再拖入图片', 'error')
         return
       }
+      toast(`正在处理 ${files.length} 张图片...`, 'info')
       for (let i = 0; i < files.length; i++) {
         const file = files[i]
         const offset = i * 40 // 多图错开
         try {
+          // 客户端压缩：大图缩到 max 1920px + 转 JPEG quality 0.85
+          // 34MB PNG → ~500KB JPEG，上传速度提升数十倍
+          const compressed = await compressImage(file, 1920, 0.85)
           const formData = new FormData()
-          formData.append('file', file)
+          formData.append('file', compressed)
           const res = await fetch('/api/upload/image', {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}` },

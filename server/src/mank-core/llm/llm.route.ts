@@ -10,6 +10,7 @@ import type {
   VolumeOutlineData, ChapterOutlineData, ContinuePlotData,
   InspirationData, OutlineData, WorldviewData, LorebookData,
   DeepseekData, ScriptData, ScriptScene, DialogueLine,
+  TimelineData, ForeshadowingData,
 } from './llmTypes'
 import logger from '../../mank-infra/logging/logger'
 
@@ -1135,6 +1136,145 @@ router.post('/dialogue', withGeneration('novel', 500), (req, _res, next) => {
       { character: a, line: `那就别浪费时间了，开始吧。`, emotion: '坚定' },
       { character: b, line: `等等——你确定要这么做？`, emotion: '犹豫' },
     ]
+  },
+))
+
+// 23. POST /timeline — 时间线生成
+/**
+ * @openapi
+ * /llm/timeline:
+ *   post:
+ *     tags: [文本生成]
+ *     summary: 时间线生成
+ *     description: 根据已有角色、主线、世界观生成小说时间线（事件按时间顺序排列，引用角色/地点/主线/伏笔/势力编号）。
+ *     security: [{ BearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               topic: { type: string, description: 创作主题 }
+ *               synopsis: { type: string, description: 故事方向 }
+ *               masterOutline: { type: object, description: 总纲 }
+ *               characters: { type: array, items: { type: object }, description: 角色列表（含 id 编号 JS1/JS2） }
+ *               worldview: { type: object, description: 世界观（含势力/地点编号） }
+ *               lorebook: { type: object, description: 设定库 }
+ *     responses:
+ *       200:
+ *         description: 生成成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 entries:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id: { type: string, description: T1/T2... }
+ *                       time: { type: string, description: 时间点描述 }
+ *                       event: { type: string, description: 事件描述 }
+ *                       characters: { type: array, items: { type: string }, description: 引用角色编号 JS1 }
+ *                       locations: { type: array, items: { type: string }, description: 引用地点编号 LD1 }
+ *                       plotRefs: { type: array, items: { type: string }, description: 引用主线编号 Z1 }
+ *                       foreshadowRefs: { type: array, items: { type: string }, description: 引用伏笔编号 F1 }
+ *                       factionRefs: { type: array, items: { type: string }, description: 引用势力编号 FS1 }
+ *       401: { description: 未登录 }
+ */
+router.post('/timeline', withGeneration('novel', 0), (req, _res, next) => {
+  logger.info('CTRL_LLM_TIMELINE', { userId: req.user?.userId, topic: req.body?.topic })
+  next()
+}, llmRouteJson<TimelineData>(
+  '你是 Man TV 的 AI 创作助手，擅长小说时间线设计。请根据已有角色、主线、世界观生成时间线，返回 JSON：{ "entries": [{ "id": "T1", "time": 时间点描述, "event": 事件描述, "characters": ["JS1"], "locations": ["LD1"], "plotRefs": ["Z1"], "foreshadowRefs": ["F1"], "factionRefs": ["FS1"] }] }。\n'
+  + '编号规则（必须严格使用已有编号引用对应元素，不要新造编号）：\n'
+  + '- 角色编号：JS1, JS2...（引用角色列表中的编号）\n'
+  + '- 地点编号：LD1, LD2...（引用世界观/设定库中的地点编号）\n'
+  + '- 主线编号：Z1, Z2...（引用总纲中的主线编号）\n'
+  + '- 伏笔编号：F1, F2...（引用伏笔表中的编号，若暂无可填空数组）\n'
+  + '- 势力编号：FS1, FS2...（引用世界观中的势力编号）\n'
+  + '- 时间线条目编号：T1, T2...（按时间顺序递增）\n'
+  + '时间线按时间顺序排列 5-15 条，覆盖故事从开篇到结局的关键节点。不要包含其他说明文字。',
+  (body) => {
+    const { topic } = body || {}
+    return {
+      entries: [
+        { id: 'T1', time: '故事开篇 · 第一年春', event: `主角登场，日常世界展示，「${topic || '创作主题'}」的种子事件埋下。`, characters: ['JS1'], locations: ['LD1'], plotRefs: ['Z1'], foreshadowRefs: ['F1'], factionRefs: ['FS1'] },
+        { id: 'T2', time: '第一年夏', event: '激励事件触发，主角被卷入核心冲突。', characters: ['JS1', 'JS2'], locations: ['LD2'], plotRefs: ['Z1'], foreshadowRefs: [], factionRefs: ['FS1', 'FS2'] },
+        { id: 'T3', time: '第二年冬', event: '中点反转，真相浮现，主角陷入低谷。', characters: ['JS1', 'JS2', 'JS3'], locations: ['LD3'], plotRefs: ['Z2'], foreshadowRefs: ['F1', 'F2'], factionRefs: ['FS2'] },
+        { id: 'T4', time: '第三年秋', event: '决战与收束，主线冲突解决，人物命运尘埃落定。', characters: ['JS1', 'JS3'], locations: ['LD1'], plotRefs: ['Z2'], foreshadowRefs: ['F1', 'F2', 'F3'], factionRefs: ['FS1', 'FS2'] },
+      ],
+    }
+  },
+))
+
+// 24. POST /foreshadowing — 伏笔表生成
+/**
+ * @openapi
+ * /llm/foreshadowing:
+ *   post:
+ *     tags: [文本生成]
+ *     summary: 伏笔表生成
+ *     description: 根据已有大纲、角色、时间线生成伏笔最终表（埋设点、回收点、状态、涉及角色与物品）。
+ *     security: [{ BearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               topic: { type: string, description: 创作主题 }
+ *               synopsis: { type: string, description: 故事方向 }
+ *               masterOutline: { type: object, description: 总纲 }
+ *               characters: { type: array, items: { type: object }, description: 角色列表（含 id 编号 JS1/JS2） }
+ *               timeline: { type: object, description: 时间线（含 id 编号 T1/T2） }
+ *               lorebook: { type: object, description: 设定库（含物品编号 WP1） }
+ *     responses:
+ *       200:
+ *         description: 生成成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 entries:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id: { type: string, description: F1/F2... }
+ *                       setup: { type: string, description: 埋设描述 }
+ *                       setupChapter: { type: string, description: 埋设章节编号 C3 }
+ *                       payoff: { type: string, description: 回收描述 }
+ *                       payoffChapter: { type: string, description: 回收章节编号 C15 }
+ *                       status: { type: string, description: 已回收|未回收 }
+ *                       characters: { type: array, items: { type: string }, description: 引用角色编号 JS1 }
+ *                       items: { type: array, items: { type: string }, description: 引用物品编号 WP1 }
+ *       401: { description: 未登录 }
+ */
+router.post('/foreshadowing', withGeneration('novel', 0), (req, _res, next) => {
+  logger.info('CTRL_LLM_FORESHADOWING', { userId: req.user?.userId, topic: req.body?.topic })
+  next()
+}, llmRouteJson<ForeshadowingData>(
+  '你是 Man TV 的 AI 创作助手，擅长伏笔设计。请根据已有大纲、角色、时间线生成伏笔最终表，返回 JSON：{ "entries": [{ "id": "F1", "setup": 埋设描述, "setupChapter": "C3", "payoff": 回收描述, "payoffChapter": "C15", "status": "已回收"或"未回收", "characters": ["JS1"], "items": ["WP1"] }] }。\n'
+  + '编号规则（必须严格使用已有编号引用对应元素，不要新造编号）：\n'
+  + '- 伏笔编号：F1, F2...（按埋设顺序递增，对应时间线中 foreshadowRefs 引用）\n'
+  + '- 角色编号：JS1, JS2...（引用角色列表中的编号）\n'
+  + '- 物品编号：WP1, WP2...（引用设定库中的物品编号）\n'
+  + '- 章节编号：C1, C2, C3...（埋设章节 setupChapter 与回收章节 payoffChapter 都使用章节编号）\n'
+  + '伏笔条目 3-8 条，覆盖从开篇到结局的关键伏笔，状态字段明确区分"已回收"和"未回收"。不要包含其他说明文字。',
+  (body) => {
+    const { topic } = body || {}
+    return {
+      entries: [
+        { id: 'F1', setup: `在开篇埋下关于「${topic || '创作主题'}」核心矛盾的物件线索，看似无关紧要。`, setupChapter: 'C1', payoff: '在决战时被揭示为关键道具，决定胜负走向。', payoffChapter: 'C15', status: '已回收', characters: ['JS1'], items: ['WP1'] },
+        { id: 'F2', setup: '配角无意中提及的一句旧事，与主角的过往隐秘关联。', setupChapter: 'C3', payoff: '主角在低谷时回忆起这句话，获得突破困境的灵感。', payoffChapter: 'C12', status: '已回收', characters: ['JS1', 'JS2'], items: [] },
+        { id: 'F3', setup: '世界观中提及的"被遗忘的契约"，作为远景伏笔埋设。', setupChapter: 'C5', payoff: '留待续作回收，本卷未揭示全部真相。', payoffChapter: 'C20', status: '未回收', characters: ['JS1', 'JS3'], items: ['WP2'] },
+      ],
+    }
   },
 ))
 

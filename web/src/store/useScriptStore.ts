@@ -31,10 +31,14 @@ import type {
   InspirationData,
   VolumeNode,
   ChapterNode,
+  TimelineData,
+  TimelineEntry,
+  ForeshadowingData,
+  ForeshadowingEntry,
 } from '../services/textApi'
 import { useScriptGenStore, type ScriptGenState } from './useScriptGenStore'
 import { useWRToolsStore, type WRToolsState, type WRToolKey } from './useWRToolsStore'
-import { useNovelStore, type NovelState } from './useNovelStore'
+import { useNovelStore, type NovelState, type TimelineGenCtx, type ForeshadowingGenCtx, type CoverGenCtx } from './useNovelStore'
 import { useEditorStore, type EditorState } from './useEditorStore'
 import type { LayoutType } from './useLayoutStore'
 
@@ -188,6 +192,26 @@ export interface WritingPaneState {
   currentChapterWordCount: () => number
   totalWordCount: () => number
 
+  // —— Novel: 时间线（Phase 8）——
+  timelineData: TimelineData | null
+  timelineStatus: ScriptStatus
+  runTimeline: () => Promise<void>
+  updateTimelineEntry: (id: string, partial: Partial<TimelineEntry>) => void
+  setTimelineData: (data: TimelineData | null) => void
+
+  // —— Novel: 伏笔最终表（Phase 8）——
+  foreshadowingData: ForeshadowingData | null
+  foreshadowingStatus: ScriptStatus
+  runForeshadowing: () => Promise<void>
+  updateForeshadowingEntry: (id: string, partial: Partial<ForeshadowingEntry>) => void
+  setForeshadowingData: (data: ForeshadowingData | null) => void
+
+  // —— Novel: 作品封面（Phase 8）——
+  coverImage: string | null
+  coverStatus: ScriptStatus
+  runCoverImage: () => Promise<void>
+  setCoverImage: (url: string | null) => void
+
   // —— Editor ——
   editorFont: string
   editorFontSize: string
@@ -243,6 +267,9 @@ function selectNovel(s: NovelState) {
     openingLineResult: s.openingLineResult, openingLineStatus: s.openingLineStatus,
     inspirationData: s.inspirationData, inspirationStatus: s.inspirationStatus,
     chatMessages: s.chatMessages, chatInput: s.chatInput, chatStatus: s.chatStatus,
+    timelineData: s.timelineData, timelineStatus: s.timelineStatus,
+    foreshadowingData: s.foreshadowingData, foreshadowingStatus: s.foreshadowingStatus,
+    coverImage: s.coverImage, coverStatus: s.coverStatus,
   }
 }
 
@@ -377,6 +404,56 @@ function buildActions(): Omit<WritingPaneState, keyof ReturnType<typeof selectGe
     // —— Novel: 字数统计 ——
     currentChapterWordCount: () => n().currentChapterWordCount(),
     totalWordCount: () => n().totalWordCount(),
+
+    // —— Novel: 时间线（Phase 8，跨 store 组装上下文）——
+    runTimeline: async () => {
+      const gen = g()
+      const wr = w()
+      const ns = n()
+      const ctx: TimelineGenCtx = {
+        topic: gen.topic,
+        synopsis: ns.selectedSynopsis?.synopsis || undefined,
+        masterOutline: ns.masterOutlineData || undefined,
+        characters: gen.script?.characters,
+        worldview: wr.worldview || undefined,
+        lorebook: wr.lorebook.length ? wr.lorebook : undefined,
+      }
+      return ns.runTimeline(ctx)
+    },
+    updateTimelineEntry: (id, partial) => n().updateTimelineEntry(id, partial),
+    setTimelineData: (data) => n().setTimelineData(data),
+
+    // —— Novel: 伏笔最终表（Phase 8）——
+    runForeshadowing: async () => {
+      const gen = g()
+      const wr = w()
+      const ns = n()
+      const ctx: ForeshadowingGenCtx = {
+        topic: gen.topic,
+        synopsis: ns.selectedSynopsis?.synopsis || undefined,
+        masterOutline: ns.masterOutlineData || undefined,
+        characters: gen.script?.characters,
+        timeline: ns.timelineData || undefined,
+        lorebook: wr.lorebook.length ? wr.lorebook : undefined,
+      }
+      return ns.runForeshadowing(ctx)
+    },
+    updateForeshadowingEntry: (id, partial) => n().updateForeshadowingEntry(id, partial),
+    setForeshadowingData: (data) => n().setForeshadowingData(data),
+
+    // —— Novel: 作品封面（Phase 8）——
+    runCoverImage: async () => {
+      const gen = g()
+      const ns = n()
+      const ctx: CoverGenCtx = {
+        topic: gen.topic,
+        synopsis: ns.selectedSynopsis?.synopsis || undefined,
+        masterOutline: ns.masterOutlineData || undefined,
+        novelGenre: ns.novelGenre,
+      }
+      return ns.runCoverImage(ctx)
+    },
+    setCoverImage: (url) => n().setCoverImage(url),
 
     // —— Editor 设置 ——
     setEditorFont: (v) => e().setEditorFont(v),

@@ -2,7 +2,7 @@
 import { useState, type ReactNode, type ComponentType, SVGProps } from 'react'
 import {
   FileText, BookOpen, Users, Network, ScrollText, Globe, Layers,
-  Plus, Trash2, ChevronRight,
+  Plus, Trash2, ChevronRight, Clock, Eye, Image as ImageIcon,
 } from 'lucide-react'
 import { cn } from '../../../lib/utils'
 import type { WritingPaneState } from '../../../store/useScriptStore'
@@ -113,9 +113,25 @@ function WorkInfoPanel({ s }: { s: WritingPaneState }) {
           <div className="space-y-1.5">
             {s.script.characters.map((c, i) => (
               <div key={i} className="rounded bg-ink-50 px-2 py-1.5">
-                <div className="font-medium text-ink-800">{c.name}</div>
-                {c.role && <div className="text-[10px] text-violet-600">{c.role}</div>}
-                {c.desc && <div className="mt-0.5 text-[10px] text-ink-500">{c.desc}</div>}
+                <input
+                  value={c.name}
+                  onChange={(e) => s.updateCharacter(c.name, { name: e.target.value })}
+                  className="w-full rounded border border-ink-200 bg-white px-1 py-0.5 text-[11px] font-medium text-ink-800 outline-none focus:border-violet-400"
+                  placeholder="角色名"
+                />
+                <input
+                  value={c.role}
+                  onChange={(e) => s.updateCharacter(c.name, { role: e.target.value })}
+                  className="mt-0.5 w-full rounded border border-ink-200 bg-white px-1 py-0.5 text-[10px] text-violet-600 outline-none focus:border-violet-400"
+                  placeholder="角色定位"
+                />
+                <textarea
+                  value={c.desc}
+                  onChange={(e) => s.updateCharacter(c.name, { desc: e.target.value })}
+                  rows={2}
+                  className="mt-0.5 w-full resize-none rounded border border-ink-200 bg-white px-1 py-0.5 text-[10px] text-ink-500 outline-none focus:border-violet-400"
+                  placeholder="角色描述"
+                />
               </div>
             ))}
           </div>
@@ -255,6 +271,127 @@ function WorkInfoPanel({ s }: { s: WritingPaneState }) {
           </div>
         ) : (
           <Empty text="暂无设定词条" />
+        )}
+      </Section>
+
+      {/* 时间线（Phase 8，可编辑 - Phase 9）*/}
+      <Section id="timeline" label="时间线" icon={Clock}>
+        {s.timelineData?.entries?.length ? (
+          <div className="space-y-1.5">
+            {s.timelineData.entries.map((e) => (
+              <div key={e.id} className="rounded bg-ink-50 px-2 py-1.5">
+                <div className="flex items-center gap-1">
+                  <span className="font-bold text-violet-700">{e.id}</span>
+                  <input
+                    value={e.time}
+                    onChange={(ev) => s.updateTimelineEntry(e.id, { time: ev.target.value })}
+                    className="flex-1 rounded border border-ink-200 bg-white px-1 py-0.5 text-[10px] outline-none focus:border-violet-400"
+                    placeholder="时间点"
+                  />
+                </div>
+                <textarea
+                  value={e.event}
+                  onChange={(ev) => s.updateTimelineEntry(e.id, { event: ev.target.value })}
+                  rows={2}
+                  className="mt-1 w-full resize-none rounded border border-ink-200 bg-white px-1 py-0.5 text-[10px] text-ink-600 outline-none focus:border-violet-400"
+                  placeholder="事件描述"
+                />
+                {(e.characters.length > 0 || e.locations.length > 0 || e.plotRefs.length > 0 || e.foreshadowRefs.length > 0 || e.factionRefs.length > 0) && (
+                  <div className="mt-1 flex flex-wrap gap-1 text-[9px] text-ink-400">
+                    {e.characters.length > 0 && <span>角色:{e.characters.join(',')}</span>}
+                    {e.locations.length > 0 && <span>地点:{e.locations.join(',')}</span>}
+                    {e.plotRefs.length > 0 && <span>主线:{e.plotRefs.join(',')}</span>}
+                    {e.foreshadowRefs.length > 0 && <span>伏笔:{e.foreshadowRefs.join(',')}</span>}
+                    {e.factionRefs.length > 0 && <span>势力:{e.factionRefs.join(',')}</span>}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Empty text="暂无时间线" />
+        )}
+      </Section>
+
+      {/* 伏笔最终表（Phase 8，可编辑 - Phase 9）*/}
+      <Section id="foreshadowing" label="伏笔最终表" icon={Eye}>
+        {s.foreshadowingData?.entries?.length ? (
+          <div className="space-y-1.5">
+            {s.foreshadowingData.entries.map((e) => (
+              <div key={e.id} className="rounded bg-ink-50 px-2 py-1.5">
+                <div className="flex items-center gap-1">
+                  <span className="font-bold text-violet-700">{e.id}</span>
+                  <select
+                    value={e.status}
+                    onChange={(ev) => s.updateForeshadowingEntry(e.id, { status: ev.target.value })}
+                    className="ml-auto rounded border border-ink-200 bg-white px-1 py-0.5 text-[9px] outline-none focus:border-violet-400"
+                  >
+                    <option value="已回收">已回收</option>
+                    <option value="未回收">未回收</option>
+                  </select>
+                </div>
+                <div className="mt-1 text-[9px] text-ink-400">
+                  埋设
+                  <input
+                    value={e.setupChapter}
+                    onChange={(ev) => s.updateForeshadowingEntry(e.id, { setupChapter: ev.target.value })}
+                    className="ml-1 w-12 rounded border border-ink-200 bg-white px-1 py-0.5 text-[9px] outline-none focus:border-violet-400"
+                  />
+                  ：
+                </div>
+                <textarea
+                  value={e.setup}
+                  onChange={(ev) => s.updateForeshadowingEntry(e.id, { setup: ev.target.value })}
+                  rows={2}
+                  className="mt-0.5 w-full resize-none rounded border border-ink-200 bg-white px-1 py-0.5 text-[10px] text-ink-600 outline-none focus:border-violet-400"
+                  placeholder="埋设描述"
+                />
+                <div className="mt-1 text-[9px] text-ink-400">
+                  回收
+                  <input
+                    value={e.payoffChapter}
+                    onChange={(ev) => s.updateForeshadowingEntry(e.id, { payoffChapter: ev.target.value })}
+                    className="ml-1 w-12 rounded border border-ink-200 bg-white px-1 py-0.5 text-[9px] outline-none focus:border-violet-400"
+                  />
+                  ：
+                </div>
+                <textarea
+                  value={e.payoff}
+                  onChange={(ev) => s.updateForeshadowingEntry(e.id, { payoff: ev.target.value })}
+                  rows={2}
+                  className="mt-0.5 w-full resize-none rounded border border-ink-200 bg-white px-1 py-0.5 text-[10px] text-ink-600 outline-none focus:border-violet-400"
+                  placeholder="回收描述"
+                />
+                {(e.characters.length > 0 || e.items.length > 0) && (
+                  <div className="mt-1 flex flex-wrap gap-1 text-[9px] text-ink-400">
+                    {e.characters.length > 0 && <span>角色:{e.characters.join(',')}</span>}
+                    {e.items.length > 0 && <span>物品:{e.items.join(',')}</span>}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Empty text="暂无伏笔表" />
+        )}
+      </Section>
+
+      {/* 作品封面（Phase 8，URL 可编辑 - Phase 9）*/}
+      <Section id="cover" label="作品封面" icon={ImageIcon}>
+        {s.coverImage ? (
+          <div className="space-y-2">
+            <img src={s.coverImage} alt="作品封面" className="w-full rounded border border-ink-200" />
+            <input
+              value={s.coverImage}
+              onChange={(e) => s.setCoverImage(e.target.value)}
+              className="w-full rounded border border-ink-200 bg-white px-1 py-0.5 text-[9px] outline-none focus:border-violet-400"
+              placeholder="封面图 URL"
+            />
+          </div>
+        ) : s.coverStatus === 'running' ? (
+          <Empty text="生成封面中…" />
+        ) : (
+          <Empty text="暂无封面，点击「生成作品信息」" />
         )}
       </Section>
     </div>

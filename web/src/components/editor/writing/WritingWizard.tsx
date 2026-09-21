@@ -1,4 +1,5 @@
-// 引导式创作向导 - 一句话灵感 → 故事梗概 → 大纲角色 → 正文
+// 引导式创作向导 - 一句话灵感 → 故事方向 → 总纲 → 作品信息
+import { useState } from 'react'
 import type { ReactNode, ComponentType, SVGProps } from 'react'
 import {
   Sparkles, Dices, Loader2, ArrowRight, RefreshCw,
@@ -6,6 +7,7 @@ import {
 } from 'lucide-react'
 import { cn } from '../../../lib/utils'
 import type { WritingPaneState } from '../../../store/useScriptStore'
+import type { MasterOutlineData } from '../../../services/textApi'
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement> & { size?: number | string }>
 
@@ -16,16 +18,109 @@ export const LENGTHS = ['短篇小说', '长篇小说']
 
 export const WIZARD_STEPS = [
   { id: 0, label: '一句话灵感', icon: Lightbulb },
-  { id: 1, label: '故事梗概', icon: FileText },
-  { id: 2, label: '大纲角色', icon: BookOpen },
-  { id: 3, label: '正文', icon: PenLine },
+  { id: 1, label: '故事方向', icon: FileText },
+  { id: 2, label: '总纲', icon: BookOpen },
+  { id: 3, label: '作品信息', icon: PenLine },
 ]
 
 /**
  * 引导式创作向导
- * 4 步：灵感 → 梗概3选1 → 大纲角色 → 进入正文
+ * 4 步：灵感 → 故事方向3选1 → 总纲 → 生成作品信息
  */
 export function GuidedWizard({ s }: { s: WritingPaneState }) {
+  // Phase 7: 批量生成作品信息的进度状态
+  const [batchRunning, setBatchRunning] = useState(false)
+  const [batchProgress, setBatchProgress] = useState<string[]>([])
+  const [batchError, setBatchError] = useState<string | null>(null)
+
+  const markDone = (label: string) => {
+    setBatchProgress((prev) => [...prev, `✓ ${label}`])
+  }
+
+  // 由已完成的作品信息组装 Lorebook source（供设定库抽取词条）
+  const buildLorebookSource = (
+    synopsis: string | undefined,
+    mo: MasterOutlineData | null,
+    chars: { name: string; role?: string; desc?: string }[] | undefined,
+  ): string => {
+    const parts: string[] = []
+    if (synopsis) parts.push(`梗概: ${synopsis}`)
+    if (mo?.premise) parts.push(`核心设定: ${mo.premise}`)
+    if (mo?.theme) parts.push(`主题: ${mo.theme}`)
+    if (mo?.mainline) parts.push(`主线: ${mo.mainline}`)
+    if (mo?.ending) parts.push(`结局: ${mo.ending}`)
+    mo?.volumes?.forEach((v) => parts.push(`${v.name}: ${v.summary}`))
+    if (chars?.length) {
+      parts.push(`角色: ${chars.map((c) => `${c.name}(${c.role || ''}): ${c.desc || ''}`).join('; ')}`)
+    }
+    return parts.filter(Boolean).join('\n')
+  }
+
+  // Phase 7: 批量顺序调用 9 个写作技能 API
+  const runBatch = async () => {
+    if (batchRunning) return
+    setBatchRunning(true)
+    setBatchProgress([])
+    setBatchError(null)
+
+    // 闭包内 s 的状态值来自批次开始前的渲染；action 引用稳定（useMemo 一次），
+    // 内部通过 .getState() 读取最新跨 store 状态，故 await 后仍可正确获取后续产物。
+    const synopsis: string | undefined = s.selectedSynopsis?.synopsis
+    const mo: MasterOutlineData | null = s.masterOutlineData
+    const chars = s.script?.characters
+
+    try {
+      // 1. 总纲（已有则沿用）
+      if (!mo) {
+        await s.runMasterOutline()
+      }
+      markDone('总纲')
+
+      // 2. 角色生成（已有，跳转图片/文本生成角色 — 此处为 UI 跳转步骤，不调 API）
+      markDone('角色 (跳转生成)')
+
+      // 3. 角色关系（依赖角色；无角色时 store 内部 early-return）
+      if (chars?.length) {
+        await s.runCharacterRelations()
+      }
+      markDone('角色关系')
+
+      // 4. 世界观
+      await s.runWorldview()
+      markDone('世界观')
+
+      // 5. 设定库（source 含前序产物：梗概 + 总纲 + 角色）
+      const source = buildLorebookSource(synopsis, mo, chars)
+      if (source.trim()) {
+        await s.runLorebook(source)
+      }
+      markDone('设定库')
+
+      // 6. 时间线（runTimeline 内部读取最新 worldview/lorebook 等上下文）
+      await s.runTimeline()
+      markDone('时间线')
+
+      // 7. 伏笔表（runForeshadowing 内部读取最新 timeline 上下文）
+      await s.runForeshadowing()
+      markDone('伏笔表')
+
+      // 8. 作品封面（GPT Image 2.5 Flare · 1 积分 · 9:16）
+      await s.runCoverImage()
+      markDone('作品封面')
+
+      // 9. 作品简介（已在向导 Step 1 选定，沿用所选方向，不再重置）
+      markDone('作品简介 (已选定)')
+
+      // 全部完成 → 进入编辑器
+      s.setWizardStep(3)
+      s.exitWizard()
+    } catch (e) {
+      setBatchError(e instanceof Error ? e.message : '批量生成失败')
+    } finally {
+      setBatchRunning(false)
+    }
+  }
+
   return (
     <div className="mx-auto w-full max-w-3xl p-6">
       {/* 进度导航 */}
@@ -166,7 +261,7 @@ export function GuidedWizard({ s }: { s: WritingPaneState }) {
         </div>
       )}
 
-      {/* Step 1: 故事梗概 3 选 1 */}
+      {/* Step 1: 故事方向 3 选 1 */}
       {s.wizardStep === 1 && (
         <div className="space-y-3">
           <div className="card flex items-center gap-2 p-3">
@@ -211,7 +306,7 @@ export function GuidedWizard({ s }: { s: WritingPaneState }) {
         </div>
       )}
 
-      {/* Step 2: 大纲角色 */}
+      {/* Step 2: 总纲 */}
       {s.wizardStep === 2 && (
         <div className="space-y-3">
           {s.masterOutlineStatus === 'running' && (
@@ -238,14 +333,37 @@ export function GuidedWizard({ s }: { s: WritingPaneState }) {
                   </div>
                 ))}
               </div>
+
+              {/* Phase 7: 批量生成进度 */}
+              {batchProgress.length > 0 && (
+                <div className="card p-3 text-xs">
+                  <div className="mb-1 text-[10px] uppercase tracking-wider text-ink-400">生成进度</div>
+                  <div className="space-y-0.5">
+                    {batchProgress.map((p, i) => (
+                      <div key={i} className="text-violet-700">{p}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {batchRunning && (
+                <div className="card flex items-center gap-2 p-3 text-xs text-ink-500">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> 正在批量生成作品信息…
+                </div>
+              )}
+              {batchError && (
+                <div className="card p-3 text-xs text-red-500">{batchError}</div>
+              )}
               <button
-                onClick={() => {
-                  s.setWizardStep(3)
-                  s.exitWizard()
-                }}
+                onClick={runBatch}
+                disabled={batchRunning}
                 className="btn-primary w-full py-2 text-xs"
               >
-                <ArrowRight className="h-3.5 w-3.5" /> 进入正文编辑
+                {batchRunning ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <ArrowRight className="h-3.5 w-3.5" />
+                )}
+                {batchRunning ? '生成中…' : '生成作品信息'}
               </button>
             </>
           )}

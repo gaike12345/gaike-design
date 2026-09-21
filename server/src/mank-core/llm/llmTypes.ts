@@ -74,3 +74,27 @@ export interface ScriptData {
 }
 
 export interface DialogueLine { character: string; line: string; emotion: string }
+
+export interface TimelineEntry {
+  id: string          // T1, T2...
+  time: string        // 时间点描述
+  event: string       // 事件描述
+  characters: string[]  // 引用角色编号 JS1, JS2
+  locations: string[]   // 引用地点编号 LD1, LD2
+  plotRefs: string[]    // 引用主线编号 Z1, Z2
+  foreshadowRefs: string[] // 引用伏笔编号 F1, F2
+  factionRefs: string[]   // 引用势力编号 FS1, FS2
+}
+export interface TimelineData { entries: TimelineEntry[] }
+
+export interface ForeshadowingEntry {
+  id: string          // F1, F2...
+  setup: string       // 埋设描述
+  setupChapter: string // C3
+  payoff: string      // 回收描述
+  payoffChapter: string // C15
+  status: string      // 已回收|未回收
+  characters: string[]  // JS1, JS2
+  items: string[]       // WP1, WP2
+}
+export interface ForeshadowingData { entries: ForeshadowingEntry[] }

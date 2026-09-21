@@ -256,6 +256,36 @@ export interface VolumeNode {
   volumeOutline?: VolumeOutlineData
 }
 
+// 时间线（与后端 llmTypes.ts 同步）
+export interface TimelineEntry {
+  id: string
+  time: string
+  event: string
+  characters: string[]
+  locations: string[]
+  plotRefs: string[]
+  foreshadowRefs: string[]
+  factionRefs: string[]
+}
+export interface TimelineData {
+  entries: TimelineEntry[]
+}
+
+// 伏笔最终表（与后端 llmTypes.ts 同步）
+export interface ForeshadowingEntry {
+  id: string
+  setup: string
+  setupChapter: string
+  payoff: string
+  payoffChapter: string
+  status: string
+  characters: string[]
+  items: string[]
+}
+export interface ForeshadowingData {
+  entries: ForeshadowingEntry[]
+}
+
 // 三选一故事梗概
 export function synopsisOptions(opts: {
   topic: string
@@ -318,4 +348,32 @@ export function inspiration(opts: { keyword?: string; genre?: string }) {
 // 智能对话（小Man）
 export function smartChat(opts: { message: string; context?: string; novelInfo?: string }) {
   return postJson<{ content: string }>('/api/llm/smart-chat', opts)
+}
+
+// ==================== 时间线 / 伏笔表 / 作品简介（Phase 7-10） ====================
+
+// 时间线生成（需传入前序产物作为上下文）
+export function fetchTimeline(opts: {
+  topic: string
+  synopsis?: string
+  masterOutline?: MasterOutlineData
+  characters?: ScriptCharacter[]
+  worldview?: WorldviewData
+  lorebook?: LorebookEntry[]
+  model?: string
+}) {
+  return postJson<TimelineData>('/api/llm/timeline', opts)
+}
+
+// 伏笔表生成（需传入前序产物作为上下文）
+export function fetchForeshadowing(opts: {
+  topic: string
+  synopsis?: string
+  masterOutline?: MasterOutlineData
+  characters?: ScriptCharacter[]
+  timeline?: TimelineData
+  lorebook?: LorebookEntry[]
+  model?: string
+}) {
+  return postJson<ForeshadowingData>('/api/llm/foreshadowing', opts)
 }

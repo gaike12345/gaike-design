@@ -9,6 +9,7 @@
 import { create } from 'zustand'
 import { api } from '../services/api'
 import logger from '../utils/logger'
+import { downloadAndCache } from '../services/mediaCache'
 import { buildImageUrl, buildRetryUrl, generateViaBackend, img2imgViaBackend } from '../services/imageApi'
 import { getImageModel, validateRatio, validateResolution } from '../config/imageModels'
 import { useQuotaStore } from './useQuotaStore'
@@ -437,6 +438,10 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       // 追加到已有结果前面（最新的在最前面）
       const allResults = [...newResults, ...existingResults]
       get().updateNodeData(nodeId, { imageResults: allResults })
+      // 异步缓存到 IndexedDB（签名 URL 2小时过期前立即下载 Blob 存入本地）
+      for (const r of newResults) {
+        if (r.originalUrl) void downloadAndCache(r.url, r.originalUrl)
+      }
       // 刷新右上角积分显示（后端已扣减）
       void useQuotaStore.getState().refreshQuota({ force: true })
     } catch (e) {
@@ -556,6 +561,8 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       }],
       imageStatus: 'done' as GenStatus,
     }, false)
+    // 异步缓存拖入的图片到 IndexedDB
+    void downloadAndCache(fullUrl, fullUrl)
     return newNodeId
   },
 
@@ -705,6 +712,10 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
         void useQuotaStore.getState().refreshQuota({ force: true })
       }
       get().updateNodeData(nodeId, patch)
+      // 视频生成完成后异步缓存到 IndexedDB（CDN 链接可能过期，需立即下载 Blob）
+      if (newStatus === 'done' && res.url) {
+        void downloadAndCache(res.url, res.url)
+      }
       if (newStatus === 'done' || newStatus === 'error') pollRegistry.stop(nodeId)
     } catch (e) {
       // 轮询失败不立即标记为 error，可能是临时网络问题

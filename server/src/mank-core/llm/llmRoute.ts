@@ -19,6 +19,32 @@ import logger from '../../mank-infra/logging/logger'
 import { BusinessError } from '../../mank-common/errors'
 
 /**
+ * 构建作品上下文前缀（Phase 5：上下文注入机制）
+ *
+ * 从 req.body 中读取所有已有的作品信息（topic, synopsis, masterOutline,
+ * characters, characterRelations, worldview, lorebook, timeline, foreshadowing），
+ * 拼接成结构化上下文前缀，注入到 userPrompt 之前，让 LLM 在生成时间线、
+ * 伏笔等后续接口时能够引用已有元素编号（JS1 / T1 / F1 等）。
+ *
+ * 该函数返回的字符串会作为 userPrompt 的前缀，后接 `---` 分隔符。
+ * 当 body 中没有任何可识别的作品字段时，返回空字符串，避免产生无意义的前缀。
+ */
+function buildWorkContext(body: any): string {
+  if (!body || typeof body !== 'object') return ''
+  const lines: string[] = []
+  if (body.topic) lines.push(`【创作主题】\n${body.topic}`)
+  if (body.synopsis) lines.push(`【故事方向】\n${body.synopsis}`)
+  if (body.masterOutline) lines.push(`【总纲】\n${JSON.stringify(body.masterOutline)}`)
+  if (body.characters) lines.push(`【角色列表】\n${JSON.stringify(body.characters)}`)
+  if (body.characterRelations) lines.push(`【角色关系】\n${JSON.stringify(body.characterRelations)}`)
+  if (body.worldview) lines.push(`【世界观】\n${JSON.stringify(body.worldview)}`)
+  if (body.lorebook) lines.push(`【设定库】\n${JSON.stringify(body.lorebook)}`)
+  if (body.timeline) lines.push(`【时间线】\n${JSON.stringify(body.timeline)}`)
+  if (body.foreshadowing) lines.push(`【伏笔表】\n${JSON.stringify(body.foreshadowing)}`)
+  return lines.length > 0 ? lines.join('\n\n') + '\n\n---\n\n' : ''
+}
+
+/**
  * 统一的 fallback 响应结构（demo 模式 / LLM 调用失败时返回）
  * - ok: false 表示非 LLM 直接结果
  * - source: 'template' 表示走的是占位模板
@@ -203,7 +229,11 @@ export function llmRouteJson<T>(
     const userId = (req as any).user?.userId as string | undefined
     const endpoint = req.path
     const fullPrompt = `${WRITING_SYSTEM_PROMPT}\n\n---\n\n${systemPrompt}`
-    const userPrompt = userPromptBuilder ? userPromptBuilder(req.body || {}) : JSON.stringify(req.body || {})
+    // Phase 5：在 userPrompt 前注入已有作品上下文（topic/synopsis/characters/worldview/timeline/foreshadowing 等），
+    // 让 LLM 在生成时间线、伏笔等后续接口时能够引用已有元素编号（JS1 / T1 / F1 等）。
+    const userPrompt = userPromptBuilder
+      ? buildWorkContext(req.body || {}) + userPromptBuilder(req.body || {})
+      : buildWorkContext(req.body || {}) + JSON.stringify(req.body || {})
     const model = (req.body?.model as string) || undefined
 
     const ctx: PipelineContext = { req, res, userId, endpoint, userPrompt, systemPrompt: fullPrompt, fallback }
@@ -250,7 +280,11 @@ export function llmRouteText<T>(
     const userId = (req as any).user?.userId as string | undefined
     const endpoint = req.path
     const fullPrompt = `${WRITING_SYSTEM_PROMPT}\n\n---\n\n${systemPrompt}`
-    const userPrompt = userPromptBuilder ? userPromptBuilder(req.body || {}) : JSON.stringify(req.body || {})
+    // Phase 5：在 userPrompt 前注入已有作品上下文（topic/synopsis/characters/worldview/timeline/foreshadowing 等），
+    // 让 LLM 在生成时间线、伏笔等后续接口时能够引用已有元素编号（JS1 / T1 / F1 等）。
+    const userPrompt = userPromptBuilder
+      ? buildWorkContext(req.body || {}) + userPromptBuilder(req.body || {})
+      : buildWorkContext(req.body || {}) + JSON.stringify(req.body || {})
     const model = (req.body?.model as string) || undefined
 
     const ctx: PipelineContext = { req, res, userId, endpoint, userPrompt, systemPrompt: fullPrompt, fallback }

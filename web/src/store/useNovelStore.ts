@@ -10,6 +10,8 @@ import {
   openingLine,
   inspiration,
   smartChat,
+  fetchTimeline,
+  fetchForeshadowing,
   type SynopsisOption,
   type MasterOutlineData,
   type VolumeOutlineData,
@@ -18,9 +20,49 @@ import {
   type InspirationData,
   type VolumeNode,
   type ChapterNode,
+  type ScriptCharacter,
+  type WorldviewData,
+  type LorebookEntry,
+  type TimelineData,
+  type TimelineEntry,
+  type ForeshadowingData,
+  type ForeshadowingEntry,
 } from '../services/textApi'
+import { generateViaBackend } from '../services/imageApi'
+import { useQuotaStore } from './useQuotaStore'
+
+// 作品封面图片生成模型（GPT Image 2.5 Flare · INPUT CHEAP · 1 积分）
+const COVER_MODEL_ID = 'community/sharktide/gpt-image-2.5-flare-input-cheap'
 
 export type ScriptStatus = 'idle' | 'running' | 'done' | 'error'
+
+// 时间线生成上下文（由 useScriptStore.buildActions 从多个子 store 组装传入）
+export interface TimelineGenCtx {
+  topic: string
+  synopsis?: string
+  masterOutline?: MasterOutlineData
+  characters?: ScriptCharacter[]
+  worldview?: WorldviewData
+  lorebook?: LorebookEntry[]
+}
+
+// 伏笔表生成上下文
+export interface ForeshadowingGenCtx {
+  topic: string
+  synopsis?: string
+  masterOutline?: MasterOutlineData
+  characters?: ScriptCharacter[]
+  timeline?: TimelineData
+  lorebook?: LorebookEntry[]
+}
+
+// 作品封面生成上下文
+export interface CoverGenCtx {
+  topic: string
+  synopsis?: string
+  masterOutline?: MasterOutlineData
+  novelGenre?: string
+}
 
 export interface NovelState {
   novelGenre: string
@@ -95,6 +137,26 @@ export interface NovelState {
 
   currentChapterWordCount: () => number
   totalWordCount: () => number
+
+  // —— Phase 8: 时间线 ——
+  timelineData: TimelineData | null
+  timelineStatus: ScriptStatus
+  runTimeline: (ctx: TimelineGenCtx) => Promise<void>
+  updateTimelineEntry: (id: string, partial: Partial<TimelineEntry>) => void
+  setTimelineData: (data: TimelineData | null) => void
+
+  // —— Phase 8: 伏笔最终表 ——
+  foreshadowingData: ForeshadowingData | null
+  foreshadowingStatus: ScriptStatus
+  runForeshadowing: (ctx: ForeshadowingGenCtx) => Promise<void>
+  updateForeshadowingEntry: (id: string, partial: Partial<ForeshadowingEntry>) => void
+  setForeshadowingData: (data: ForeshadowingData | null) => void
+
+  // —— Phase 8: 作品封面 ——
+  coverImage: string | null
+  coverStatus: ScriptStatus
+  runCoverImage: (ctx: CoverGenCtx) => Promise<void>
+  setCoverImage: (url: string | null) => void
 }
 
 export const useNovelStore = create<NovelState>((set, get) => ({
@@ -316,4 +378,83 @@ export const useNovelStore = create<NovelState>((set, get) => ({
     return ch ? ch.wordCount : 0
   },
   totalWordCount: () => get().volumes.reduce((sum, v) => sum + v.chapters.reduce((s, c) => s + c.wordCount, 0), 0),
+
+  // —— Phase 8: 时间线 ——
+  timelineData: null,
+  timelineStatus: 'idle',
+  runTimeline: async (ctx) => {
+    const { novelModel, timelineStatus } = get()
+    if (!ctx.topic.trim() || timelineStatus === 'running') return
+    set({ timelineStatus: 'running', timelineData: null })
+    const resp = await fetchTimeline({ ...ctx, model: novelModel || undefined })
+    if (!resp.ok || !resp.data) { set({ timelineStatus: 'error' }); return }
+    set({ timelineStatus: 'done', timelineData: resp.data })
+  },
+  updateTimelineEntry: (id, partial) => set((s) => {
+    if (!s.timelineData) return s
+    return {
+      timelineData: {
+        entries: s.timelineData.entries.map((e) => (e.id === id ? { ...e, ...partial } : e)),
+      },
+    }
+  }),
+  setTimelineData: (data) => set({ timelineData: data }),
+
+  // —— Phase 8: 伏笔最终表 ——
+  foreshadowingData: null,
+  foreshadowingStatus: 'idle',
+  runForeshadowing: async (ctx) => {
+    const { novelModel, foreshadowingStatus } = get()
+    if (!ctx.topic.trim() || foreshadowingStatus === 'running') return
+    set({ foreshadowingStatus: 'running', foreshadowingData: null })
+    const resp = await fetchForeshadowing({ ...ctx, model: novelModel || undefined })
+    if (!resp.ok || !resp.data) { set({ foreshadowingStatus: 'error' }); return }
+    set({ foreshadowingStatus: 'done', foreshadowingData: resp.data })
+  },
+  updateForeshadowingEntry: (id, partial) => set((s) => {
+    if (!s.foreshadowingData) return s
+    return {
+      foreshadowingData: {
+        entries: s.foreshadowingData.entries.map((e) => (e.id === id ? { ...e, ...partial } : e)),
+      },
+    }
+  }),
+  setForeshadowingData: (data) => set({ foreshadowingData: data }),
+
+  // —— Phase 8: 作品封面 ——
+  coverImage: null,
+  coverStatus: 'idle',
+  runCoverImage: async (ctx) => {
+    const { coverStatus } = get()
+    if (coverStatus === 'running') return
+    set({ coverStatus: 'running', coverImage: null })
+    // 由梗概/总纲/主题组装封面 prompt
+    const genreHint = ctx.novelGenre && ctx.novelGenre !== '通用' ? `，${ctx.novelGenre}风格` : ''
+    const premise = ctx.masterOutline?.premise || ''
+    const mainline = ctx.masterOutline?.mainline || ''
+    const prompt = [
+      '小说封面插画',
+      ctx.synopsis || ctx.topic,
+      premise,
+      mainline,
+      '电影质感，史诗构图，竖版海报，高细节，8k',
+    ].filter(Boolean).join('，') + genreHint
+    try {
+      const res = await generateViaBackend({
+        prompt,
+        ratio: '9:16',
+        model: COVER_MODEL_ID,
+        batch: 1,
+      })
+      const url = res.images?.[0]?.url
+      if (!url) { set({ coverStatus: 'error' }); return }
+      set({ coverStatus: 'done', coverImage: url })
+    } catch {
+      set({ coverStatus: 'error' })
+    } finally {
+      // 后端已扣减/返还积分，刷新前端显示
+      void useQuotaStore.getState().refreshQuota({ force: true })
+    }
+  },
+  setCoverImage: (url) => set({ coverImage: url, coverStatus: url ? 'done' : 'idle' }),
 }))

@@ -30,6 +30,7 @@ import { useQuotaModalStore } from '../../store/useQuotaModalStore'
 import { useQuotaStore } from '../../store/useQuotaStore'
 import { buildRetryUrl } from '../../services/imageApi'
 import { uploadFile, api } from '../../services/api'
+import { CachedImg, CachedVideo } from './CachedMedia'
 
 // 免费翻译函数 —— 使用 MyMemory Translation API（无需 API Key）
 // 中→英 方向；自动检测是否包含中文，不包含时原样返回
@@ -1004,8 +1005,9 @@ export const ImageNode = memo(function ImageNode({ node }: { node: UCanvasNode }
 
         {/* 预览图 —— object-cover 铺满固定 16:9 预览框，真实效果通过全屏预览看 */}
         {cur && cur.status !== 'error' && (
-          <img
+          <CachedImg
             src={cur.url}
+            cacheKey={cur.originalUrl || cur.url}
             alt="生成图"
             draggable={false}
             className="h-full w-full object-cover transition-opacity duration-200 pointer-events-none select-none"
@@ -2532,9 +2534,9 @@ export const VideoNode = memo(function VideoNode({ node }: { node: UCanvasNode }
         {cur && status !== 'error' && status !== 'running' && status !== 'queued' && (
           <>
             {cur.thumbnail ? (
-              <img src={cur.thumbnail} alt="视频缩略图" className="h-full w-full object-cover" />
+              <CachedImg src={cur.thumbnail} alt="视频缩略图" className="h-full w-full object-cover" />
             ) : cur.url ? (
-              <video
+              <CachedVideo
                 src={cur.url}
                 className="h-full w-full object-cover"
                 muted
