@@ -1344,6 +1344,7 @@ export function ImageSettingsPanel({ node }: { node: UCanvasNode }) {
                 >
                   <Bot className={cn('h-3.5 w-3.5 shrink-0', model === m.id ? 'text-cyan-300' : 'text-neutral-500')} />
                   <span className={cn('truncate text-[11px]', model === m.id ? 'text-cyan-100' : 'text-neutral-200')}>{m.label}</span>
+                  <span className="ml-auto shrink-0 text-[9px] text-neutral-500">{m.costTokens}积分</span>
                 </button>
               ))}
               </div>
@@ -1982,6 +1983,7 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
                   <Film className={cn('h-3.5 w-3.5 shrink-0', model === m.id ? 'text-amber-300' : 'text-neutral-500')} />
                   <span className={cn('truncate text-[11px]', model === m.id ? 'text-amber-100' : 'text-neutral-200')}>{m.label}</span>
                   {m.tag && <span className="rounded bg-amber-500/20 px-1 text-[8px] font-bold text-amber-300">{m.tag}</span>}
+                  <span className="ml-auto shrink-0 text-[9px] text-neutral-500">{m.costTokens}积分</span>
                 </button>
               ))}
               </div>
