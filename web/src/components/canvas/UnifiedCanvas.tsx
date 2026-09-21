@@ -95,6 +95,7 @@ export default function UnifiedCanvas() {
   const startDrag = useUnifiedCanvasStore((s) => s.startDrag)
   const endDrag = useUnifiedCanvasStore((s) => s.endDrag)
   const addNode = useUnifiedCanvasStore((s) => s.addNode)
+  const addExternalImage = useUnifiedCanvasStore((s) => s.addExternalImage)
   const addConnection = useUnifiedCanvasStore((s) => s.addConnection)
 
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
@@ -106,6 +107,7 @@ export default function UnifiedCanvas() {
 
   // 右上角弹出菜单状态
   const [quotaDropdownOpen, setQuotaDropdownOpen] = useState(false)
+  const [externalDragOver, setExternalDragOver] = useState(false)
   const [profilePopoverOpen, setProfilePopoverOpen] = useState(false)
 
   // refs 避免事件监听器依赖变化导致重建
@@ -249,6 +251,60 @@ export default function UnifiedCanvas() {
   // 更新 ref，确保事件监听器始终使用最新的视口变换
   toCanvasRef.current = toCanvas
   toScreenRef.current = toScreen
+
+  // ===== 外部图片拖入画布 =====
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    // 只处理包含文件或图片URL的拖拽
+    const hasFiles = e.dataTransfer.types.includes('Files')
+    const hasUrl = e.dataTransfer.types.includes('text/uri-list') || e.dataTransfer.types.includes('text/plain')
+    if (hasFiles || hasUrl) {
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'copy'
+      setExternalDragOver(true)
+    }
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    // 只在离开画布根容器时清除（防止子元素进出触发）
+    if (e.currentTarget === e.target) setExternalDragOver(false)
+  }, [])
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault()
+    setExternalDragOver(false)
+    const pos = toCanvas(e.clientX, e.clientY)
+
+    // 优先处理文件拖入
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'))
+    if (files.length > 0) {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        const offset = i * 40 // 多图错开
+        try {
+          const formData = new FormData()
+          formData.append('file', file)
+          const token = localStorage.getItem('token')
+          const res = await fetch('/api/upload/image', {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData,
+          })
+          const data = await res.json()
+          if (!res.ok) throw new Error(data.error || '上传失败')
+          addExternalImage(data.url, { x: pos.x + offset, y: pos.y + offset })
+        } catch (err) {
+          console.error('图片拖入上传失败:', file.name, err)
+        }
+      }
+      return
+    }
+
+    // 处理图片URL拖入（从浏览器其他标签页）
+    const imgUrl = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain')
+    if (imgUrl && /^https?:\/\//.test(imgUrl)) {
+      addExternalImage(imgUrl, pos)
+    }
+  }, [toCanvas, addExternalImage])
 
   // 画布页面挂载时：给 body 加深色主题，卸载时恢复
   useEffect(() => {
@@ -765,7 +821,16 @@ export default function UnifiedCanvas() {
   }, [])
 
   return (
-    <div className="canvas-dark relative h-full w-full overflow-hidden bg-black">
+    <div
+      className="canvas-dark relative h-full w-full overflow-hidden bg-black"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* 外部拖拽视觉提示 */}
+      {externalDragOver && (
+        <div className="pointer-events-none absolute inset-0 z-40 border-2 border-dashed border-amber-400/60 bg-amber-500/5 transition-colors" />
+      )}
       {/* 左上角：Man TV logo + 下拉菜单（4 个选项） */}
       <div className="pointer-events-auto absolute top-4 left-4 z-30" ref={logoMenuRef}>
         <button

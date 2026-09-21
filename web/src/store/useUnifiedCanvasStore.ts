@@ -182,6 +182,8 @@ interface UnifiedCanvasState {
   clearImageResults: (nodeId: string) => void
   /** 创建连接的图片节点（高清/9宫格/四视图）：自动创建新节点+连接线+img2img 生成 */
   createConnectedImageNode: (sourceNodeId: string, mode: 'hd' | '9grid' | '4view') => void
+  /** 从外部图片 URL 创建图片节点（拖拽外部图片到画布） */
+  addExternalImage: (url: string, position: { x: number; y: number }) => string
   runVideoGen: (nodeId: string) => Promise<void>
   pollVideoTask: (nodeId: string) => Promise<void>
   runAudioGen: (nodeId: string) => Promise<void>
@@ -533,6 +535,26 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
 
     // 自动启动生成（img2img 模式，runImageGen 会自动从 ref 连接读取参考图）
     setTimeout(() => { get().runImageGen(newNodeId) }, 100)
+  },
+
+  addExternalImage: (url, position) => {
+    // 外部图片拖入画布：创建带预填结果的图片节点
+    const fullUrl = url.startsWith('http') ? url : `${window.location.origin}${url}`
+    const displayUrl = url.startsWith('http') ? url : url
+    const imgId = uid('img')
+    const newNodeId = get().addNode('image', position, {
+      imageResults: [{
+        id: imgId,
+        url: displayUrl,
+        originalUrl: fullUrl,
+        prompt: '',
+        seed: 0,
+        ratio: '1:1' as const,
+        status: 'done' as ImageStatus,
+      }],
+      imageStatus: 'done' as GenStatus,
+    }, false)
+    return newNodeId
   },
 
   runVideoGen: async (nodeId) => {
