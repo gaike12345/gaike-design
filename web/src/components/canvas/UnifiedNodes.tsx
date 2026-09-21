@@ -1127,13 +1127,13 @@ export function ImageSettingsPanel({ node }: { node: UCanvasNode }) {
   const modelFeatures = modelCfg.features
   const modelQualityOptions = modelFeatures?.quality ? (modelFeatures.qualityOptions || []) : []
   const modelSupportsTransparent = modelFeatures?.transparent === true
-  const sortedImageModels = (() => {
+  const sortedImageModels = useMemo(() => {
     const copy = [...imageModelList]
     if (imageSortMode === 'price-desc') copy.sort((a, b) => b.costTokens - a.costTokens)
     else if (imageSortMode === 'price-asc') copy.sort((a, b) => a.costTokens - b.costTokens)
     else copy.sort((a, b) => a.label.localeCompare(b.label, 'zh'))
     return copy
-  })()
+  }, [imageModelList, imageSortMode])
   const cur = results[0]
   const refCount = getSourceRefs(node.id, 'ref').length
 
@@ -1772,7 +1772,7 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
   const defaultDur = modelCfg?.defaultDuration || '5s'
   const defaultRes = modelCfg?.defaultResolution || '720p'
   const defaultRatio = modelCfg?.defaultRatio || '16:9'
-  const sortedVideoModels = (() => {
+  const sortedVideoModels = useMemo(() => {
     // 根据当前选中的功能模式过滤模型列表
     const refMode = (node.data.videoRefMode as string) ?? 'omni'
     const filteredByMode = videoModelList.filter((m) => {
@@ -1789,7 +1789,7 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
     else if (videoSortMode === 'price-asc') copy.sort((a, b) => a.costTokens - a.costTokens)
     else copy.sort((a, b) => a.label.localeCompare(b.label, 'zh'))
     return copy
-  })()
+  }, [videoModelList, videoSortMode, node.data.videoRefMode])
 
   // 模型切换后自动校验参数是否有效：
   // resolution 不在新模型支持列表 → 重置为 defaultRes
