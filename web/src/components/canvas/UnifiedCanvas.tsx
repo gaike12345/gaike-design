@@ -298,6 +298,11 @@ export default function UnifiedCanvas() {
     // 处理图片URL拖入（从浏览器其他标签页）
     const imgUrl = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain')
     if (imgUrl && /^https?:\/\//.test(imgUrl)) {
+      // 与文件拖入一致：未登录时阻止（img2img 触发时需要上传到服务器）
+      if (!getToken()) {
+        toast('请先登录后再拖入图片', 'error')
+        return
+      }
       addExternalImage(imgUrl, { x: cx, y: cy })
     }
   }, [toCanvas, addExternalImage, addExternalImageFile])

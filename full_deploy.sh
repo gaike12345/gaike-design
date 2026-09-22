@@ -26,8 +26,30 @@ cd ../web
 npm run build 2>&1 | tail -5
 
 echo "===STEP6: Deploy Frontend==="
+# Parity 检查：确保 dist 是最新构建（防止 dist 滞后导致功能缺失）
+DIST_JS=$(grep -oE 'assets/index-[A-Za-z0-9_]+\.js' dist/index.html | head -1)
+if [ -z "$DIST_JS" ] || [ ! -f "dist/$DIST_JS" ]; then
+  echo "ERROR: dist/index.html 或构建产物缺失，重新构建..."
+  npm run build 2>&1 | tail -5
+fi
+DIST_JS=$(grep -oE 'assets/index-[A-Za-z0-9_]+\.js' dist/index.html | head -1)
+echo "Deploying JS: $DIST_JS"
+
 rm -rf /var/www/gaike.xyz/*
 cp -r dist/* /var/www/gaike.xyz/
+# 修复文件权限（SCP 部署会导致目录权限 700，nginx 无法读取）
+find /var/www/gaike.xyz -type d -exec chmod 755 {} \;
+find /var/www/gaike.xyz -type f -exec chmod 644 {} \;
+chown -R nginx:nginx /var/www/gaike.xyz/ 2>/dev/null || chown -R www-data:www-data /var/www/gaike.xyz/ 2>/dev/null
+echo "Frontend permissions fixed"
+
+# Parity 验证：nginx 服务的版本与 dist 一致
+NGINX_JS=$(grep -oE 'assets/index-[A-Za-z0-9_]+\.js' /var/www/gaike.xyz/index.html | head -1)
+if [ "$DIST_JS" != "$NGINX_JS" ]; then
+  echo "ERROR: Parity 故障！dist($DIST_JS) != nginx($NGINX_JS)，部署中止"
+  exit 1
+fi
+echo "Parity 验证通过：dist 与 nginx 部署版本一致"
 
 echo "===STEP7: Restart Backend==="
 cd ../server

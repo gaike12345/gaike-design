@@ -89,6 +89,9 @@ const pollRegistry = new PollRegistry()
 // 仅在 img2img/img2video 触发时才上传到服务器拿公网 URL
 // File 对象不可序列化，因此单独存放在模块级 Map，不进入 set/get 状态
 const pendingUploadFiles = new Map<string, File>()
+// 外部 URL 拖入（从浏览器其他标签页）：URL 在 img2img 触发时通过 /api/upload/image-from-url 下载到服务器
+// 与 pendingUploadFiles 并列，统一走 pendingUpload 标记流程
+const pendingUploadUrls = new Map<string, string>()
 
 /**
  * 客户端图片压缩：大图缩到 maxSize 内 + 转 JPEG quality 0.85
@@ -326,6 +329,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     pollRegistry.stop(id)
     imageGenQueue.cancel(id) // 取消该节点的排队/生成
     pendingUploadFiles.delete(id) // 方案 C：清理待上传的 File 引用
+    pendingUploadUrls.delete(id) // 外部 URL 拖入：清理待下载的 URL 引用
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== id),
       connections: s.connections.filter((c) => c.source.nodeId !== id && c.target.nodeId !== id),
@@ -612,8 +616,10 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
   },
 
   addExternalImage: (url, position) => {
-    // 外部图片拖入画布：创建带预填结果的图片节点
+    // 外部 URL 拖入画布：创建带预填结果的图片节点
     // 必须先展开 defaultNodeData('image') 作为 base，否则节点缺少 imageModel 等必需字段
+    // 与 addExternalImageFile 统一：pendingUpload=true，在 img2img 触发时通过
+    // /api/upload/image-from-url 下载到本服务器拿公网 URL，避免 Pollinations 无法访问外部 URL
     const fullUrl = url.startsWith('http') ? url : `${window.location.origin}${url}`
     const imgId = uid('img')
     const base = defaultNodeData('image')
@@ -627,10 +633,13 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
         seed: 0,
         ratio: '1:1' as const,
         status: 'done' as ImageStatus,
+        pendingUpload: true,
         createdAt: Date.now(),
       }],
       imageStatus: 'done' as GenStatus,
     }, false)
+    // URL 单独存放，img2img 触发时通过 image-from-url 接口下载
+    pendingUploadUrls.set(newNodeId, fullUrl)
     // 异步缓存拖入的图片到 IndexedDB
     void downloadAndCache(fullUrl, fullUrl)
     return newNodeId
@@ -665,28 +674,43 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
   uploadPendingImage: async (nodeId) => {
     // 方案 C：上传 pendingUpload 的图片到服务器，返回公网 URL
     // 调用方：runImageGen/runVideoGen 在读取 refImageUrl 时调用
+    // 支持两种 pendingUpload 来源：
+    //   1. pendingUploadFiles：本地拖入的 File 对象 → /api/upload/image（multipart）
+    //   2. pendingUploadUrls：浏览器其他标签页拖入的外部 URL → /api/upload/image-from-url（JSON）
+    // 两种路径都把图片落到本服务器 /uploads/，返回本服务器公网 URL，
+    // 确保 Pollinations 能公网访问（外部 URL 可能被 CORS/hotlink/auth 拦截）
     const file = pendingUploadFiles.get(nodeId)
-    if (!file) return null
+    const url = pendingUploadUrls.get(nodeId)
+    if (!file && !url) return null
     try {
-      // 客户端压缩（大图缩到 1920px + JPEG 0.85），上传速度提升数十倍
-      const compressed = await compressImageForUpload(file)
-      const data = await uploadFile('/api/upload/image', compressed)
-      const fullUrl = data.url.startsWith('http') ? data.url : `${window.location.origin}${data.url}`
+      let dataUrl: string
+      if (file) {
+        // 本地 File：客户端压缩后 multipart 上传
+        const compressed = await compressImageForUpload(file)
+        const data = await uploadFile('/api/upload/image', compressed)
+        dataUrl = data.url
+      } else {
+        // 外部 URL：服务端下载到 /uploads/（绕过浏览器 CORS）
+        const data = await api.post<{ url: string }>('/api/upload/image-from-url', { url })
+        dataUrl = data.url
+      }
+      const fullUrl = dataUrl.startsWith('http') ? dataUrl : `${window.location.origin}${dataUrl}`
       // 更新节点 imageResults：把 pendingUpload=true 的图片 url/originalUrl 更新为公网 URL
       set((s) => ({
         nodes: s.nodes.map((n) => {
           if (n.id !== nodeId) return n
           const updated = (n.data.imageResults ?? []).map((r) =>
             r.pendingUpload
-              ? { ...r, url: data.url, originalUrl: fullUrl, pendingUpload: false }
+              ? { ...r, url: dataUrl, originalUrl: fullUrl, pendingUpload: false }
               : r,
           )
           return { ...n, data: { ...n.data, imageResults: updated } }
         }),
       }))
       pendingUploadFiles.delete(nodeId)
+      pendingUploadUrls.delete(nodeId)
       // 异步缓存到 IndexedDB
-      void downloadAndCache(data.url, fullUrl)
+      void downloadAndCache(dataUrl, fullUrl)
       return fullUrl
     } catch (e) {
       logger.error('uploadPendingImage failed:', e)
