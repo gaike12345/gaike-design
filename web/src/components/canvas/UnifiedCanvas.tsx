@@ -40,52 +40,6 @@ type IconComponent = ComponentType<SVGProps<SVGSVGElement> & { size?: number | s
 
 const NODE_BORDER = 1
 
-/**
- * 客户端图片压缩：大图缩到 maxSize 边内，转 JPEG quality
- * PNG 透明背景会保留为 PNG 格式
- * 34MB PNG → ~500KB，上传速度提升数十倍
- */
-async function compressImage(file: File, maxSize = 1920, quality = 0.85): Promise<File> {
-  // 小文件（< 1MB）直接返回，不压缩
-  if (file.size < 1 * 1024 * 1024) return file
-  const isPng = file.type === 'image/png'
-  const isTransparent = isPng // PNG 可能有透明通道，保留格式
-
-  return new Promise((resolve) => {
-    const img = new Image()
-    const url = URL.createObjectURL(file)
-    img.onload = () => {
-      URL.revokeObjectURL(url)
-      let { width, height } = img
-      // 缩放到 maxSize 内
-      if (width > maxSize || height > maxSize) {
-        const ratio = Math.min(maxSize / width, maxSize / height)
-        width = Math.round(width * ratio)
-        height = Math.round(height * ratio)
-      }
-      const canvas = document.createElement('canvas')
-      canvas.width = width
-      canvas.height = height
-      const ctx = canvas.getContext('2d')!
-      ctx.drawImage(img, 0, 0, width, height)
-      // PNG 保留透明通道，其他转 JPEG
-      const type = isTransparent ? 'image/png' : 'image/jpeg'
-      canvas.toBlob(
-        (blob) => {
-          if (!blob) { resolve(file); return }
-          const ext = isTransparent ? '.png' : '.jpg'
-          const baseName = file.name.replace(/\.[^.]+$/, '')
-          resolve(new File([blob], baseName + ext, { type, lastModified: Date.now() }))
-        },
-        type,
-        quality,
-      )
-    }
-    img.onerror = () => { URL.revokeObjectURL(url); resolve(file) }
-    img.src = url
-  })
-}
-
 // 端口 DOM 真实坐标（优先）：从 data-port-id 热区元素直接读屏幕中心，再反算画布坐标
 // 让连线端点与可见 + 号锚点视觉严格重合，不再依赖 size.height / NODE_BORDER 等常量猜测
 function getNodeRealHeight(nodeId: string, fallback: number): number {
@@ -144,6 +98,7 @@ export default function UnifiedCanvas() {
   const endDrag = useUnifiedCanvasStore((s) => s.endDrag)
   const addNode = useUnifiedCanvasStore((s) => s.addNode)
   const addExternalImage = useUnifiedCanvasStore((s) => s.addExternalImage)
+  const addExternalImageFile = useUnifiedCanvasStore((s) => s.addExternalImageFile)
   const addConnection = useUnifiedCanvasStore((s) => s.addConnection)
 
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
@@ -329,28 +284,13 @@ export default function UnifiedCanvas() {
         toast('请先登录后再拖入图片', 'error')
         return
       }
-      toast(`正在处理 ${files.length} 张图片...`, 'info')
+      // 方案 C：拖入文件 → 立即用 ObjectURL 显示预览（毫秒级），跳过服务器中转
+      // 仅在 img2img/img2video 触发时才上传到服务器拿公网 URL
+      // 避免用户因 15s 加载等待而误以为拖入失败反复重拖
       for (let i = 0; i < files.length; i++) {
         const file = files[i]
         const offset = i * 40 // 多图错开
-        try {
-          // 客户端压缩：大图缩到 max 1920px + 转 JPEG quality 0.85
-          // 34MB PNG → ~500KB JPEG，上传速度提升数十倍
-          const compressed = await compressImage(file, 1920, 0.85)
-          const formData = new FormData()
-          formData.append('file', compressed)
-          const res = await fetch('/api/upload/image', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}` },
-            body: formData,
-          })
-          const data = await res.json()
-          if (!res.ok) throw new Error(data.error || '上传失败')
-          addExternalImage(data.url, { x: cx + offset, y: cy + offset })
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : '上传失败'
-          toast(`图片上传失败：${msg}`, 'error')
-        }
+        addExternalImageFile(file, { x: cx + offset, y: cy + offset })
       }
       return
     }
@@ -360,7 +300,7 @@ export default function UnifiedCanvas() {
     if (imgUrl && /^https?:\/\//.test(imgUrl)) {
       addExternalImage(imgUrl, { x: cx, y: cy })
     }
-  }, [toCanvas, addExternalImage])
+  }, [toCanvas, addExternalImage, addExternalImageFile])
 
   // 画布页面挂载时：给 body 加深色主题，卸载时恢复
   useEffect(() => {

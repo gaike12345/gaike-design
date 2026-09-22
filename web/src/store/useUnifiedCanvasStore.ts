@@ -7,7 +7,7 @@
 // 本文件只包含 Zustand store 状态和业务逻辑。
 
 import { create } from 'zustand'
-import { api } from '../services/api'
+import { api, uploadFile } from '../services/api'
 import logger from '../utils/logger'
 import { downloadAndCache } from '../services/mediaCache'
 import { buildImageUrl, buildRetryUrl, generateViaBackend, img2imgViaBackend } from '../services/imageApi'
@@ -83,6 +83,55 @@ export {
 }
 
 const pollRegistry = new PollRegistry()
+
+// ==================== 方案 C：拖入文件本地预览 ====================
+// 拖入文件 → 立即用 ObjectURL 显示预览（毫秒级，无需上传等待）
+// 仅在 img2img/img2video 触发时才上传到服务器拿公网 URL
+// File 对象不可序列化，因此单独存放在模块级 Map，不进入 set/get 状态
+const pendingUploadFiles = new Map<string, File>()
+
+/**
+ * 客户端图片压缩：大图缩到 maxSize 内 + 转 JPEG quality 0.85
+ * 与 UnifiedCanvas.tsx 中的 compressImage 保持一致逻辑
+ * 用于 uploadPendingImage 上传前压缩（34MB PNG → ~500KB JPEG）
+ */
+async function compressImageForUpload(file: File, maxSize = 1920, quality = 0.85): Promise<File> {
+  if (file.size < 1 * 1024 * 1024) return file
+  const isPng = file.type === 'image/png'
+  return new Promise((resolve) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      let { width, height } = img
+      if (width > maxSize || height > maxSize) {
+        const ratio = Math.min(maxSize / width, maxSize / height)
+        width = Math.round(width * ratio)
+        height = Math.round(height * ratio)
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(img, 0, 0, width, height)
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) { resolve(file); return }
+          const compressed = new File(
+            [blob],
+            file.name.replace(/\.[^.]+$/, isPng ? '.png' : '.jpg'),
+            { type: isPng ? 'image/png' : 'image/jpeg' },
+          )
+          resolve(compressed)
+        },
+        isPng ? 'image/png' : 'image/jpeg',
+        quality,
+      )
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file) }
+    img.src = url
+  })
+}
 
 // ==================== 图片生成并发队列 ====================
 // Pollinations API 对并发请求有限制，同时生成太多会失败
@@ -185,6 +234,10 @@ interface UnifiedCanvasState {
   createConnectedImageNode: (sourceNodeId: string, mode: 'hd' | '9grid' | '4view') => void
   /** 从外部图片 URL 创建图片节点（拖拽外部图片到画布） */
   addExternalImage: (url: string, position: { x: number; y: number }) => string
+  /** 方案 C：从本地 File 创建图片节点（立即用 ObjectURL 预览，pendingUpload=true，img2img 时才上传） */
+  addExternalImageFile: (file: File, position: { x: number; y: number }) => string
+  /** 方案 C：上传 pendingUpload 的图片到服务器，返回公网 URL；无 pendingUpload 则返回 null */
+  uploadPendingImage: (nodeId: string) => Promise<string | null>
   runVideoGen: (nodeId: string) => Promise<void>
   pollVideoTask: (nodeId: string) => Promise<void>
   runAudioGen: (nodeId: string) => Promise<void>
@@ -272,6 +325,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
   removeNode: (id) => {
     pollRegistry.stop(id)
     imageGenQueue.cancel(id) // 取消该节点的排队/生成
+    pendingUploadFiles.delete(id) // 方案 C：清理待上传的 File 引用
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== id),
       connections: s.connections.filter((c) => c.source.nodeId !== id && c.target.nodeId !== id),
@@ -363,6 +417,21 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
         // 必须用 originalUrl（Pollinations 原始公网地址），图生图时 Pollinations 服务器需要能公网访问
         // 代理 URL（/api/image/proxy）是本地的，Pollinations 访问不到，不能用于图生图
         if (imgs?.[0]?.originalUrl) {
+          // 方案 C：若参考图节点是 pendingUpload（拖入未上传），先上传到服务器拿公网 URL
+          if (imgs[0].pendingUpload) {
+            // 先标记为 running（让 UI 显示"上传中"反馈）
+            get().updateNodeData(nodeId, { imageStatus: 'running', imageErrorMsg: undefined })
+            const uploadedUrl = await get().uploadPendingImage(src.id)
+            if (!uploadedUrl) {
+              get().updateNodeData(nodeId, {
+                imageStatus: 'error',
+                imageErrorMsg: '参考图上传失败，请重试或检查网络',
+              })
+              return
+            }
+            refImageUrl = uploadedUrl
+            break
+          }
           refImageUrl = imgs[0].originalUrl
           break
         }
@@ -558,12 +627,71 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
         seed: 0,
         ratio: '1:1' as const,
         status: 'done' as ImageStatus,
+        createdAt: Date.now(),
       }],
       imageStatus: 'done' as GenStatus,
     }, false)
     // 异步缓存拖入的图片到 IndexedDB
     void downloadAndCache(fullUrl, fullUrl)
     return newNodeId
+  },
+
+  addExternalImageFile: (file, position) => {
+    // 方案 C：拖入文件 → 立即用 ObjectURL 预览（毫秒级），pendingUpload=true
+    // img2img/img2video 触发时（runImageGen/runVideoGen）才调用 uploadPendingImage 上传到服务器
+    const objectUrl = URL.createObjectURL(file)
+    const imgId = uid('img')
+    const base = defaultNodeData('image')
+    const newNodeId = get().addNode('image', position, {
+      ...base,
+      imageResults: [{
+        id: imgId,
+        url: objectUrl,
+        originalUrl: objectUrl, // 临时占位，上传后会更新为公网 URL
+        prompt: '',
+        seed: 0,
+        ratio: '1:1' as const,
+        status: 'done' as ImageStatus,
+        pendingUpload: true,
+        createdAt: Date.now(),
+      }],
+      imageStatus: 'done' as GenStatus,
+    }, false)
+    // File 对象单独存放，不进入 set/get 状态（不可序列化）
+    pendingUploadFiles.set(newNodeId, file)
+    return newNodeId
+  },
+
+  uploadPendingImage: async (nodeId) => {
+    // 方案 C：上传 pendingUpload 的图片到服务器，返回公网 URL
+    // 调用方：runImageGen/runVideoGen 在读取 refImageUrl 时调用
+    const file = pendingUploadFiles.get(nodeId)
+    if (!file) return null
+    try {
+      // 客户端压缩（大图缩到 1920px + JPEG 0.85），上传速度提升数十倍
+      const compressed = await compressImageForUpload(file)
+      const data = await uploadFile('/api/upload/image', compressed)
+      const fullUrl = data.url.startsWith('http') ? data.url : `${window.location.origin}${data.url}`
+      // 更新节点 imageResults：把 pendingUpload=true 的图片 url/originalUrl 更新为公网 URL
+      set((s) => ({
+        nodes: s.nodes.map((n) => {
+          if (n.id !== nodeId) return n
+          const updated = (n.data.imageResults ?? []).map((r) =>
+            r.pendingUpload
+              ? { ...r, url: data.url, originalUrl: fullUrl, pendingUpload: false }
+              : r,
+          )
+          return { ...n, data: { ...n.data, imageResults: updated } }
+        }),
+      }))
+      pendingUploadFiles.delete(nodeId)
+      // 异步缓存到 IndexedDB
+      void downloadAndCache(data.url, fullUrl)
+      return fullUrl
+    } catch (e) {
+      logger.error('uploadPendingImage failed:', e)
+      return null
+    }
   },
 
   runVideoGen: async (nodeId) => {
@@ -575,7 +703,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     const refConns = state.connections.filter((c) => c.target.nodeId === nodeId && c.target.portId === 'ref')
 
     // 构建 连接节点 → originalUrl 映射表（用于 @图N 解析）
-    const refNodeMap = new Map<string, { label: string; url: string }>()
+    const refNodeMap = new Map<string, { label: string; url: string; pendingUpload?: boolean; nodeId: string }>()
     for (const conn of refConns) {
       const src = state.nodes.find((n) => n.id === conn.source.nodeId)
       if (!src) continue
@@ -583,7 +711,12 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       const label = (src.data.__label as string) || ''
       const imgs = src.data.imageResults?.filter((r) => r.status === 'done')
       if (imgs?.[0]?.originalUrl) {
-        refNodeMap.set(src.id, { label, url: imgs[0].originalUrl })
+        refNodeMap.set(src.id, {
+          label,
+          url: imgs[0].originalUrl,
+          pendingUpload: imgs[0].pendingUpload === true,
+          nodeId: src.id,
+        })
       }
     }
 
@@ -597,6 +730,39 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     let imageUrl: string | undefined
     let collectedRefImages: string[] | undefined
     let prompt: string
+
+    // 方案 C：先批量上传所有 pendingUpload 的参考图（拿到公网 URL）
+    // 否则下面 imageUrl/collectedRefImages 会是 ObjectURL（视频服务器无法访问）
+    if (refNodeMap.size > 0) {
+      // 收集所有 pendingUpload 的节点 id（去重）
+      const pendingNodeIds = new Set<string>()
+      for (const [, info] of refNodeMap) {
+        if (info.pendingUpload) pendingNodeIds.add(info.nodeId)
+      }
+      if (pendingNodeIds.size > 0) {
+        // 先标记视频节点为 running（让 UI 显示"上传中"反馈）
+        get().updateNodeData(nodeId, { videoStatus: 'running', videoErrorMsg: undefined })
+        const uploadedMap = new Map<string, string>()
+        for (const srcId of pendingNodeIds) {
+          const uploaded = await get().uploadPendingImage(srcId)
+          if (uploaded) uploadedMap.set(srcId, uploaded)
+        }
+        // 用上传后的公网 URL 替换 refNodeMap 中的 ObjectURL
+        for (const [key, info] of refNodeMap) {
+          if (info.pendingUpload && uploadedMap.has(info.nodeId)) {
+            refNodeMap.set(key, { ...info, url: uploadedMap.get(info.nodeId)!, pendingUpload: false })
+          }
+        }
+        // 如果有 pendingUpload 但全部上传失败 → 阻止静默文生视频
+        if ([...refNodeMap.values()].some((i) => i.pendingUpload)) {
+          get().updateNodeData(nodeId, {
+            videoStatus: 'error',
+            videoErrorMsg: '参考图上传失败，请重试或检查网络',
+          })
+          return
+        }
+      }
+    }
 
     if (mentions.length > 0) {
       // 有 @引用：按 @出现顺序收集对应图片 URL

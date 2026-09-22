@@ -47,6 +47,10 @@ export interface GenImage {
   width?: number
   height?: number
   createdAt: number
+  // 方案 C：拖入文件时仅用 DataURL 本地预览，尚未上传到服务器
+  // true 表示 imageResults[i].url 是 DataURL，originalUrl 还未生成
+  // img2img 触发时（runImageGen）会先调用 store.uploadPendingImage(nodeId) 上传拿公网 URL
+  pendingUpload?: boolean
 }
 
 export interface VideoResult {
