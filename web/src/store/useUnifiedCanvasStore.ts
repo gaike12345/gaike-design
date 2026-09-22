@@ -449,7 +449,8 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       }
     }
 
-    const localPrompt = node.data.imagePrompt || ''
+    // strip [ref: 节点名称] 形式的内联引用标记，避免下游图片模型把它当成字面量 prompt
+    const localPrompt = (node.data.imagePrompt || '').replace(/\[ref:\s*[^\]]+\]/g, '').trim()
     if (!localPrompt.trim()) { get().updateNodeData(nodeId, { imageStatus: 'error' }); return }
 
     const model = node.data.imageModel || 'sdxl'
@@ -744,7 +745,9 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       }
     }
 
-    const rawPrompt = node.data.videoPrompt || 'AI 生成视频'
+    // strip [ref: 节点名称] 形式的内联引用标记（已由 mention 逻辑独立解析连接关系，
+    // 此处只清理 prompt 文本，避免下游视频模型把它当成字面量 prompt 影响生成）
+    const rawPrompt = (node.data.videoPrompt || 'AI 生成视频').replace(/\[ref:\s*[^\]]+\]/g, '').trim()
 
     // 解析 @图N 标签，按出现顺序收集参考图
     // 例："场景：@图1是家庭场景，人物：@图2是男主" → [@图1, @图2]
