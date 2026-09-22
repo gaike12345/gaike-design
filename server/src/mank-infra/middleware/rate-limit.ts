@@ -13,7 +13,7 @@ import { getRedis, isRedisReady } from '../cache/redis'
 // ============================================================
 const CACHE_REFRESH_MS = 60 * 1000
 const DEFAULTS = {
-  auth: 30, llm: 30, image: 60, audio: 20, video: 15,
+  auth: 30, llm: 30, image: 60, audio: 20, video: 60,
 }
 
 let cacheStamp = 0
