@@ -129,10 +129,10 @@ async function compressImageForUpload(file: File, maxSize = 1920, quality = 0.85
 }
 
 // ==================== 图片生成并发队列 ====================
-// Pollinations API 对并发请求有限制，同时生成太多会失败
-// 队列系统限制最多同时生成 2 个节点的图片，其余排队等待
+// Pollinations sk_ 密钥无速率限制，支持高并发
+// 队列系统限制最多同时生成 10 个节点的图片，其余排队等待
 // 任务完成条件：该节点的所有图片都加载完成（成功或失败）
-const MAX_CONCURRENT_IMAGE_GEN = 2
+const MAX_CONCURRENT_IMAGE_GEN = 10
 
 interface ImageGenQueueItem {
   nodeId: string
@@ -502,6 +502,8 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       }
       // 刷新右上角积分显示（后端已扣减）
       void useQuotaStore.getState().refreshQuota({ force: true })
+      // API 成功后立即释放队列槽位，图片加载是异步的不应阻塞队列
+      imageGenQueue.complete(nodeId)
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : '生成失败'
       get().updateNodeData(nodeId, { imageStatus: 'error', imageErrorMsg: errMsg })
@@ -512,7 +514,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     }
   },
 
-  /** 图片全部加载完成后调用，释放队列槽位，让下一个排队的节点开始生成 */
+  /** 图片全部加载完成后调用（保留兼容，队列已在 API 返回时释放） */
   completeImageGen: (nodeId) => {
     imageGenQueue.complete(nodeId)
   },
