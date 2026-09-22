@@ -682,7 +682,12 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     // 确保 Pollinations 能公网访问（外部 URL 可能被 CORS/hotlink/auth 拦截）
     const file = pendingUploadFiles.get(nodeId)
     const url = pendingUploadUrls.get(nodeId)
-    if (!file && !url) return null
+    if (!file && !url) {
+      // 多数场景：localStorage 加载后 File 引用丢失（页面刷新/关闭重开）
+      // 已由 loadFromStorage 主动清理，此处为兜底诊断日志
+      logger.error('uploadPendingImage', `Map miss nodeId=${nodeId}（页面刷新后 File 引用丢失，请重新拖入图片）`)
+      return null
+    }
     try {
       let dataUrl: string
       if (file) {
@@ -1085,6 +1090,25 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
             const next = (counters[n.type] ?? 0) + 1
             counters[n.type] = next
             labeledData.__label = `${UNODE_LABELS[n.type]}${next}`
+          }
+          // 失效清理：localStorage 不保存 pendingUploadFiles/Urls Map，加载后 Map 是空的；
+          // GenImage.pendingUpload=true 的项实际已无 File 引用，blob: URL 已被浏览器 revoke 失效。
+          // 必须清理，否则后续 img2img 会因 Map miss 而报"参考图上传失败"误导用户。
+          const data = labeledData as Record<string, unknown>
+          if (Array.isArray(data.imageResults)) {
+            let hasStale = false
+            const cleaned = (data.imageResults as Array<Record<string, unknown>>).map((r) => {
+              if (r.pendingUpload === true) {
+                hasStale = true
+                return { ...r, url: '', originalUrl: '', pendingUpload: false }
+              }
+              return r
+            })
+            if (hasStale) {
+              data.imageResults = cleaned
+              data.imageStatus = 'error'
+              data.imageErrorMsg = '页面已刷新，外部图片引用已失效，请重新拖入图片'
+            }
           }
           return { ...n, data: labeledData } as UCanvasNode
         })
