@@ -47,9 +47,9 @@ export interface GenImage {
   width?: number
   height?: number
   createdAt: number
-  // 方案 C：拖入文件时仅用 DataURL 本地预览，尚未上传到服务器
-  // true 表示 imageResults[i].url 是 DataURL，originalUrl 还未生成
-  // img2img 触发时（runImageGen）会先调用 store.uploadPendingImage(nodeId) 上传拿公网 URL
+  // 旧版方案 C 遗留字段：拖入文件时 pendingUpload=true 表示仅在本地预览未上传
+  // 新方案下拖入时立即上传，status='loading'→'done'，不再使用此字段
+  // 保留仅为向后兼容（loadFromStorage 清理旧数据）
   pendingUpload?: boolean
 }
 

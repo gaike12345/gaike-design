@@ -12,7 +12,7 @@ import {
   Type, Ban, Sliders, Image as ImageIcon, Film, Music, FileText, Cpu, GalleryHorizontalEnd, AlertCircle, Send, Volume2,
   Search, Heart, Clock, Building2, Store, Sparkles, Layers, Palette, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, ArrowUpAZ, ImagePlus, Upload,
   Settings, Eye, EyeOff, SlidersHorizontal, Grid3x3, Crop, RefreshCw, Eraser, Droplets, PenLine, Gauge, Ruler, Bot,
-  Maximize2, Minimize2, Languages, Globe, Download, FlipHorizontal, Trash2, XCircle, Smartphone, Cloud,
+  Maximize2, Minimize2, Languages, Globe, Download, FlipHorizontal, Trash2, XCircle, Smartphone,
 } from 'lucide-react'
 import {
   useUnifiedCanvasStore, UNODE_PORTS, UNODE_SIZE, AUDIO_VOICES,
@@ -1016,27 +1016,21 @@ export const ImageNode = memo(function ImageNode({ node }: { node: UCanvasNode }
           />
         )}
 
-        {/* 方案 C：拖入文件未上传角标 —— pendingUpload=true 表示此图仅在本地预览，img2img 时会自动上传 */}
-        {cur?.pendingUpload && (
-          <div className="absolute top-2 right-2 z-10 flex items-center gap-1 rounded-full bg-amber-500/80 px-2 py-0.5 text-[10px] text-white backdrop-blur-sm pointer-events-none">
-            <Cloud className="h-3 w-3" />
-            本地
-          </div>
-        )}
+        {/* 旧版方案 C 遗留：pendingUpload 角标已废弃，新方案下拖入时立即上传，status='loading' 期间由下方加载遮罩覆盖 */}
 
         {/* 加载中遮罩 — 纯视觉 */}
         {cur?.status === 'loading' && (
           <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/40">
             <Loader2 className="h-6 w-6 animate-spin" style={{ color: meta.color }} />
-            <span className="text-xs text-neutral-300">正在生成图片...</span>
+            <span className="text-xs text-neutral-300">正在处理...</span>
           </div>
         )}
 
-        {/* 方案 C：img2img 触发时（imageStatus=running 但 results=[]），显示"正在上传参考图..."反馈 */}
+        {/* img2img 生成中（imageStatus=running 但 results=[]）的加载反馈 */}
         {isBusy && results.length === 0 && (
           <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/40">
             <Loader2 className="h-6 w-6 animate-spin" style={{ color: meta.color }} />
-            <span className="text-xs text-neutral-300">正在上传参考图...</span>
+            <span className="text-xs text-neutral-300">正在生成...</span>
           </div>
         )}
 

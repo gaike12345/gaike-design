@@ -124,6 +124,73 @@ function resolveModelName(input: string): string {
   return MODEL_NAME_ALIASES[key] || input
 }
 
+// 导出供 image.route.ts 使用
+export { resolveModelName }
+
+/**
+ * Pollinations POST /v1/images/edits API
+ * 用于本地图片 img2img：GET 端点不接受 base64 data URL，只能用 POST multipart 上传
+ * 返回 base64 图片 + seed，调用方保存到文件系统
+ */
+export async function pollinationsImageEdit(params: {
+  prompt: string
+  model: string
+  width: number
+  height: number
+  imageBuffer: Buffer
+  imageMime: string
+  seed: number
+}): Promise<{ b64: string; seed: number; width: number; height: number }> {
+  const { prompt, model, width, height, imageBuffer, imageMime, seed } = params
+  const boundary = `----manktv${Math.random().toString(36).slice(2)}`
+  const ext = imageMime === 'image/png' ? 'png' : imageMime === 'image/webp' ? 'webp' : 'jpg'
+
+  const parts = [
+    `--${boundary}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\n${prompt}`,
+    `\r\n--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="input.${ext}"\r\nContent-Type: ${imageMime}\r\n\r\n`,
+    imageBuffer,
+    `\r\n--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${model}`,
+    `\r\n--${boundary}\r\nContent-Disposition: form-data; name="n"\r\n\r\n1`,
+    `\r\n--${boundary}\r\nContent-Disposition: form-data; name="size"\r\n\r\n${width}x${height}`,
+    `\r\n--${boundary}\r\nContent-Disposition: form-data; name="seed"\r\n\r\n${seed}`,
+    `\r\n--${boundary}--\r\n`,
+  ]
+  const body = Buffer.concat(parts.map(p => Buffer.isBuffer(p) ? p : Buffer.from(p)))
+
+  const headers: Record<string, string> = {
+    'Content-Type': `multipart/form-data; boundary=${boundary}`,
+    'Content-Length': String(body.length),
+  }
+  if (API_KEY) {
+    headers['Authorization'] = `Bearer ${API_KEY}`
+  }
+
+  const res = await fetch(`${POLLINATIONS_BASE}/v1/images/edits`, {
+    method: 'POST',
+    headers,
+    body,
+  })
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '')
+    throw new Error(`Pollinations image edit failed: ${res.status} ${errText.slice(0, 200)}`)
+  }
+
+  const data = await res.json() as { data?: Array<{ b64_json?: string; url?: string }> }
+  const item = data.data?.[0]
+  if (!item) throw new Error('Pollinations image edit: no data returned')
+  if (item.b64_json) {
+    return { b64: item.b64_json, seed, width, height }
+  }
+  if (item.url) {
+    // 如果返回的是 URL，下载图片转 base64
+    const imgRes = await fetch(item.url)
+    const imgBuf = Buffer.from(await imgRes.arrayBuffer())
+    return { b64: imgBuf.toString('base64'), seed, width, height }
+  }
+  throw new Error('Pollinations image edit: no b64_json or url in response')
+}
+
 export const pollinationsProvider: ImageProvider = {
   id: 'pollinations',
 
@@ -180,8 +247,9 @@ export const pollinationsProvider: ImageProvider = {
     searchParams.set('nologo', 'true')
     searchParams.set('safe', 'true')
     searchParams.set('private', 'false')
-    searchParams.set('image', refImage)
     if (negativePrompt) searchParams.set('negative', negativePrompt)
+    // Pollinations 要求 image= 参数放在 URL 最后位置
+    searchParams.set('image', refImage)
 
     const url = `${POLLINATIONS_BASE}/image/${encodeURIComponent(prompt)}?${searchParams.toString()}`
 

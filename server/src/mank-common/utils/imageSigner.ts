@@ -1,9 +1,13 @@
 /**
  * 图片 URL 签名/验签模块
  * 从 routes/image.ts 提取，消除 comic.ts → image.ts 跨路由导入
+ *
+ * v2: 短 ID 映射方案
+ *   signImageUrl 生成短 ID，存储 id → { url, userId, costTokens, txId } 映射
+ *   proxy 端点用 id 查找，避免 Base64 编码的 URL 放在 query string 导致 431
  */
 
-import { createHmac } from 'crypto'
+import { createHmac, randomBytes } from 'crypto'
 
 // 安全硬校验：所有环境必须配置图片签名密钥，禁止使用默认值
 // 默认密钥公开后攻击者可伪造签名 URL，绕过 ALLOWED_HOSTS 白名单发动 SSRF
@@ -34,6 +38,37 @@ const ALLOWED_OSS_SUFFIXES = [
   '.oss-cn-shenzhen.aliyuncs.com',
 ]
 
+// ==================== 短 ID 映射 ====================
+
+interface SignedEntry {
+  url: string
+  userId?: string
+  costTokens?: number
+  txId?: string
+  sig: string
+  ts: number
+}
+
+// 内存 Map：id → 签名条目，TTL 2 小时
+const idMap = new Map<string, SignedEntry>()
+
+// 定时清理过期条目（每 10 分钟）
+setInterval(() => {
+  const now = Date.now()
+  for (const [id, entry] of idMap) {
+    if (now - entry.ts > SIGN_TTL_MS) {
+      idMap.delete(id)
+    }
+  }
+}, 10 * 60 * 1000).unref()
+
+// 生成 16 字符 hex 短 ID
+function generateId(): string {
+  return randomBytes(8).toString('hex')
+}
+
+// ==================== 签名（短 ID 模式） ====================
+
 export function signImageUrl(originalUrl: string, userId?: string, costTokens?: number, txId?: string): string {
   const ts = Date.now()
   const uid = userId || ''
@@ -41,13 +76,65 @@ export function signImageUrl(originalUrl: string, userId?: string, costTokens?: 
   const tid = txId || ''
   const payload = `${ts}:${uid}:${cost}:${tid}:${originalUrl}`
   const sig = createHmac('sha256', SIGNING_SECRET).update(payload).digest('hex').slice(0, 16)
-  const encoded = Buffer.from(originalUrl).toString('base64url')
-  let qs = `u=${encoded}&t=${ts}&s=${sig}`
-  if (uid) qs += `&uid=${encodeURIComponent(uid)}`
-  if (cost) qs += `&c=${cost}`
-  if (tid) qs += `&tx=${encodeURIComponent(tid)}`
-  return `/api/image/proxy?${qs}`
+
+  // 生成短 ID，存储映射
+  const id = generateId()
+  idMap.set(id, {
+    url: originalUrl,
+    userId: uid || undefined,
+    costTokens: costTokens,
+    txId: tid || undefined,
+    sig,
+    ts,
+  })
+
+  return `/api/image/proxy?id=${id}`
 }
+
+// ==================== 验签（短 ID 模式） ====================
+
+export function verifySignedId(id: string): { url: string; userId?: string; costTokens?: number; txId?: string } | null {
+  const entry = idMap.get(id)
+  if (!entry) return null
+
+  // 过期检查
+  if (Date.now() - entry.ts > SIGN_TTL_MS) {
+    idMap.delete(id)
+    return null
+  }
+
+  // 本地路径（/uploads/xxx）→ 跳过白名单校验（不发网络请求，无 SSRF 风险）
+  if (entry.url.startsWith('/')) {
+    return {
+      url: entry.url,
+      userId: entry.userId,
+      costTokens: entry.costTokens,
+      txId: entry.txId,
+    }
+  }
+
+  // 远程 URL：白名单校验
+  try {
+    const urlObj = new URL(entry.url)
+    const hostname = urlObj.hostname
+    const exactMatch = ALLOWED_HOSTS.includes(hostname)
+    const isAllowedOss = ALLOWED_OSS_SUFFIXES.some(suffix => hostname.endsWith(suffix))
+    if (!exactMatch && !isAllowedOss) {
+      return null
+    }
+  } catch {
+    return null
+  }
+
+  return {
+    url: entry.url,
+    userId: entry.userId,
+    costTokens: entry.costTokens,
+    txId: entry.txId,
+  }
+}
+
+// ==================== 验签（旧 Base64 模式，向后兼容） ====================
 
 export function verifySignedUrl(
   encodedUrl: string,
@@ -77,6 +164,17 @@ export function verifySignedUrl(
     .digest('hex')
     .slice(0, 16)
   if (sig !== expectedSig) return null
+
+  // 本地路径（/uploads/xxx）→ 跳过白名单校验
+  if (originalUrl.startsWith('/')) {
+    const costTokens = costStr ? parseInt(costStr, 10) : undefined
+    return {
+      url: originalUrl,
+      userId: uid || undefined,
+      costTokens: isNaN(costTokens!) ? undefined : costTokens,
+      txId: txId || undefined,
+    }
+  }
 
   try {
     const urlObj = new URL(originalUrl)

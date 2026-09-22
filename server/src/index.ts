@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import http from 'http'
 import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
@@ -365,7 +366,9 @@ app.use('/api/canvas', canvasRoutes)                         // 统一创作画�
 app.use(notFound)
 app.use(errorHandler)
 
-const server = app.listen(PORT, () => {
+// 签名代理 URL 含 Base64 编码的 Pollinations 原始 URL（含 prompt），可能超过默认 16KB
+// 增大请求头限制到 64KB，避免 431 Request Header Fields Too Large
+const server = http.createServer({ maxHeaderSize: 65536 }, app).listen(PORT, () => {
   void preloadModelCosts() // 启动时预加载模型积分制度，首次请求不卡
 
   // 启动任务队列 Worker（后台消费异步任务）

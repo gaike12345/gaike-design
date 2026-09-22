@@ -73,6 +73,11 @@ export async function getCachedBlobUrl(key: string): Promise<string | null> {
  */
 export async function downloadAndCache(url: string, key: string): Promise<void> {
   try {
+    // 跳过过长的 URL（旧 Base64 签名 URL 可能超过 16KB，导致 414）
+    if (url.length > 2000) {
+      console.warn('[mediaCache] URL too long, skipping cache:', url.length, 'chars')
+      return
+    }
     const res = await fetch(url)
     if (!res.ok) return
     const blob = await res.blob()

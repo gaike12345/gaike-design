@@ -3,7 +3,16 @@ import { defineConfig } from 'vite'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    // Vite dev server 默认 maxHeaderSize 16KB，签名代理 URL 可能超限
+    {
+      name: 'increase-max-header-size',
+      configureServer(server) {
+        server.httpServer.maxHeaderSize = 65536
+      },
+    },
+  ],
   server: {
     port: 5176,
     strictPort: true,

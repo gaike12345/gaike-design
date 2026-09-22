@@ -85,18 +85,10 @@ export {
 const pollRegistry = new PollRegistry()
 
 // ==================== 方案 C：拖入文件本地预览 ====================
-// 拖入文件 → 立即用 ObjectURL 显示预览（毫秒级，无需上传等待）
-// 仅在 img2img/img2video 触发时才上传到服务器拿公网 URL
-// File 对象不可序列化，因此单独存放在模块级 Map，不进入 set/get 状态
-const pendingUploadFiles = new Map<string, File>()
-// 外部 URL 拖入（从浏览器其他标签页）：URL 在 img2img 触发时通过 /api/upload/image-from-url 下载到服务器
-// 与 pendingUploadFiles 并列，统一走 pendingUpload 标记流程
-const pendingUploadUrls = new Map<string, string>()
-
 /**
  * 客户端图片压缩：大图缩到 maxSize 内 + 转 JPEG quality 0.85
  * 与 UnifiedCanvas.tsx 中的 compressImage 保持一致逻辑
- * 用于 uploadPendingImage 上传前压缩（34MB PNG → ~500KB JPEG）
+ * 用于拖入图片时立即上传前压缩（34MB PNG → ~500KB JPEG）
  */
 async function compressImageForUpload(file: File, maxSize = 1920, quality = 0.85): Promise<File> {
   if (file.size < 1 * 1024 * 1024) return file
@@ -237,10 +229,8 @@ interface UnifiedCanvasState {
   createConnectedImageNode: (sourceNodeId: string, mode: 'hd' | '9grid' | '4view') => void
   /** 从外部图片 URL 创建图片节点（拖拽外部图片到画布） */
   addExternalImage: (url: string, position: { x: number; y: number }) => string
-  /** 方案 C：从本地 File 创建图片节点（立即用 ObjectURL 预览，pendingUpload=true，img2img 时才上传） */
+  /** 从本地 File 创建图片节点（立即上传到服务器拿公网 URL，和其他图片节点完全一致） */
   addExternalImageFile: (file: File, position: { x: number; y: number }) => string
-  /** 方案 C：上传 pendingUpload 的图片到服务器，返回公网 URL；无 pendingUpload 则返回 null */
-  uploadPendingImage: (nodeId: string) => Promise<string | null>
   runVideoGen: (nodeId: string) => Promise<void>
   pollVideoTask: (nodeId: string) => Promise<void>
   runAudioGen: (nodeId: string) => Promise<void>
@@ -328,8 +318,6 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
   removeNode: (id) => {
     pollRegistry.stop(id)
     imageGenQueue.cancel(id) // 取消该节点的排队/生成
-    pendingUploadFiles.delete(id) // 方案 C：清理待上传的 File 引用
-    pendingUploadUrls.delete(id) // 外部 URL 拖入：清理待下载的 URL 引用
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== id),
       connections: s.connections.filter((c) => c.source.nodeId !== id && c.target.nodeId !== id),
@@ -419,23 +407,8 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
         if (src.type !== 'image' && src.type !== 'video') continue
         const imgs = src.data.imageResults?.filter((r) => r.status === 'done')
         // 必须用 originalUrl（Pollinations 原始公网地址），图生图时 Pollinations 服务器需要能公网访问
-        // 代理 URL（/api/image/proxy）是本地的，Pollinations 访问不到，不能用于图生图
+        // 所有图片节点（无论画布生成还是外部拖入）在 status='done' 时 originalUrl 都是公网 URL
         if (imgs?.[0]?.originalUrl) {
-          // 方案 C：若参考图节点是 pendingUpload（拖入未上传），先上传到服务器拿公网 URL
-          if (imgs[0].pendingUpload) {
-            // 先标记为 running（让 UI 显示"上传中"反馈）
-            get().updateNodeData(nodeId, { imageStatus: 'running', imageErrorMsg: undefined })
-            const uploadedUrl = await get().uploadPendingImage(src.id)
-            if (!uploadedUrl) {
-              get().updateNodeData(nodeId, {
-                imageStatus: 'error',
-                imageErrorMsg: '参考图上传失败，请重试或检查网络',
-              })
-              return
-            }
-            refImageUrl = uploadedUrl
-            break
-          }
           refImageUrl = imgs[0].originalUrl
           break
         }
@@ -443,7 +416,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       if (!refImageUrl) {
         get().updateNodeData(nodeId, {
           imageStatus: 'error',
-          imageErrorMsg: '参考图缺少原始地址，请重新生成源节点的图片后再试',
+          imageErrorMsg: '参考图未就绪或缺少原始地址，请确认源节点图片已生成完成',
         })
         return
       }
@@ -460,6 +433,17 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     const batch = Math.max(1, Math.min(node.data.imageCount ?? 1, modelCfg.maxBatch))
     const baseSeed = node.data.imageSeed ?? randomSeed()
     const existingResults = node.data.imageResults ?? []
+
+    // R2 修正：前端 img2img 前置校验，仅以 imageToImage 为判据
+    // maxReferenceImages=0 表示 Pollinations 未明确返回上限，不等于"不支持图生图"
+    // 后端 image.route.ts 已做硬校验，这里提前拦截避免无谓的网络请求和积分扣减
+    if (refImageUrl && !modelCfg.features.imageToImage) {
+      get().updateNodeData(nodeId, {
+        imageStatus: 'error',
+        imageErrorMsg: `模型 ${modelCfg.label || model} 不支持图生图，请切换支持参考图的模型`,
+      })
+      return
+    }
 
     // 标记为排队中
     get().updateNodeData(nodeId, { imageStatus: 'queued', imageErrorMsg: undefined })
@@ -617,10 +601,8 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
   },
 
   addExternalImage: (url, position) => {
-    // 外部 URL 拖入画布：创建带预填结果的图片节点
-    // 必须先展开 defaultNodeData('image') 作为 base，否则节点缺少 imageModel 等必需字段
-    // 与 addExternalImageFile 统一：pendingUpload=true，在 img2img 触发时通过
-    // /api/upload/image-from-url 下载到本服务器拿公网 URL，避免 Pollinations 无法访问外部 URL
+    // 外部 URL 拖入画布：直接用外部 URL 作为 originalUrl
+    // Pollinations 可直接访问公网 URL，无需上传到服务器，img2img 和画布生成完全一致
     const fullUrl = url.startsWith('http') ? url : `${window.location.origin}${url}`
     const imgId = uid('img')
     const base = defaultNodeData('image')
@@ -628,27 +610,23 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       ...base,
       imageResults: [{
         id: imgId,
-        url: url,
+        url: fullUrl,
         originalUrl: fullUrl,
         prompt: '',
         seed: 0,
         ratio: '1:1' as const,
         status: 'done' as ImageStatus,
-        pendingUpload: true,
         createdAt: Date.now(),
       }],
       imageStatus: 'done' as GenStatus,
     }, false)
-    // URL 单独存放，img2img 触发时通过 image-from-url 接口下载
-    pendingUploadUrls.set(newNodeId, fullUrl)
-    // 异步缓存拖入的图片到 IndexedDB
     void downloadAndCache(fullUrl, fullUrl)
     return newNodeId
   },
 
   addExternalImageFile: (file, position) => {
-    // 方案 C：拖入文件 → 立即用 ObjectURL 预览（毫秒级），pendingUpload=true
-    // img2img/img2video 触发时（runImageGen/runVideoGen）才调用 uploadPendingImage 上传到服务器
+    // 本地 File 拖入画布：立即用 ObjectURL 预览（毫秒级），同时异步上传到服务器
+    // 上传完成前 status='loading'，完成后 status='done'，与其他图片节点完全一致
     const objectUrl = URL.createObjectURL(file)
     const imgId = uid('img')
     const base = defaultNodeData('image')
@@ -656,72 +634,50 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       ...base,
       imageResults: [{
         id: imgId,
-        url: objectUrl,
-        originalUrl: objectUrl, // 临时占位，上传后会更新为公网 URL
+        url: objectUrl,           // 预览用 ObjectURL（立即可见）
+        originalUrl: objectUrl,   // 临时，上传后更新为服务器公网 URL
         prompt: '',
         seed: 0,
         ratio: '1:1' as const,
-        status: 'done' as ImageStatus,
-        pendingUpload: true,
+        status: 'loading' as ImageStatus,
         createdAt: Date.now(),
       }],
-      imageStatus: 'done' as GenStatus,
+      imageStatus: 'running' as GenStatus,
     }, false)
-    // File 对象单独存放，不进入 set/get 状态（不可序列化）
-    pendingUploadFiles.set(newNodeId, file)
-    return newNodeId
-  },
-
-  uploadPendingImage: async (nodeId) => {
-    // 方案 C：上传 pendingUpload 的图片到服务器，返回公网 URL
-    // 调用方：runImageGen/runVideoGen 在读取 refImageUrl 时调用
-    // 支持两种 pendingUpload 来源：
-    //   1. pendingUploadFiles：本地拖入的 File 对象 → /api/upload/image（multipart）
-    //   2. pendingUploadUrls：浏览器其他标签页拖入的外部 URL → /api/upload/image-from-url（JSON）
-    // 两种路径都把图片落到本服务器 /uploads/，返回本服务器公网 URL，
-    // 确保 Pollinations 能公网访问（外部 URL 可能被 CORS/hotlink/auth 拦截）
-    const file = pendingUploadFiles.get(nodeId)
-    const url = pendingUploadUrls.get(nodeId)
-    if (!file && !url) {
-      // 多数场景：localStorage 加载后 File 引用丢失（页面刷新/关闭重开）
-      // 已由 loadFromStorage 主动清理，此处为兜底诊断日志
-      logger.error('uploadPendingImage', `Map miss nodeId=${nodeId}（页面刷新后 File 引用丢失，请重新拖入图片）`)
-      return null
-    }
-    try {
-      let dataUrl: string
-      if (file) {
-        // 本地 File：客户端压缩后 multipart 上传
+    // 立即异步上传到服务器
+    void (async () => {
+      try {
         const compressed = await compressImageForUpload(file)
         const data = await uploadFile('/api/upload/image', compressed)
-        dataUrl = data.url
-      } else {
-        // 外部 URL：服务端下载到 /uploads/（绕过浏览器 CORS）
-        const data = await api.post<{ url: string }>('/api/upload/image-from-url', { url })
-        dataUrl = data.url
+        const fullUrl = data.url.startsWith('http') ? data.url : `${window.location.origin}${data.url}`
+        set((s) => ({
+          nodes: s.nodes.map((n) => {
+            if (n.id !== newNodeId) return n
+            const updated = (n.data.imageResults ?? []).map((r) =>
+              r.id === imgId
+                ? { ...r, url: data.url, originalUrl: fullUrl, status: 'done' as ImageStatus }
+                : r,
+            )
+            return { ...n, data: { ...n.data, imageResults: updated, imageStatus: 'done' as GenStatus } }
+          }),
+        }))
+        void downloadAndCache(data.url, fullUrl)
+        // 释放 ObjectURL
+        URL.revokeObjectURL(objectUrl)
+      } catch (e) {
+        logger.error('addExternalImageFile upload failed:', e)
+        set((s) => ({
+          nodes: s.nodes.map((n) => {
+            if (n.id !== newNodeId) return n
+            const updated = (n.data.imageResults ?? []).map((r) =>
+              r.id === imgId ? { ...r, status: 'error' as ImageStatus } : r,
+            )
+            return { ...n, data: { ...n.data, imageResults: updated, imageStatus: 'error' as GenStatus } }
+          }),
+        }))
       }
-      const fullUrl = dataUrl.startsWith('http') ? dataUrl : `${window.location.origin}${dataUrl}`
-      // 更新节点 imageResults：把 pendingUpload=true 的图片 url/originalUrl 更新为公网 URL
-      set((s) => ({
-        nodes: s.nodes.map((n) => {
-          if (n.id !== nodeId) return n
-          const updated = (n.data.imageResults ?? []).map((r) =>
-            r.pendingUpload
-              ? { ...r, url: dataUrl, originalUrl: fullUrl, pendingUpload: false }
-              : r,
-          )
-          return { ...n, data: { ...n.data, imageResults: updated } }
-        }),
-      }))
-      pendingUploadFiles.delete(nodeId)
-      pendingUploadUrls.delete(nodeId)
-      // 异步缓存到 IndexedDB
-      void downloadAndCache(dataUrl, fullUrl)
-      return fullUrl
-    } catch (e) {
-      logger.error('uploadPendingImage failed:', e)
-      return null
-    }
+    })()
+    return newNodeId
   },
 
   runVideoGen: async (nodeId) => {
@@ -733,7 +689,8 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     const refConns = state.connections.filter((c) => c.target.nodeId === nodeId && c.target.portId === 'ref')
 
     // 构建 连接节点 → originalUrl 映射表（用于 @图N 解析）
-    const refNodeMap = new Map<string, { label: string; url: string; pendingUpload?: boolean; nodeId: string }>()
+    // 所有图片节点（无论画布生成还是外部拖入）在 status='done' 时 originalUrl 都是公网 URL
+    const refNodeMap = new Map<string, { label: string; url: string; nodeId: string }>()
     for (const conn of refConns) {
       const src = state.nodes.find((n) => n.id === conn.source.nodeId)
       if (!src) continue
@@ -744,7 +701,6 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
         refNodeMap.set(src.id, {
           label,
           url: imgs[0].originalUrl,
-          pendingUpload: imgs[0].pendingUpload === true,
           nodeId: src.id,
         })
       }
@@ -762,39 +718,6 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     let imageUrl: string | undefined
     let collectedRefImages: string[] | undefined
     let prompt: string
-
-    // 方案 C：先批量上传所有 pendingUpload 的参考图（拿到公网 URL）
-    // 否则下面 imageUrl/collectedRefImages 会是 ObjectURL（视频服务器无法访问）
-    if (refNodeMap.size > 0) {
-      // 收集所有 pendingUpload 的节点 id（去重）
-      const pendingNodeIds = new Set<string>()
-      for (const [, info] of refNodeMap) {
-        if (info.pendingUpload) pendingNodeIds.add(info.nodeId)
-      }
-      if (pendingNodeIds.size > 0) {
-        // 先标记视频节点为 running（让 UI 显示"上传中"反馈）
-        get().updateNodeData(nodeId, { videoStatus: 'running', videoErrorMsg: undefined })
-        const uploadedMap = new Map<string, string>()
-        for (const srcId of pendingNodeIds) {
-          const uploaded = await get().uploadPendingImage(srcId)
-          if (uploaded) uploadedMap.set(srcId, uploaded)
-        }
-        // 用上传后的公网 URL 替换 refNodeMap 中的 ObjectURL
-        for (const [key, info] of refNodeMap) {
-          if (info.pendingUpload && uploadedMap.has(info.nodeId)) {
-            refNodeMap.set(key, { ...info, url: uploadedMap.get(info.nodeId)!, pendingUpload: false })
-          }
-        }
-        // 如果有 pendingUpload 但全部上传失败 → 阻止静默文生视频
-        if ([...refNodeMap.values()].some((i) => i.pendingUpload)) {
-          get().updateNodeData(nodeId, {
-            videoStatus: 'error',
-            videoErrorMsg: '参考图上传失败，请重试或检查网络',
-          })
-          return
-        }
-      }
-    }
 
     if (mentions.length > 0) {
       // 有 @引用：按 @出现顺序收集对应图片 URL
@@ -1091,23 +1014,33 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
             counters[n.type] = next
             labeledData.__label = `${UNODE_LABELS[n.type]}${next}`
           }
-          // 失效清理：localStorage 不保存 pendingUploadFiles/Urls Map，加载后 Map 是空的；
-          // GenImage.pendingUpload=true 的项实际已无 File 引用，blob: URL 已被浏览器 revoke 失效。
-          // 必须清理，否则后续 img2img 会因 Map miss 而报"参考图上传失败"误导用户。
+          // 向后兼容清理：旧版方案中 pendingUpload=true 的图片在页面刷新后 File 引用已丢失，
+          // 新方案下拖入图片在创建时已立即上传，originalUrl 是服务器公网 URL，刷新后仍有效。
+          // 此处仅清理旧版遗留的 pendingUpload=true 数据，避免 img2img 读到失效的 blob: URL。
           const data = labeledData as Record<string, unknown>
           if (Array.isArray(data.imageResults)) {
             let hasStale = false
+            let hasUrlFix = false
             const cleaned = (data.imageResults as Array<Record<string, unknown>>).map((r) => {
               if (r.pendingUpload === true) {
                 hasStale = true
                 return { ...r, url: '', originalUrl: '', pendingUpload: false }
+              }
+              // 清理旧 Base64 签名 URL（?u= 格式），改用 originalUrl 直接加载
+              // 旧签名 URL 已过期（TTL 2h），刷新后会 403；originalUrl 是 Pollinations 公网 URL，可直接访问
+              if (typeof r.url === 'string' && r.url.includes('?u=') && typeof r.originalUrl === 'string' && r.originalUrl) {
+                hasUrlFix = true
+                return { ...r, url: r.originalUrl }
               }
               return r
             })
             if (hasStale) {
               data.imageResults = cleaned
               data.imageStatus = 'error'
-              data.imageErrorMsg = '页面已刷新，外部图片引用已失效，请重新拖入图片'
+              data.imageErrorMsg = '页面已刷新，旧版外部图片引用已失效，请重新拖入图片'
+            } else if (hasUrlFix) {
+              data.imageResults = cleaned
+              // URL 修复不需要标记为 error，图片仍然可用（originalUrl 是公网 URL）
             }
           }
           return { ...n, data: labeledData } as UCanvasNode

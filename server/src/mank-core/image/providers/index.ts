@@ -85,9 +85,10 @@ export async function generateImageFromImage(
     return provider.imageToImage(params)
   }
 
-  // 不支持图生图的供应商，降级为文生图
-  logger.warn(`[ImageProvider] ${providerName} 不支持图生图，降级为文生图`)
-  return provider.textToImage(params)
+  // R2 修复：不支持图生图的供应商不再静默降级为文生图（会让用户误以为 img2img 成功）
+  // 上层 image.route.ts 已做模型能力校验，到这里说明 provider 适配器缺失 imageToImage 方法
+  // 抛错让上层返回明确错误，而不是静默降级
+  throw new Error(`供应商 ${providerName} 的适配器未实现 imageToImage 方法，无法执行图生图`)
 }
 
 export { pollinationsProvider, dashscopeProvider }

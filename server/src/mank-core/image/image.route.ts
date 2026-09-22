@@ -1,4 +1,6 @@
 import { Router, Request, Response } from 'express'
+import fs from 'fs'
+import path from 'path'
 import { authRequired } from '../../mank-infra/middleware/auth'
 import { withGeneration } from '../../mank-infra/middleware/generation'
 import { upload, validateUploadedFiles } from '../../mank-infra/middleware/upload'
@@ -15,7 +17,9 @@ import {
   DEFAULT_IMAGE_MODEL,
 } from './imageModels'
 import { generateImage, generateImageFromImage } from './providers'
-import { signImageUrl, verifySignedUrl } from '../../mank-common/utils/imageSigner'
+import type { ImageResult } from './providers/types'
+import { pollinationsImageEdit, resolveModelName } from './providers/pollinations'
+import { signImageUrl, verifySignedUrl, verifySignedId } from '../../mank-common/utils/imageSigner'
 import logger from '../../mank-infra/logging/logger'
 
 const router = Router()
@@ -87,17 +91,22 @@ const router = Router()
  *               type: string
  */
 router.get('/proxy', async (req, res) => {
-  logger.info('CTRL_IMAGE_PROXY', { uid: req.query.uid, c: req.query.c })
-  const { u, t, s, uid, c, tx } = req.query
-  if (typeof u !== 'string' || typeof t !== 'string' || typeof s !== 'string') {
-    return res.status(400).send('Invalid request')
+  logger.info('CTRL_IMAGE_PROXY', { uid: req.query.uid, c: req.query.c, id: req.query.id })
+  const { u, t, s, uid, c, tx, id } = req.query
+
+  // 优先使用短 ID 模式（v2），避免 URL 过长导致 431
+  let verified: { url: string; userId?: string; costTokens?: number; txId?: string } | null = null
+  if (typeof id === 'string') {
+    verified = verifySignedId(id)
+  } else if (typeof u === 'string' && typeof t === 'string' && typeof s === 'string') {
+    // 向后兼容：旧 Base64 签名 URL
+    verified = verifySignedUrl(
+      u, t, s,
+      typeof uid === 'string' ? uid : undefined,
+      typeof c === 'string' ? c : undefined,
+      typeof tx === 'string' ? tx : undefined,
+    )
   }
-  const verified = verifySignedUrl(
-    u, t, s,
-    typeof uid === 'string' ? uid : undefined,
-    typeof c === 'string' ? c : undefined,
-    typeof tx === 'string' ? tx : undefined,
-  )
   if (!verified) {
     return res.status(403).send('Invalid or expired image URL')
   }
@@ -114,28 +123,62 @@ router.get('/proxy', async (req, res) => {
   }
 
   try {
+    // 本地文件路径（/uploads/xxx）→ 直接从文件系统读取，不需要 fetch
+    if (originalUrl.startsWith('/uploads/')) {
+      const filePath = path.join(process.cwd(), originalUrl)
+      // 防止路径穿越攻击：确保解析后的路径仍在 uploads 目录内
+      const resolvedPath = path.resolve(filePath)
+      const uploadsRoot = path.resolve(process.cwd(), 'uploads')
+      if (!resolvedPath.startsWith(uploadsRoot + path.sep) && resolvedPath !== uploadsRoot) {
+        return res.status(403).send('Forbidden path')
+      }
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).send('File not found')
+      }
+      const buf = fs.readFileSync(filePath)
+      const ext = path.extname(filePath).toLowerCase()
+      const contentType = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg'
+
+      // 图片内容审核
+      if (verified.userId) {
+        const imgMod = await moderateImageUrl(originalUrl, {
+          endpoint: '/api/image/proxy',
+          userId: verified.userId,
+        })
+        if (!imgMod.passed) {
+          await recordViolation({
+            userId: verified.userId,
+            text: `img2img proxy: ${originalUrl}`,
+            violationType: 'IMAGE_MODERATION',
+            endpoint: '/api/image/proxy',
+          } as any)
+          refundProxy('image_moderation_blocked')
+          return res.status(403).send('Image blocked by moderation')
+        }
+      }
+
+      res.setHeader('Content-Type', contentType)
+      res.setHeader('Cache-Control', 'public, max-age=86400')
+      return res.end(buf)
+    }
+
+    // 远程 URL：用 fetch 代理
     // gen.pollinations.ai 需要 Bearer Token 认证，模型选择和尺寸参数才能生效
-    // 旧端点 image.pollinations.ai 无需认证但忽略 model 参数，不降级
     const upstreamHost = new URL(originalUrl).hostname
     const fetchHeaders: Record<string, string> = {}
-    if (upstreamHost === 'gen.pollinations.ai' && process.env.POLLINATIONS_API_KEY) {
+    const hasApiKey = !!process.env.POLLINATIONS_API_KEY
+    if (upstreamHost === 'gen.pollinations.ai' && hasApiKey) {
       fetchHeaders['Authorization'] = `Bearer ${process.env.POLLINATIONS_API_KEY}`
     }
-    // 关键：fetch 第二参数是 RequestInit，headers 必须包装在 headers 属性中
-    // 之前误传 fetchHeaders 为顶层属性，导致 Authorization 从未发送
-    // 症状：model/width/height/nologo 参数被 Pollinations 忽略，返回 1:1 带水印默认图
     const upstream = await fetch(originalUrl, Object.keys(fetchHeaders).length > 0 ? { headers: fetchHeaders } : undefined)
 
     if (!upstream.ok) {
-      logger.warn(`[ImageProxy] upstream ${upstream.status} for ${originalUrl.substring(0, 100)}`)
-      // 注意：不再为 upstream 400/401 自动退还积分
-      // 用户侧发起请求 → 预扣 → 上游失败 → 用户为失败买单（模型名错误、参数不对等属于调用方责任）
-      // 只有「图片内容审核未通过」才自动退还（见下方 imgMod.passed 分支）
+      const errBody = await upstream.text().catch(() => '')
+      logger.warn(`[ImageProxy] upstream ${upstream.status}`, { hasApiKey, urlLength: originalUrl.length, errBody: errBody.slice(0, 300), urlSnippet: originalUrl.substring(0, 300) })
       return res.status(upstream.status).send('Upstream error')
     }
 
     // 读取完整图片到 buffer（用于后续审核和返回）
-    // 安全限制：图片大小上限 20MB，防止超大响应导致 Node 进程 OOM
     const MAX_IMAGE_BYTES = 20 * 1024 * 1024
     const contentType = upstream.headers.get('content-type') || 'image/png'
     const contentLength = upstream.headers.get('content-length')
@@ -499,6 +542,23 @@ router.post('/img2img', withGeneration('image', costForImage), async (req, res, 
     if (!refImage) return res.status(400).json({ error: 'image 参考图 URL 不能为空' })
     const userId = req.user!.userId
 
+    // 模型能力校验：防止不支持图生图的模型被误用导致 img2img 403
+    // R2 修正：仅以 imageToImage 为判据，maxReferenceImages=0 表示"未明确上限"而非"不支持"
+    //   Pollinations input_modalities 含 'image' 即支持 img2img，max_reference_images 缺失时为 0
+    if (!model.features.imageToImage) {
+      logger.warn('CTRL_IMAGE_IMG2IMG_MODEL_NOT_SUPPORTED', {
+        userId,
+        modelId,
+        imageToImage: model.features.imageToImage,
+        maxReferenceImages: model.features.maxReferenceImages,
+      })
+      return res.status(400).json({
+        error: `模型 ${model.label || modelId} 不支持图生图（imageToImage=false）`,
+        code: 'MODEL_NOT_SUPPORT_IMG2IMG',
+        modelId,
+      })
+    }
+
     // 风险门控 + 输入审核（统一封装）
     const inputCheck = await checkInputModeration({
       userId,
@@ -512,14 +572,76 @@ router.post('/img2img', withGeneration('image', costForImage), async (req, res, 
     const { w, h, actualRatio } = await calcImageSize(modelId, ratio, resolution)
     const costForImg2Img = await calcImageCost(modelId, resolution, 1)
 
-    const result = await generateImageFromImage({
-      prompt: String(prompt),
-      model: modelId,
-      width: w,
-      height: h,
-      refImage: String(refImage),
-      negativePrompt: negativePrompt ? String(negativePrompt) : undefined,
-    })
+    // 本地图片处理：Pollinations GET 端点不接受 base64 data URL，只接受公网 URL
+    // 如果 refImage 是本地路径（/uploads/ 或 localhost URL），用 POST /v1/images/edits API 上传
+    let processedRefImage = String(refImage)
+    let localImageBuffer: Buffer | null = null
+    let localImageMime: string = 'image/jpeg'
+    try {
+      let localPath: string | null = null
+      if (refImage.startsWith('/uploads/')) {
+        localPath = String(refImage)
+      } else {
+        const match = String(refImage).match(/\/uploads\/[^?#]+/)
+        if (match && (refImage.includes('localhost') || refImage.includes('127.0.0.1'))) {
+          localPath = match[0]
+        }
+      }
+      if (localPath) {
+        const filePath = path.join(process.cwd(), localPath)
+        if (fs.existsSync(filePath)) {
+          const buf = fs.readFileSync(filePath)
+          const ext = path.extname(filePath).toLowerCase()
+          localImageMime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg'
+          localImageBuffer = buf
+          processedRefImage = ''  // 标记为本地图片，用 POST API
+          logger.info('CTRL_IMAGE_IMG2IMG_LOCAL_REF', { originalPath: localPath, sizeKB: Math.round(buf.length / 1024) })
+        }
+      }
+    } catch (e) {
+      logger.warn('CTRL_IMAGE_IMG2IMG_LOCAL_REF_FAILED', { refImage: String(refImage).slice(0, 100), error: (e as Error).message })
+    }
+
+    let result: ImageResult
+    if (localImageBuffer) {
+      // 本地图片：用 Pollinations POST /v1/images/edits API（multipart/form-data 上传）
+      const editResult = await pollinationsImageEdit({
+        prompt: String(prompt),
+        model: resolveModelName(modelId),
+        width: w,
+        height: h,
+        imageBuffer: localImageBuffer,
+        imageMime: localImageMime,
+        seed: Math.floor(Math.random() * 1000000),
+      })
+      // 保存 base64 图片到 uploads 目录，生成可访问的 URL
+      const crypto = await import('crypto')
+      const hash = crypto.createHash('md5').update(editResult.b64).digest('hex')
+      const fileName = `img2img_${hash}.jpg`
+      const uploadsDir = process.env.UPLOAD_DIR || './uploads'
+      const filePath = path.join(uploadsDir, fileName)
+      fs.writeFileSync(filePath, Buffer.from(editResult.b64, 'base64'))
+      const localUrl = `/uploads/${fileName}`
+      result = {
+        url: localUrl,
+        width: editResult.width,
+        height: editResult.height,
+        seed: editResult.seed,
+        placeholder: false,
+        provider: 'pollinations',
+      }
+      logger.info('CTRL_IMAGE_IMG2IMG_POST_EDIT', { fileName, sizeKB: Math.round(editResult.b64.length * 0.75 / 1024) })
+    } else {
+      // 公网 URL：用 GET 端点（image 参数放在 URL 中）
+      result = await generateImageFromImage({
+        prompt: String(prompt),
+        model: modelId,
+        width: w,
+        height: h,
+        refImage: processedRefImage,
+        negativePrompt: negativePrompt ? String(negativePrompt) : undefined,
+      })
+    }
     const url = signImageUrl(result.url, userId, costForImg2Img, req._genTxId)
     res.json({
       images: [{ url, originalUrl: result.url, seed: result.seed, width: result.width, height: result.height, refImage: String(refImage) }],

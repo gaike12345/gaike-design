@@ -18,7 +18,8 @@ async function downloadImageFromUrl(
   url: string,
 ): Promise<{ filePath: string; filename: string; mimetype: string; size: number }> {
   const ctrl = new AbortController()
-  const timeout = setTimeout(() => ctrl.abort(), 15000)
+  // 外部图片（如 Pollinations）可能需要排队生成，15s 太短导致 abort；放宽到 30s
+  const timeout = setTimeout(() => ctrl.abort(), 30000)
   try {
     const resp = await fetch(url, {
       signal: ctrl.signal,

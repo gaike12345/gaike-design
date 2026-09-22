@@ -284,9 +284,8 @@ export default function UnifiedCanvas() {
         toast('请先登录后再拖入图片', 'error')
         return
       }
-      // 方案 C：拖入文件 → 立即用 ObjectURL 显示预览（毫秒级），跳过服务器中转
-      // 仅在 img2img/img2video 触发时才上传到服务器拿公网 URL
-      // 避免用户因 15s 加载等待而误以为拖入失败反复重拖
+      // 拖入文件 → 立即创建节点用 ObjectURL 预览，同时异步上传到服务器
+      // 上传完成前 status='loading'，完成后 status='done'，和其他图片节点完全一致
       for (let i = 0; i < files.length; i++) {
         const file = files[i]
         const offset = i * 40 // 多图错开
@@ -298,7 +297,7 @@ export default function UnifiedCanvas() {
     // 处理图片URL拖入（从浏览器其他标签页）
     const imgUrl = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain')
     if (imgUrl && /^https?:\/\//.test(imgUrl)) {
-      // 与文件拖入一致：未登录时阻止（img2img 触发时需要上传到服务器）
+      // 上传到服务器需要登录（拖入时立即下载外部 URL 到 /uploads/）
       if (!getToken()) {
         toast('请先登录后再拖入图片', 'error')
         return
