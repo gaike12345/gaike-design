@@ -585,8 +585,10 @@ router.post('/img2img', withGeneration('image', costForImage), async (req, res, 
       if (refImage.startsWith('/uploads/')) {
         localPath = String(refImage)
       } else {
+        // 任何包含 /uploads/ 的 URL（localhost、127.0.0.1、生产域名等）都从文件系统读取
+        // 避免 Pollinations 回连服务器下载图片（可能因 SSL/DNS/防火墙等原因失败）
         const match = String(refImage).match(/\/uploads\/[^?#]+/)
-        if (match && (refImage.includes('localhost') || refImage.includes('127.0.0.1'))) {
+        if (match) {
           localPath = match[0]
         }
       }
