@@ -2,9 +2,10 @@
  * 图片 URL 签名/验签模块
  * 从 routes/image.ts 提取，消除 comic.ts → image.ts 跨路由导入
  *
- * v2: 短 ID 映射方案
- *   signImageUrl 生成短 ID，存储 id → { url, userId, costTokens, txId } 映射
- *   proxy 端点用 id 查找，避免 Base64 编码的 URL 放在 query string 导致 431
+ * v3: 无状态长时效签名（当前主路径）
+ *   目标 URL base64url 编码进 query（r 参数）+ HMAC 验签，无服务端映射、无 TTL，
+ *   服务器重启 / 长时间后签名仍有效；超长 URL（编码后 > 6000 字符）降级为短 ID 模式
+ * v2: 短 ID 映射方案 —— 内存映射 + 2h TTL，重启/过期后历史图片全部失效（已废弃为主路径）
  */
 
 import { createHmac, randomBytes } from 'crypto'
@@ -18,7 +19,12 @@ if (!IMAGE_SIGNING_SECRET || IMAGE_SIGNING_SECRET.length < 16) {
   process.exit(1)
 }
 const SIGNING_SECRET = IMAGE_SIGNING_SECRET
+// 旧 Base64 兼容模式的短时效 TTL（历史存量签名）
 const SIGN_TTL_MS = 2 * 60 * 60 * 1000
+// 无状态签名 URL 最大长度：超过则降级为短 ID 模式（避免请求行超长触发 431）
+const STATELESS_URL_MAX_CHARS = 6000
+// 短 ID 降级模式的兜底 TTL（仅超长 URL 使用，依赖进程内存，重启后失效）
+const FALLBACK_ID_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 const ALLOWED_HOSTS = [
   'gen.pollinations.ai',
@@ -49,14 +55,14 @@ interface SignedEntry {
   ts: number
 }
 
-// 内存 Map：id → 签名条目，TTL 2 小时
+// 内存 Map：id → 签名条目（仅超长 URL 降级时使用），兜底 TTL 7 天
 const idMap = new Map<string, SignedEntry>()
 
-// 定时清理过期条目（每 10 分钟）
+// 定时清理降级短 ID 的过期条目（每 10 分钟）
 setInterval(() => {
   const now = Date.now()
   for (const [id, entry] of idMap) {
-    if (now - entry.ts > SIGN_TTL_MS) {
+    if (now - entry.ts > FALLBACK_ID_TTL_MS) {
       idMap.delete(id)
     }
   }
@@ -70,9 +76,12 @@ function generateId(): string {
 // ==================== 签名 ====================
 
 /**
- * 签名图片 URL
- * - 本地 /uploads/ 路径：使用 Base64 签名模式（不依赖内存，服务器重启后仍有效）
- * - 远程 URL：使用短 ID 模式（避免 URL 过长导致 431）
+ * 签名图片 URL（v3：无状态长时效签名）
+ * 目标 URL base64url 编码进 query（r 参数）+ HMAC 验签：
+ * 无服务端映射、无过期时间，服务器重启 / 长时间后仍有效，
+ * 修复旧方案（短 ID 内存映射 / Base64 模式均 2h TTL）导致画布历史图片全部失效的问题。
+ * 注意：参数名必须用 r，不能用 u —— 画布 loadFromStorage 会把 ?u= 视为旧版失效数据清理。
+ * 超长 URL（如超长 prompt 拼接的远程地址）编码后超过阈值时降级为短 ID 模式，避免请求行超长触发 431。
  */
 export function signImageUrl(originalUrl: string, userId?: string, costTokens?: number, txId?: string): string {
   const ts = Date.now()
@@ -82,17 +91,18 @@ export function signImageUrl(originalUrl: string, userId?: string, costTokens?: 
   const payload = `${ts}:${uid}:${cost}:${tid}:${originalUrl}`
   const sig = createHmac('sha256', SIGNING_SECRET).update(payload).digest('hex').slice(0, 16)
 
-  // 本地 /uploads/ 路径：URL 短，用 Base64 签名模式（重启不失效）
-  if (originalUrl.startsWith('/uploads/')) {
-    const encodedUrl = Buffer.from(originalUrl, 'utf-8').toString('base64url')
-    const params = new URLSearchParams({ u: encodedUrl, t: String(ts), s: sig })
-    if (uid) params.set('uid', uid)
-    if (cost) params.set('c', cost)
-    if (tid) params.set('tx', tid)
-    return `/api/image/proxy?${params.toString()}`
+  // 主路径：无状态签名（本地 /uploads/ 与远程 URL 统一处理）
+  const encodedUrl = Buffer.from(originalUrl, 'utf-8').toString('base64url')
+  const params = new URLSearchParams({ r: encodedUrl, t: String(ts), s: sig })
+  if (uid) params.set('uid', uid)
+  if (cost) params.set('c', cost)
+  if (tid) params.set('tx', tid)
+  const signed = `/api/image/proxy?${params.toString()}`
+  if (signed.length <= STATELESS_URL_MAX_CHARS) {
+    return signed
   }
 
-  // 远程 URL：生成短 ID，存储映射（避免 URL 过长导致 431）
+  // 兜底：超长 URL 走短 ID 映射（依赖内存，进程重启后失效，TTL 7 天）
   const id = generateId()
   idMap.set(id, {
     url: originalUrl,
@@ -102,7 +112,6 @@ export function signImageUrl(originalUrl: string, userId?: string, costTokens?: 
     sig,
     ts,
   })
-
   return `/api/image/proxy?id=${id}`
 }
 
@@ -112,8 +121,8 @@ export function verifySignedId(id: string): { url: string; userId?: string; cost
   const entry = idMap.get(id)
   if (!entry) return null
 
-  // 过期检查
-  if (Date.now() - entry.ts > SIGN_TTL_MS) {
+  // 过期检查（仅兜底模式使用，TTL 延长到 7 天）
+  if (Date.now() - entry.ts > FALLBACK_ID_TTL_MS) {
     idMap.delete(id)
     return null
   }
@@ -149,19 +158,26 @@ export function verifySignedId(id: string): { url: string; userId?: string; cost
   }
 }
 
-// ==================== 验签（旧 Base64 模式，向后兼容） ====================
+// ==================== 验签（Base64 模式：无状态主路径 + 旧短时效兼容） ====================
 
-export function verifySignedUrl(
+type VerifiedSigned = { url: string; userId?: string; costTokens?: number; txId?: string }
+
+/**
+ * Base64 签名公共验签逻辑
+ * @param maxAgeMs 签名有效期；null 表示无状态长时效（不过期）
+ */
+function verifySignedCommon(
   encodedUrl: string,
   ts: string,
   sig: string,
-  uid?: string,
-  costStr?: string,
-  txId?: string,
-): { url: string; userId?: string; costTokens?: number; txId?: string } | null {
+  uid: string | undefined,
+  costStr: string | undefined,
+  txId: string | undefined,
+  maxAgeMs: number | null,
+): VerifiedSigned | null {
   const timestamp = parseInt(ts, 10)
   if (isNaN(timestamp)) return null
-  if (Date.now() - timestamp > SIGN_TTL_MS) return null
+  if (maxAgeMs != null && Date.now() - timestamp > maxAgeMs) return null
 
   let originalUrl: string
   try {
@@ -212,4 +228,33 @@ export function verifySignedUrl(
     costTokens: isNaN(costTokens!) ? undefined : costTokens,
     txId: txId || undefined,
   }
+}
+
+/**
+ * v3 无状态长时效验签（当前主路径，r 参数）
+ * 仅依赖 HMAC 验签，无服务端映射、无过期时间 —— 服务器重启 / 长时间后仍有效
+ */
+export function verifyStatelessUrl(
+  encodedUrl: string,
+  ts: string,
+  sig: string,
+  uid?: string,
+  costStr?: string,
+  txId?: string,
+): VerifiedSigned | null {
+  return verifySignedCommon(encodedUrl, ts, sig, uid, costStr, txId, null)
+}
+
+/**
+ * 旧 Base64 短时效验签（仅向后兼容历史存量，签名 2h 过期）
+ */
+export function verifySignedUrl(
+  encodedUrl: string,
+  ts: string,
+  sig: string,
+  uid?: string,
+  costStr?: string,
+  txId?: string,
+): VerifiedSigned | null {
+  return verifySignedCommon(encodedUrl, ts, sig, uid, costStr, txId, SIGN_TTL_MS)
 }

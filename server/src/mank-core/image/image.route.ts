@@ -19,7 +19,7 @@ import {
 import { generateImage, generateImageFromImage } from './providers'
 import type { ImageResult } from './providers/types'
 import { pollinationsImageEdit, resolveModelName } from './providers/pollinations'
-import { signImageUrl, verifySignedUrl, verifySignedId } from '../../mank-common/utils/imageSigner'
+import { signImageUrl, verifySignedUrl, verifySignedId, verifyStatelessUrl } from '../../mank-common/utils/imageSigner'
 import logger from '../../mank-infra/logging/logger'
 
 const router = Router()
@@ -92,14 +92,21 @@ const router = Router()
  */
 router.get('/proxy', async (req, res) => {
   logger.info('CTRL_IMAGE_PROXY', { uid: req.query.uid, c: req.query.c, id: req.query.id })
-  const { u, t, s, uid, c, tx, id } = req.query
+  const { u, r, t, s, uid, c, tx, id } = req.query
 
-  // 优先使用短 ID 模式（v2），避免 URL 过长导致 431
+  // v3 无状态签名（r 参数）为当前主路径；短 ID（超长 URL 兜底）与旧 u 参数仅向后兼容
   let verified: { url: string; userId?: string; costTokens?: number; txId?: string } | null = null
-  if (typeof id === 'string') {
+  if (typeof r === 'string' && typeof t === 'string' && typeof s === 'string') {
+    verified = verifyStatelessUrl(
+      r, t, s,
+      typeof uid === 'string' ? uid : undefined,
+      typeof c === 'string' ? c : undefined,
+      typeof tx === 'string' ? tx : undefined,
+    )
+  } else if (typeof id === 'string') {
     verified = verifySignedId(id)
   } else if (typeof u === 'string' && typeof t === 'string' && typeof s === 'string') {
-    // 向后兼容：旧 Base64 签名 URL
+    // 向后兼容：旧 Base64 短时效签名 URL（历史存量已过期）
     verified = verifySignedUrl(
       u, t, s,
       typeof uid === 'string' ? uid : undefined,

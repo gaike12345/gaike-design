@@ -1,3 +1,6 @@
+import fs from 'fs/promises'
+import path from 'path'
+import crypto from 'crypto'
 import { Router, Request } from 'express'
 import { authRequired } from '../../mank-infra/middleware/auth'
 import { withGeneration } from '../../mank-infra/middleware/generation'
@@ -142,17 +145,58 @@ router.post('/tts', withGeneration('audio', costForTTS), async (req, res) => {
   }
 
   const v = VOICES.includes(voice) ? voice : 'nova'
-  const params = new URLSearchParams({ voice: v })
-  if (POLLINATIONS_KEY) params.set('key', POLLINATIONS_KEY)
+  const duration = Math.ceil(text.length / 4)
 
-  const url = `${POLLINATIONS_BASE}/audio/${encodeURIComponent(text.slice(0, 500))}?${params.toString()}`
+  // 未配置 Key：保持占位符语义，返回不带 key 的外部地址
+  if (!POLLINATIONS_KEY) {
+    const params = new URLSearchParams({ voice: v })
+    return res.json({
+      url: `${POLLINATIONS_BASE}/audio/${encodeURIComponent(text.slice(0, 500))}?${params.toString()}`,
+      voice: v,
+      duration,
+      text: text.slice(0, 100),
+      placeholder: true,
+    })
+  }
 
-  res.json({
-    url, voice: v,
-    duration: Math.ceil(text.length / 4),
-    text: text.slice(0, 100),
-    placeholder: !POLLINATIONS_KEY,
-  })
+  // 服务端拉取音频并转存 /uploads：
+  // 1) 带 key 的外部 URL 不再下发浏览器（修复 API Key 泄漏）
+  // 2) 同源本地文件在换设备/分享场景仍可访问（外部直链无此保证）
+  const externalUrl = `${POLLINATIONS_BASE}/audio/${encodeURIComponent(text.slice(0, 500))}?${new URLSearchParams({ voice: v, key: POLLINATIONS_KEY }).toString()}`
+  try {
+    const upstream = await fetch(externalUrl, { signal: AbortSignal.timeout(60_000) })
+    if (!upstream.ok) {
+      const errBody = await upstream.text().catch(() => '')
+      logger.warn('[TTS] 上游拉取失败', { status: upstream.status, voice: v, errBody: errBody.slice(0, 300) })
+      // 非 2xx 响应：withGeneration 的 finish 钩子会按 txId 自动退还预扣积分
+      return res.status(502).json({ error: '语音生成失败，请稍后重试' })
+    }
+    const contentType = upstream.headers.get('content-type') || ''
+    if (contentType && !contentType.includes('audio')) {
+      logger.warn('[TTS] 上游返回非音频内容', { contentType })
+      return res.status(502).json({ error: '语音生成失败，请稍后重试' })
+    }
+    const buf = Buffer.from(await upstream.arrayBuffer())
+    if (buf.length === 0) {
+      return res.status(502).json({ error: '语音生成失败，请稍后重试' })
+    }
+
+    const uploadDir = process.env.UPLOAD_DIR || './uploads'
+    await fs.mkdir(uploadDir, { recursive: true })
+    const filename = `tts_${crypto.randomBytes(12).toString('hex')}.mp3`
+    await fs.writeFile(path.resolve(uploadDir, filename), buf)
+
+    res.json({
+      url: `/uploads/${filename}`,
+      voice: v,
+      duration,
+      text: text.slice(0, 100),
+      placeholder: false,
+    })
+  } catch (e) {
+    logger.error('[TTS] 转存失败', { error: e instanceof Error ? e.message : String(e) })
+    return res.status(502).json({ error: '语音生成失败，请稍后重试' })
+  }
 })
 
 // POST /api/audio/song — 歌曲生成（歌词 + 风格 → 完整歌曲，异步任务）
@@ -776,7 +820,11 @@ router.post('/soundtrack', upload.single('media'), validateUploadedFiles, async 
     return res.status(403).json({ error: mod.safeReason })
   }
 
-  const mediaUrl = `${process.env.PUBLIC_BASE_URL || 'http://localhost:3000'}/uploads/${req.file.filename}`
+  // Mureka 需要公网可访问的媒体 URL：优先 PUBLIC_BASE_URL，
+  // 否则从当前请求推导（trust proxy=1 时 req.protocol 遵循 X-Forwarded-Proto，
+  // 生产环境经 nginx 反代即为 https://域名），杜绝 localhost 回退导致跨设备失败
+  const requestOrigin = `${req.protocol}://${req.get('host')}`
+  const mediaUrl = `${process.env.PUBLIC_BASE_URL || requestOrigin}/uploads/${req.file.filename}`
   const mediaType: 'image' | 'video' = req.file.mimetype.startsWith('video/') ? 'video' : 'image'
 
   try {
