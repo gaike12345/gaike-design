@@ -411,10 +411,8 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
   },
 ]
 
-export const DEFAULT_VIDEO_MODEL = 'seedance-pro'
-
-// 兜底模型配置（单源真理，始终导出）
-export const FALLBACK_VIDEO_MODELS = FALLBACK_MODELS
+// 默认视频模型单点定义（env 可覆盖）；video.route/taskWorker/costEstimator 统一引用此处
+export const DEFAULT_VIDEO_MODEL = process.env.DEFAULT_VIDEO_MODEL || 'seedance-pro'
 
 // ========== 缓存 ==========
 

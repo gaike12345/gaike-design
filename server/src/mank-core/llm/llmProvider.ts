@@ -157,23 +157,6 @@ export async function callLlmJson<T>(systemPrompt: string, userPrompt: string, m
   }
 }
 
-/**
- * 获取可用模型列表（免鉴权；智谱无公开列表端点，返回静态配置）
- */
-export async function listModels(): Promise<{ id: string; type: string }[]> {
-  if (ACTIVE.name === 'zhipu') {
-    return [{ id: ZHIPU_MODEL, type: 'chat' }]
-  }
-  try {
-    const res = await fetch(`${ACTIVE.baseUrl}/models`)
-    if (!res.ok) return []
-    const data = await res.json() as any[]
-    return (data || []).map((m) => ({ id: m.id || m.name || '', type: m.type || m.object || '' }))
-  } catch {
-    return []
-  }
-}
-
 // 无 API Key 或 API 调用失败时的安全兜底
 // 不回显任何 system prompt 或用户输入，防止敏感创作内容泄露到前端
 function fallbackTemplate(_system: string, _user: string): string {

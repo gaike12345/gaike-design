@@ -1,7 +1,6 @@
 // Settings 模块共享工具函数与通用 UI 组件
 // 从 SettingsPage.tsx 抽取，供所有 settings 子组件使用。
 
-import type { ReactNode } from 'react'
 import {
   AlertCircle,
   Loader2,
@@ -126,31 +125,5 @@ export function Pagination({ page, total, pageSize, onPageChange }: { page: numb
       onPageChange={onPageChange}
       variant="bordered"
     />
-  )
-}
-
-// ===== 通用 Section 卡片包装 =====
-export function SectionCard({
-  title,
-  icon: Icon,
-  badge,
-  children,
-}: {
-  title: string
-  icon?: React.ComponentType<{ className?: string }>
-  badge?: ReactNode
-  children: ReactNode
-}) {
-  return (
-    <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-base font-semibold text-neutral-900 flex items-center gap-2">
-          {Icon && <Icon className="h-4 w-4 text-violet-600" />}
-          {title}
-        </h2>
-        {badge}
-      </div>
-      {children}
-    </section>
   )
 }

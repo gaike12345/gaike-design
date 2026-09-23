@@ -1,5 +1,7 @@
 # SQLite → PostgreSQL 迁移指南
 
+> **⚠️ 已归档（2026-09）**：迁移已完成，配套脚本 `migrate-sqlite-to-pg.ts` 已移至 `deploy/legacy/`，`db:migrate-pg` script 同步移除。本文仅作历史记录保留。
+
 > 版本：1.0
 > 状态：待执行
 > 适用范围：Man TV 后端服务

@@ -196,27 +196,6 @@ export const UNODE_LABELS: Record<UnifiedNodeType, string> = {
 
 export const GRID_SIZE = 24
 
-export const IMAGE_MODELS = [
-  { id: 'sdxl', name: 'SDXL 基础', tag: '通用', desc: '稳定通用大模型', duration: 30, isNew: false },
-]
-
-export const VIDEO_MODELS = [
-  { id: 'seedance', name: 'Seedance Pro', tag: '字节', desc: '文生/图生视频', duration: 30, isNew: false },
-]
-
-export const VIDEO_RESOLUTIONS = [
-  { id: '720p', label: '720p', desc: '快速预览' },
-  { id: '1080p', label: '1080p', desc: '推荐' },
-  { id: '2k', label: '2K', desc: '超高清' },
-]
-
-export const VIDEO_DURATIONS = [
-  { id: '5s', label: '5秒' },
-  { id: '10s', label: '10秒' },
-  { id: '15s', label: '15秒' },
-  { id: '30s', label: '30秒' },
-]
-
 export const AUDIO_VOICES = [
   { id: 'nova', name: 'Nova', desc: '女声·温暖' },
 ]

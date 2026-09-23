@@ -13,7 +13,7 @@ datasource db {
 //   - SQLite 时代使用 cuid() 作为主键，PostgreSQL 完全兼容
 //   - 所有索引、外键、级联删除均通过 Prisma 抽象层定义，无 SQLite 特有语法
 //   - 迁移工具：prisma migrate dev --name init（PostgreSQL 首次初始化）
-//   - 数据迁移脚本：prisma/migrate-sqlite-to-pg.ts（从 SQLite dev.db 导入数据）
+//   - 历史数据迁移脚本（SQLite→PG）已归档至 deploy/legacy/，迁移已完成
 
 // ==================== 用户 ====================
 model User {

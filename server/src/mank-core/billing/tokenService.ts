@@ -57,7 +57,7 @@ export interface CreateTransactionOptions {
  * 并发安全：使用 Prisma increment/decrement 原子操作，禁止 read-then-write（TOCTOU）。
  * 充值类（recharge/admin_adjust/compensation）同步更新 totalTokens，保证 remaining + used = total。
  */
-export async function createTransaction(opts: CreateTransactionOptions) {
+async function createTransaction(opts: CreateTransactionOptions) {
   const { userId, type, amount, status, relatedType, relatedId, modelId, provider, reason } = opts
 
   // P1-3: settle 类型必须走 settleTokens/settleByTxId，禁止通过 createTransaction

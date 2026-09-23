@@ -161,9 +161,6 @@ export function calcVideoBaseTokens(input: VideoCostInput): number {
   return safeCeil(pollenTotal * ratio)
 }
 
-/** 兼容旧调用: calcVideoCostTokens 现在返回 baseTokens（成本），不含毛利 */
-export const calcVideoCostTokens = calcVideoBaseTokens
-
 export interface ImageCostInput {
   completionImageTokens: number
   promptTextTokens?: number
@@ -182,9 +179,6 @@ export function calcImageBaseTokens(input: ImageCostInput): number {
   return safeCeil(pollenPerImage * ratio)
 }
 
-/** 兼容旧调用 */
-export const calcImageCostTokens = calcImageBaseTokens
-
 export interface TextCostInput {
   promptTextTokens: number
   completionTextTokens: number
@@ -197,8 +191,6 @@ export function calcTextBaseTokens(input: TextCostInput): number {
   const pollenTotal = input.promptTextTokens + input.completionTextTokens
   return safeCeil(pollenTotal * ratio)
 }
-
-export const calcTextCostTokens = calcTextBaseTokens
 
 // ---------------------------------------------------------------------
 // 全管道: Pollinations API → baseTokens + costTokens（含毛利）

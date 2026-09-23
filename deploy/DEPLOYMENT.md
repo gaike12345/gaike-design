@@ -149,7 +149,9 @@ docker compose logs -f
 
 ### 3.3 数据库迁移
 
-#### 从 SQLite 迁移到 PostgreSQL
+#### 从 SQLite 迁移到 PostgreSQL（已完成，脚本已归档）
+
+> 一次性迁移已完成；`migrate-sqlite-to-pg.ts` 已归档至 `deploy/legacy/`，`db:migrate-pg` script 同步移除。以下命令仅作历史记录。
 
 ```bash
 # 1. 确保 PostgreSQL 已启动

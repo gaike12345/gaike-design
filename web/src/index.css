@@ -112,12 +112,6 @@
   height: 6px;
 }
 
-/* 小说写作 Hero 背景装饰：汉字浮动动画 */
-@keyframes novelFloat {
-  0%, 100% { transform: rotate(var(--rot, 0deg)) translateY(0); }
-  50% { transform: rotate(var(--rot, 0deg)) translateY(-12px); }
-}
-
 /* 创作画布 Hero 节点浮动动画 */
 @keyframes canvasFloat {
   0%, 100% { transform: translate(-50%, -50%) translateY(0); }

@@ -1,6 +1,6 @@
 // Admin 模块共享类型定义
 
-import type { ComponentType, SVGProps, ReactNode } from 'react'
+import type { ComponentType, SVGProps } from 'react'
 import type { SiteItemMeta, ControlType, SiteConfigData } from '../../hooks/useSiteConfig'
 
 export type IconComponent = ComponentType<SVGProps<SVGSVGElement> & { size?: number | string }>
@@ -187,18 +187,6 @@ export interface LogsResponse {
   totalPages: number
 }
 
-// 板块功能
-export interface Feature {
-  id: string
-  module: string
-  featureKey: string
-  displayName: string
-  type: string
-  status: string
-  sort: number
-  config: unknown
-}
-
 // 用户详情
 export interface UserDetail {
   user: {
@@ -303,25 +291,6 @@ export interface PageModuleChildDef {
   subtitle: string
   route: string
   filterType?: string  // 传给 ModelsByType 的 typeFilter
-}
-
-// 站点配置模块（旧结构，保留兼容）
-export interface SiteModuleDef {
-  moduleKey: string
-  moduleLabel: string
-  moduleIcon: IconComponent
-  moduleAccent: string
-  groups: SiteGroupDef[]
-  sections: PageSectionDef[]
-}
-
-export interface SectionWithItems {
-  moduleKey: string
-  moduleLabel: string
-  moduleIcon: IconComponent
-  moduleAccent: string
-  section: PageSectionDef
-  items: Array<{ item: SiteItemMeta; group: string }>
 }
 
 // 静态配置常量

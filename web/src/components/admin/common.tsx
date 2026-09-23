@@ -56,8 +56,6 @@ export const LOG_TYPE_OPTIONS: { key: '' | 'novel' | 'image' | 'comic' | 'audio'
   { key: 'video', label: '视频' },
 ]
 
-export const FEATURE_TYPES = ['toggle', 'select', 'number', 'text', 'json']
-
 // ========= 格式化工具 =========
 export function formatDateTime(s?: string | null): string {
   if (!s) return '—'
@@ -217,119 +215,6 @@ export function MiniBarChart({ data }: { data: Array<{ label: string; value: num
           </div>
         )
       })}
-    </div>
-  )
-}
-
-// KPI 卡片
-export function KpiCard({ icon: Icon, label, value, sub, from, to, labelColor }: {
-  icon: React.ComponentType<{ className?: string }>
-  label: string
-  value: string | number
-  sub?: string
-  from?: string
-  to?: string
-  labelColor?: string
-}) {
-  return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
-            <Icon className="h-4 w-4" />
-          </div>
-          <span className={`text-xs font-medium ${labelColor ?? 'text-neutral-500'}`}>{label}</span>
-        </div>
-      </div>
-      <div className="mt-3 text-2xl font-semibold text-neutral-900">{value}</div>
-      {(sub || from) && (
-        <div className="mt-1 flex items-center gap-2 text-xs text-neutral-500">
-          {from && <span className="text-emerald-600">{from}</span>}
-          {to && <span className="text-rose-500">{to}</span>}
-          {sub && <span>{sub}</span>}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// 环形图
-export function DonutChart({ data, size = 160, thickness = 22 }: { data: { name: string; value: number; color: string }[]; size?: number; thickness?: number }) {
-  const total = data.reduce((s, d) => s + d.value, 0) || 1
-  const radius = (size - thickness) / 2
-  const circumference = 2 * Math.PI * radius
-  let offset = 0
-  return (
-    <div className="flex items-center gap-6">
-      <svg width={size} height={size} className="-rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#f1f5f9" strokeWidth={thickness} />
-        {data.map((d) => {
-          const len = (d.value / total) * circumference
-          const dash = `${len} ${circumference - len}`
-          const el = (
-            <circle
-              key={d.name}
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              fill="none"
-              stroke={d.color}
-              strokeWidth={thickness}
-              strokeDasharray={dash}
-              strokeDashoffset={-offset}
-            />
-          )
-          offset += len
-          return el
-        })}
-      </svg>
-      <div className="space-y-1.5">
-        {data.map((d) => (
-          <div key={d.name} className="flex items-center gap-2 text-xs">
-            <span className="h-2.5 w-2.5 rounded-sm" style={{ background: d.color }} />
-            <span className="text-neutral-600">{d.name}</span>
-            <span className="ml-auto font-medium text-neutral-800">{formatNumber(d.value)}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// 双线图
-export function DualLineChart({ data }: { data: { date: string; calls: number; tokens: number }[] }) {
-  if (!data.length) return <div className="h-40 flex items-center justify-center text-sm text-neutral-400">暂无数据</div>
-  const w = 600
-  const h = 160
-  const pad = { l: 36, r: 10, t: 10, b: 22 }
-  const iw = w - pad.l - pad.r
-  const ih = h - pad.t - pad.b
-  const maxCalls = Math.max(1, ...data.map((d) => d.calls))
-  const maxTokens = Math.max(1, ...data.map((d) => d.tokens))
-  const xStep = data.length > 1 ? iw / (data.length - 1) : iw
-  const pointsCalls = data.map((d, i) => `${pad.l + i * xStep},${pad.t + ih - (d.calls / maxCalls) * ih}`).join(' ')
-  const pointsTokens = data.map((d, i) => `${pad.l + i * xStep},${pad.t + ih - (d.tokens / maxTokens) * ih}`).join(' ')
-  return (
-    <div>
-      <svg viewBox={`0 0 ${w} ${h}`} className="w-full">
-        {/* 网格线 */}
-        {[0, 0.5, 1].map((r) => (
-          <line key={r} x1={pad.l} y1={pad.t + ih * r} x2={w - pad.r} y2={pad.t + ih * r} stroke="#f1f5f9" strokeWidth="1" />
-        ))}
-        <polyline fill="none" stroke="#8b5cf6" strokeWidth="2" points={pointsCalls} />
-        <polyline fill="none" stroke="#06b6d4" strokeWidth="2" points={pointsTokens} />
-        {/* X 轴标签（首尾） */}
-        {data.length > 0 && (
-          <>
-            <text x={pad.l} y={h - 6} className="text-[10px]" fill="#94a3b8" textAnchor="start">{data[0].date.slice(5)}</text>
-            <text x={w - pad.r} y={h - 6} className="text-[10px]" fill="#94a3b8" textAnchor="end">{data[data.length - 1].date.slice(5)}</text>
-          </>
-        )}
-      </svg>
-      <div className="mt-2 flex items-center gap-4 text-xs text-neutral-500">
-        <span className="flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-violet-500" />调用次数</span>
-        <span className="flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-cyan-500" />消耗积分</span>
-      </div>
     </div>
   )
 }

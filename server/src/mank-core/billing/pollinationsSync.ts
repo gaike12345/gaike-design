@@ -45,7 +45,7 @@ export const SYNC_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000 // 7 天
 export const MISSED_RUN_THRESHOLD_MS = 8 * 24 * 60 * 60 * 1000 // 8 天以上视为漏跑
 
 // Pollinations 官方 video 模型 ID → 我们的内部 ID 映射
-// 有些模型有别名，需要统一到我们的 FALLBACK_VIDEO_MODELS.id
+// 有些模型有别名，需要统一到我们的 FALLBACK_MODELS.id
 const MODEL_ID_ALIASES: Record<string, string> = {
   'bytedance/seedance-1-pro-fast': 'seedance-pro',
   'bytedance/seedance-2.0-fast': 'seedance-2.0-fast',

@@ -66,7 +66,7 @@ export interface BubbleLayer extends BaseLayer {
   }
 }
 
-export interface TextLayer extends BaseLayer {
+interface TextLayer extends BaseLayer {
   type: 'text'
   props: {
     text: string

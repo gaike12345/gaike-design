@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { signImageUrl, verifySignedUrl } from '../src/mank-common/utils/imageSigner'
+import { signImageUrl, verifyStatelessUrl, verifySignedUrl } from '../src/mank-common/utils/imageSigner'
 
 describe('Image Signer', () => {
   const originalUrl = 'https://image.pollinations.ai/prompt/test%20image'
@@ -66,20 +66,20 @@ describe('Image Signer', () => {
       const url = new URL(signed, 'http://localhost')
       expect(url.searchParams.get('uid')).toBeNull()
       expect(url.searchParams.get('c')).toBeNull()
-      expect(url.searchParams.get('u')).toBeTruthy()
+      expect(url.searchParams.get('r')).toBeTruthy()
       expect(url.searchParams.get('t')).toBeTruthy()
       expect(url.searchParams.get('s')).toBeTruthy()
     })
   })
 
-  describe('verifySignedUrl', () => {
+  describe('验签', () => {
     it('应该验证有效的签名 URL', () => {
       const signed = signImageUrl(originalUrl, userId, costTokens)
       const url = new URL(signed, 'http://localhost')
       const params = url.searchParams
 
-      const result = verifySignedUrl(
-        params.get('u')!,
+      const result = verifyStatelessUrl(
+        params.get('r')!,
         params.get('t')!,
         params.get('s')!,
         params.get('uid') || undefined,
@@ -100,8 +100,8 @@ describe('Image Signer', () => {
       // 篡改签名
       const badSig = params.get('s')!.replace(/^./, 'x')
 
-      const result = verifySignedUrl(
-        params.get('u')!,
+      const result = verifyStatelessUrl(
+        params.get('r')!,
         params.get('t')!,
         badSig,
         params.get('uid') || undefined,
@@ -121,6 +121,9 @@ describe('Image Signer', () => {
       const result = verifySignedUrl(encoded, oldTs, sig)
 
       expect(result).toBeNull()
+
+      // v3 无状态主路径：同一签名无 TTL，历史签名应仍然有效（画布历史图片不失效）
+      expect(verifyStatelessUrl(encoded, oldTs, sig)).not.toBeNull()
     })
 
     it('应该拒绝非法的时间戳', () => {
@@ -148,8 +151,8 @@ describe('Image Signer', () => {
       const url = new URL(signed, 'http://localhost')
       const params = url.searchParams
 
-      const result = verifySignedUrl(
-        params.get('u')!,
+      const result = verifyStatelessUrl(
+        params.get('r')!,
         params.get('t')!,
         params.get('s')!,
         params.get('uid') || undefined,
@@ -179,8 +182,8 @@ describe('Image Signer', () => {
       const url = new URL(signed, 'http://localhost')
       const params = url.searchParams
 
-      const result = verifySignedUrl(
-        params.get('u')!,
+      const result = verifyStatelessUrl(
+        params.get('r')!,
         params.get('t')!,
         params.get('s')!,
         params.get('uid') || undefined,
@@ -201,8 +204,8 @@ describe('Image Signer', () => {
       // 篡改 txId
       const tamperedTx = 'tampered-tx-id'
 
-      const result = verifySignedUrl(
-        params.get('u')!,
+      const result = verifyStatelessUrl(
+        params.get('r')!,
         params.get('t')!,
         params.get('s')!,
         params.get('uid') || undefined,
@@ -227,8 +230,8 @@ describe('Image Signer', () => {
         const parsed = new URL(signed, 'http://localhost')
         const params = parsed.searchParams
 
-        const result = verifySignedUrl(
-          params.get('u')!,
+        const result = verifyStatelessUrl(
+          params.get('r')!,
           params.get('t')!,
           params.get('s')!,
           params.get('uid') || undefined,

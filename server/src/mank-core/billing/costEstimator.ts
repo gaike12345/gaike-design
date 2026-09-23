@@ -5,10 +5,10 @@
 
 import prisma from '../../mank-infra/database/prisma'
 import { getModelCost } from './modelCost'
+import { DEFAULT_VIDEO_MODEL } from '../video/videoModels'
 
 // ==================== Video ====================
 
-export const DEFAULT_VIDEO_MODEL = process.env.DEFAULT_VIDEO_MODEL || 'seedance-pro'
 const VIDEO_FALLBACK_DEFAULT = 1250
 
 // 模型运行时配置（JSON.parse 后的最小化类型，仅含本文件用到的字段）
