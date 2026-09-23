@@ -8,6 +8,7 @@
 
 import { create } from 'zustand'
 import { api, setToken, clearToken, getToken } from '../services/api'
+import { setCanvasOwnerId, useUnifiedCanvasStore } from './useUnifiedCanvasStore'
 
 export interface AuthUser {
   id: string
@@ -55,6 +56,12 @@ function doRedirect(path: string | null) {
   window.location.href = path
 }
 
+// 登录身份确立后同步画布归属，并恢复该账户的本地画布数据（按账户隔离）
+function adoptCanvasOwner(userId: string) {
+  setCanvasOwnerId(userId)
+  useUnifiedCanvasStore.getState().loadFromStorage()
+}
+
 // fetchMe in-flight 去重：App.tsx 和 AuthGuard 可能同时调 fetchMe
 // 用模块级 Promise 缓存避免重复请求
 let _fetchMeInFlight: Promise<void> | null = null
@@ -83,6 +90,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const redirectTo = get().loginRedirectTo
       // 登录成功：关闭登录弹窗，清除跳转目标
       set({ user: res.user, loading: false, loginModalOpen: false, loginRedirectTo: null })
+      // 画布数据按账户隔离：切户后画布归属人跟随新账户并恢复其本地画布
+      adoptCanvasOwner(res.user.id)
       // 跳转到目标页
       if (redirectTo) {
         doRedirect(redirectTo)
@@ -105,6 +114,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const redirectTo = get().loginRedirectTo
       // 注册成功：关闭登录弹窗，清除跳转目标
       set({ user: res.user, loading: false, loginModalOpen: false, loginRedirectTo: null })
+      // 画布数据按账户隔离：新账户绑定画布归属人
+      adoptCanvasOwner(res.user.id)
       // 跳转到目标页
       if (redirectTo) {
         doRedirect(redirectTo)
@@ -130,6 +141,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       setToken(res.token)
       const redirectTo = get().loginRedirectTo
       set({ user: res.user, loading: false, loginModalOpen: false, loginRedirectTo: null })
+      // 画布数据按账户隔离：扫码登录成功后绑定画布归属人
+      adoptCanvasOwner(res.user.id)
       if (redirectTo) {
         setTimeout(() => doRedirect(redirectTo), 300)
       }
@@ -138,6 +151,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: () => {
+    // 清空画布内存态，防止换账户登录后残留上一账户的创作内容
+    // （持久化按 userId 分 key 隔离，本人再次登录时可恢复）
+    useUnifiedCanvasStore.getState().clearCanvas()
     clearToken()
     set({ user: null })
   },

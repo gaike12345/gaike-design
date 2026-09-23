@@ -9,7 +9,8 @@ export default defineConfig({
     {
       name: 'increase-max-header-size',
       configureServer(server) {
-        server.httpServer.maxHeaderSize = 65536
+        if (!server.httpServer) return
+        ;(server.httpServer as { maxHeaderSize?: number }).maxHeaderSize = 65536
       },
     },
   ],

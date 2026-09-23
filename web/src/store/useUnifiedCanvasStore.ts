@@ -749,7 +749,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
         const src = state.nodes.find((n) => n.id === conn.source.nodeId)
         if (!src) continue
         if (src.type !== 'image') continue
-        const imgs = src.data.imageResults?.filter((r) => r.status === 'done')
+        const imgs = src.data.imageResults?.filter((r) => r.status === 'done') ?? []
         for (const img of imgs) {
           if (img.originalUrl) allRefImages.push(img.originalUrl)
         }
@@ -783,7 +783,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
         const src = state.nodes.find((n) => n.id === conn.source.nodeId)
         if (!src) continue
         if (src.type !== 'image') continue
-        const imgs = src.data.imageResults?.filter((r) => r.status === 'done')
+        const imgs = src.data.imageResults?.filter((r) => r.status === 'done') ?? []
         for (const img of imgs) {
           if (img.originalUrl) endframeRefImages.push(img.originalUrl)
         }
@@ -856,7 +856,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       // 将相对 URL（/uploads/xxx）转为绝对 URL，后端 z.string().url() 要求完整 URL
       const toAbs = (u: string) => u.startsWith('/') ? `${window.location.origin}${u}` : u
       // 首帧图作为 imageUrl 走 img2video
-      const effectiveImageUrl = toAbs(imageUrl)
+      const effectiveImageUrl = imageUrl ? toAbs(imageUrl) : undefined
       const effectiveIsImg2Video = !!effectiveImageUrl
       const endpoint = effectiveIsImg2Video ? '/api/video/img2video' : '/api/video/text2video'
       const extraParams: Record<string, unknown> = {}
@@ -1033,10 +1033,19 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     pollRegistry.stopAll()
     imageGenQueue.clear() // 清空图片生成队列
     nodeTypeCounters = {}
+    // 取消待写入的防抖保存并解除归属绑定：
+    // 持久化数据按 userId 分 key 隔离，登出仅清内存态，本人再次登录可恢复
+    if (saveTimer) {
+      clearTimeout(saveTimer)
+      saveTimer = null
+    }
+    canvasOwnerId = null
     set({ nodes: [], connections: [], selectedNodeId: null })
   },
 
   saveToStorage: () => {
+    // 未登录/已登出时不持久化：防止登出竞态把空画布写进其他账户的存储分片
+    if (!canvasOwnerId) return
     const { nodes, connections, viewport } = get()
     try {
       const payload = {
@@ -1054,7 +1063,7 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
         counters: nodeTypeCounters,
         savedAt: Date.now(),
       }
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+      localStorage.setItem(currentStorageKey(), JSON.stringify(payload))
     } catch (e) {
       // localStorage 保存失败（可能是配额超限或隐私模式），不影响核心功能
       logger.warn('Canvas', '本地保存失败:', e)
@@ -1063,7 +1072,11 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
 
   loadFromStorage: () => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY)
+      // 一次性迁移清理旧版全局 key：其数据无法确认归属账户，按隔离原则直接丢弃
+      if (localStorage.getItem(LEGACY_STORAGE_KEY)) {
+        localStorage.removeItem(LEGACY_STORAGE_KEY)
+      }
+      const raw = localStorage.getItem(currentStorageKey())
       if (!raw) return false
       const payload = JSON.parse(raw) as StoredCanvasState
       if (!payload.nodes || !Array.isArray(payload.nodes)) return false
@@ -1144,8 +1157,21 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
 }))
 
 // 自动持久化：debounce 保存
-const STORAGE_KEY = 'ai_canvas_state_v2'
+// 画布数据按账户隔离：key 携带归属用户 id，换账户登录互不可见
+const STORAGE_KEY_PREFIX = 'ai_canvas_state_v2'
+// 旧版全局 key（无归属隔离），加载时一次性清除
+const LEGACY_STORAGE_KEY = 'ai_canvas_state_v2'
 let saveTimer: ReturnType<typeof setTimeout> | null = null
+// 画布归属人（用户 id）：由画布挂载点/认证流程设置，登出时解除
+let canvasOwnerId: string | null = null
+
+export function setCanvasOwnerId(id: string | null) {
+  canvasOwnerId = id
+}
+
+function currentStorageKey() {
+  return canvasOwnerId ? `${STORAGE_KEY_PREFIX}:${canvasOwnerId}` : `${STORAGE_KEY_PREFIX}:anon`
+}
 
 useUnifiedCanvasStore.subscribe((state, prevState) => {
   if (state.nodes !== prevState.nodes || state.connections !== prevState.connections || state.viewport !== prevState.viewport) {

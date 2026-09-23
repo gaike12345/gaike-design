@@ -7,10 +7,11 @@
 import { useRef, useEffect, useCallback, useState, type ReactNode, type MouseEvent, type ComponentType, type SVGProps } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  useUnifiedCanvasStore, UNODE_PORTS, UNODE_SIZE, GRID_SIZE, snapToGrid,
+  useUnifiedCanvasStore, UNODE_PORTS, UNODE_SIZE, GRID_SIZE, snapToGrid, setCanvasOwnerId,
   type UCanvasNode, type UnifiedNodeType, type UnifiedPortType, type UPort,
 } from '../../store/useUnifiedCanvasStore'
 import { useProjectStore } from '../../store/useProjectStore'
+import { useAuthStore } from '../../store/useAuthStore'
 import { useQuotaStore } from '../../store/useQuotaStore'
 import { formatTokensCompact } from '../../services/cost'
 import {
@@ -177,12 +178,10 @@ export default function UnifiedCanvas() {
   const [hideConnections, setHideConnections] = useState(false)
   const [hideGrid, setHideGrid] = useState(false)
 
-  // 画布初始化：从 localStorage 恢复状态
+  // 画布初始化：按当前登录用户从 localStorage 恢复状态（画布数据按账户隔离）
   useEffect(() => {
-    const loaded = useUnifiedCanvasStore.getState().loadFromStorage()
-    if (loaded) {
-      // 如果有保存的状态，不显示默认工作流
-    }
+    setCanvasOwnerId(useAuthStore.getState().user?.id ?? null)
+    useUnifiedCanvasStore.getState().loadFromStorage()
     // 画布进入时 拉一次用户余额（首帧显示）
     void refreshQuota({ force: false })
   }, [refreshQuota])

@@ -463,8 +463,7 @@ const VideoPromptMentionInput = memo(function VideoPromptMentionInput({
           className="fixed z-[500] w-[240px] max-h-[220px] overflow-y-auto rounded-lg border border-[#2a2a2a] bg-[#121212] shadow-xl"
           style={{ left: mentionState.cursorPos.x, top: mentionState.cursorPos.y }}
           onWheel={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.preventDefault()} // 防止 textarea blur 抢先触发
+          onMouseDown={(e) => { e.stopPropagation(); e.preventDefault() }} // 防止 textarea blur 抢先触发
         >
           <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-neutral-500">
             引用图片节点（{candidates.length}）
@@ -1032,7 +1031,7 @@ export const ImageNode = memo(function ImageNode({ node }: { node: UCanvasNode }
             <span className="hidden group-hover:inline">翻转</span>
           </button>
           <button
-            onClick={() => { const dlUrl = cur?.originalUrl || cur?.url; if (dlUrl) { const a = document.createElement('a'); a.href = dlUrl; a.download = `image-${cur.seed}.png`; a.click() } }}
+            onClick={() => { const dlUrl = cur?.url || cur?.originalUrl; if (dlUrl) { const a = document.createElement('a'); a.href = dlUrl; a.download = `image-${cur.seed}.png`; a.click() } }}
             className="group flex w-12 items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
             title="下载图片"
           >
@@ -1082,8 +1081,8 @@ export const ImageNode = memo(function ImageNode({ node }: { node: UCanvasNode }
         {/* 预览图 —— object-cover 铺满固定 16:9 预览框，真实效果通过全屏预览看 */}
         {cur && cur.status !== 'error' && (
           <CachedImg
-            src={cur.originalUrl || cur.url}
-            cacheKey={cur.originalUrl || cur.url}
+            src={cur.url || cur.originalUrl}
+            cacheKey={cur.url || cur.originalUrl}
             alt="生成图"
             draggable={false}
             className="h-full w-full object-cover transition-opacity duration-200 pointer-events-none select-none"
@@ -1180,7 +1179,7 @@ export const ImageNode = memo(function ImageNode({ node }: { node: UCanvasNode }
             <X className="h-4 w-4" />
           </button>
           <img
-            src={cur.originalUrl || cur.url}
+            src={cur.url || cur.originalUrl}
             alt="预览"
             className="max-h-[100vh] max-w-[100vw] object-contain"
             onClick={(e) => e.stopPropagation()}
@@ -1379,7 +1378,7 @@ export function ImageSettingsPanel({ node }: { node: UCanvasNode }) {
                         ) : (
                           <>
                             <img
-                              src={img.originalUrl || img.url}
+                              src={img.url || img.originalUrl}
                               alt=""
                               className="w-full h-full object-cover"
                               loading="lazy"
@@ -1630,7 +1629,7 @@ export function ImageSettingsPanel({ node }: { node: UCanvasNode }) {
               <X className="h-3.5 w-3.5" />
             </button>
             {cur ? (
-              <img src={cur.originalUrl || cur.url} className="max-h-[80vh] max-w-full rounded-lg object-contain shadow-2xl" />
+              <img src={cur.url || cur.originalUrl} className="max-h-[80vh] max-w-full rounded-lg object-contain shadow-2xl" />
             ) : (
               <div className="flex h-[400px] w-[600px] items-center justify-center rounded-lg border border-dashed border-[#333] bg-[#0f0f0f] text-neutral-500">尚未生成图片</div>
             )}
