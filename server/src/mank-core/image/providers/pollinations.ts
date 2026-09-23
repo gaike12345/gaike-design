@@ -9,6 +9,7 @@
 
 import type { ImageProvider, ImageGenerateParams, ImageResult } from './types'
 import logger from '../../../mank-infra/logging/logger'
+import { BusinessError } from '../../../mank-common/errors'
 
 const POLLINATIONS_BASE = 'https://gen.pollinations.ai'
 const API_KEY = process.env.POLLINATIONS_API_KEY || ''
@@ -173,7 +174,17 @@ export async function pollinationsImageEdit(params: {
 
   if (!res.ok) {
     const errText = await res.text().catch(() => '')
-    throw new Error(`Pollinations image edit failed: ${res.status} ${errText.slice(0, 200)}`)
+    // 400 通常是内容审核拒绝，返回友好错误而非通用 Error
+    if (res.status === 400) {
+      const isSafety = errText.includes('safety') || errText.includes('rejected') || errText.includes('moderation')
+      throw new BusinessError(
+        isSafety ? '图片生成被安全系统拒绝，请修改提示词或参考图后重试' : '图片生成失败，请稍后重试'
+      )
+    }
+    throw new BusinessError(
+      `图片编辑服务异常 (${res.status})，请稍后重试`,
+      502
+    )
   }
 
   const data = await res.json() as { data?: Array<{ b64_json?: string; url?: string }> }
