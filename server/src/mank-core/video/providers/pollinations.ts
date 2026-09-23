@@ -9,6 +9,8 @@
  *  上层通过 taskWorker 异步队列来管理，避免阻塞请求线程。
  */
 
+import fs from 'fs'
+import path from 'path'
 import type { VideoProvider, VideoGenerateParams, VideoResult } from './types'
 import logger from '../../../mank-infra/logging/logger'
 import { BusinessError } from '../../../mank-common/errors'
@@ -16,6 +18,123 @@ import { getVideoModel } from '../videoModels'
 
 const POLLINATIONS_BASE = 'https://gen.pollinations.ai'
 const API_KEY = process.env.POLLINATIONS_API_KEY || ''
+
+/**
+ * 检测图片 URL 是否为本地 /uploads/ 路径（localhost、127.0.0.1、生产域名等）
+ * 如果是，返回本地相对路径；否则返回 null
+ */
+function getLocalUploadPath(url: string): string | null {
+  if (!url) return null
+  if (url.startsWith('/uploads/')) return url
+  const match = String(url).match(/\/uploads\/[^?#]+/)
+  return match ? match[0] : null
+}
+
+/**
+ * 读取本地图片并转为 base64 data URI
+ * 用于 Pollinations Chat Completions API（支持 data URI 作为图片输入）
+ */
+function readLocalImageAsDataUri(localPath: string): string | null {
+  try {
+    const filePath = path.join(process.cwd(), localPath)
+    if (!fs.existsSync(filePath)) return null
+    const buf = fs.readFileSync(filePath)
+    const ext = path.extname(filePath).toLowerCase()
+    const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg'
+    return `data:${mime};base64,${buf.toString('base64')}`
+  } catch (e) {
+    logger.warn('[Pollinations Video] 读取本地图片失败', { localPath, error: (e as Error).message })
+    return null
+  }
+}
+
+/**
+ * 通过 Pollinations Chat Completions API 生成视频
+ * 用于本地图片（/uploads/）场景：GET /video 端点需要公网 URL，
+ * Pollinations 后端无法回连国内服务器下载图片，改用 Chat Completions + base64 data URI
+ *
+ * 文档：https://gen.pollinations.ai/docs#tag/Media-models-in-conversations
+ * 限制：Chat Completions 不支持自定义 duration/resolution，使用模型默认值
+ */
+async function generateVideoViaChatCompletion(params: {
+  prompt: string
+  model: string
+  imageDataUri: string
+  endImageDataUri?: string
+  referenceImageUris?: string[]
+}): Promise<{ url: string }> {
+  const { prompt, model, imageDataUri, endImageDataUri, referenceImageUris } = params
+
+  const content: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
+    { type: 'text', text: prompt },
+  ]
+
+  // 首帧
+  if (imageDataUri) {
+    content.push({ type: 'image_url', image_url: { url: imageDataUri } })
+  }
+
+  // 尾帧：作为第二张图片传入
+  if (endImageDataUri) {
+    content.push({ type: 'image_url', image_url: { url: endImageDataUri } })
+  }
+
+  // 参考图
+  if (referenceImageUris) {
+    for (const uri of referenceImageUris) {
+      content.push({ type: 'image_url', image_url: { url: uri } })
+    }
+  }
+
+  const body = {
+    model,
+    messages: [{ role: 'user', content }],
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  }
+  if (API_KEY) headers['Authorization'] = `Bearer ${API_KEY}`
+
+  const res = await fetch(`${POLLINATIONS_BASE}/v1/chat/completions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  })
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '')
+    if (res.status === 400) {
+      const isSafety = errText.includes('safety') || errText.includes('rejected') || errText.includes('moderation')
+      throw new BusinessError(
+        isSafety ? '视频生成被安全系统拒绝，请修改提示词或参考图后重试' : '视频生成失败，请稍后重试'
+      )
+    }
+    throw new BusinessError(`视频生成服务异常 (${res.status})，请稍后重试`, 502)
+  }
+
+  const data = await res.json() as {
+    choices?: Array<{ message?: { content?: string } }>
+  }
+  const contentText = data.choices?.[0]?.message?.content || ''
+
+  // 响应格式：Markdown 链接 [视频](url) 后跟纯文本 URL
+  // 提取第一个 URL
+  const urlMatch = contentText.match(/https?:\/\/[^\s\])"'`]+/)
+  if (urlMatch) {
+    return { url: urlMatch[0] }
+  }
+
+  // 也检查 Link header
+  const linkHeader = res.headers.get('Link')
+  if (linkHeader) {
+    const linkMatch = linkHeader.match(/<([^>]+)>/)
+    if (linkMatch) return { url: linkMatch[1] }
+  }
+
+  logger.error('[Pollinations Video] Chat Completions 响应中未找到视频 URL', { content: contentText.slice(0, 300) })
+  throw new BusinessError('视频生成失败：未获取到视频地址，请稍后重试')
+}
 
 /**
  * 旧模型名 → Pollinations 新格式模型名映射
@@ -245,12 +364,47 @@ export const pollinationsVideoProvider: VideoProvider = {
   },
 
   async textToVideo(params: VideoGenerateParams): Promise<VideoResult> {
-    const { prompt, model, duration, resolution, audio } = params
-    const url = await buildVideoUrl(params)
+    const { prompt, model, duration, resolution, aspectRatio, audio, endImage, referenceImages } = params
+    const resolvedModel = resolveModelName(model)
 
     logger.debug(`[Pollinations Video] textToVideo model=${model} duration=${duration}s resolution=${resolution || 'default'}`)
 
-    // 验证生成是否成功（流式轻量验证，不下载完整文件）
+    // 检测 endImage / referenceImages 是否为本地 /uploads/ 图片
+    const localEndPath = endImage ? getLocalUploadPath(endImage) : null
+    const localRefPaths = referenceImages?.map(getLocalUploadPath).filter(Boolean) as string[]
+    const hasLocalImage = !!(localEndPath || localRefPaths.length > 0)
+
+    if (hasLocalImage) {
+      // 本地图片：用 Chat Completions API + base64 data URI
+      const endDataUri = localEndPath ? readLocalImageAsDataUri(localEndPath) || undefined : undefined
+      const refDataUris = localRefPaths.map(p => readLocalImageAsDataUri(p)).filter(Boolean) as string[]
+
+      logger.info('[Pollinations Video] textToVideo 使用 Chat Completions API（含本地参考图）', {
+        model: resolvedModel,
+        hasEndFrame: !!endDataUri,
+        refCount: refDataUris.length,
+      })
+
+      const result = await generateVideoViaChatCompletion({
+        prompt: prompt || '',
+        model: resolvedModel,
+        imageDataUri: '',  // text2video 无首帧，传空字符串会被忽略
+        endImageDataUri: endDataUri,
+        referenceImageUris: refDataUris,
+      })
+
+      return {
+        url: result.url,
+        duration,
+        resolution,
+        audio,
+        placeholder: false,
+        provider: 'pollinations',
+      }
+    }
+
+    // 纯文生视频或公网 URL：使用原生 GET /video 端点
+    const url = await buildVideoUrl(params)
     const success = await verifyVideoGeneration(url)
 
     return {
@@ -264,11 +418,55 @@ export const pollinationsVideoProvider: VideoProvider = {
   },
 
   async imageToVideo(params: VideoGenerateParams & { image: string }): Promise<VideoResult> {
-    const { model, duration, resolution, audio, image } = params
-    const url = await buildVideoUrl(params)
+    const { prompt, model, duration, resolution, aspectRatio, audio, image, endImage, referenceImages } = params
+    const resolvedModel = resolveModelName(model)
 
     logger.debug(`[Pollinations Video] imageToVideo model=${model} duration=${duration}s image=${image.slice(0, 60)}...`)
 
+    // 检测首帧是否为本地 /uploads/ 图片
+    const localStartPath = getLocalUploadPath(image)
+    const localEndPath = endImage ? getLocalUploadPath(endImage) : null
+    const localRefPaths = referenceImages?.map(getLocalUploadPath).filter(Boolean) as string[]
+
+    const hasLocalImage = !!(localStartPath || localEndPath || localRefPaths.length > 0)
+
+    if (hasLocalImage) {
+      // 本地图片：用 Chat Completions API + base64 data URI
+      // Pollinations GET /video 端点需要公网 URL，后端无法回连国内服务器下载图片
+      const startDataUri = localStartPath ? readLocalImageAsDataUri(localStartPath) : null
+      const endDataUri = localEndPath ? readLocalImageAsDataUri(localEndPath) || undefined : undefined
+      const refDataUris = localRefPaths.map(p => readLocalImageAsDataUri(p)).filter(Boolean) as string[]
+
+      if (!startDataUri) {
+        throw new BusinessError('首帧图片读取失败，请重新上传后重试')
+      }
+
+      logger.info('[Pollinations Video] 使用 Chat Completions API 生成本地图片视频', {
+        model: resolvedModel,
+        hasEndFrame: !!endDataUri,
+        refCount: refDataUris.length,
+      })
+
+      const result = await generateVideoViaChatCompletion({
+        prompt: prompt || '',
+        model: resolvedModel,
+        imageDataUri: startDataUri,
+        endImageDataUri: endDataUri,
+        referenceImageUris: refDataUris,
+      })
+
+      return {
+        url: result.url,
+        duration,
+        resolution,
+        audio,
+        placeholder: false,
+        provider: 'pollinations',
+      }
+    }
+
+    // 公网 URL：使用原生 GET /video 端点
+    const url = await buildVideoUrl(params)
     const success = await verifyVideoGeneration(url)
 
     return {

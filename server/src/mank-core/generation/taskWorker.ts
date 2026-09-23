@@ -70,6 +70,10 @@ function isRetryableError(e: unknown): boolean {
     'currently supports',
     '参数',
     '不支持',
+    'Failed to download',
+    'file_download_error',
+    '安全系统拒绝',
+    '被安全系统',
   ]
   if (clientErrorKeywords.some(kw => msg.includes(kw))) return false
   // HTTP 4xx 状态码
@@ -286,17 +290,17 @@ async function processTask(task: TaskInfo): Promise<void> {
   } catch (e: unknown) {
     // 失败处理
     const errMsg = (e as Error).message
-    const failCount = (task as any)._failCount || 0
+    // 从 payload 中读取失败次数（持久化存储，避免重新入队后丢失）
+    const failCount = (task.payload as any)?._failCount || 0
 
     if (failCount < MAX_RETRIES - 1 && isRetryableError(e)) {
       // 可重试：重新入队
       log.warn(`任务失败，将重试 (${failCount + 1}/${MAX_RETRIES}): ${task.id}`, {
         error: errMsg,
       })
-      // 延迟重入队（简单处理：直接重新入队尾部）
-      await taskQueue.enqueue(task.type, task.payload, task.userId, { taskId: task.id })
-      // 标记失败次数（内存模式下简单处理，Redis 模式需额外存储）
-      ;(task as any)._failCount = failCount + 1
+      // 将失败次数写入 payload，确保重新入队后能正确计数
+      const retryPayload = { ...task.payload, _failCount: failCount + 1 }
+      await taskQueue.enqueue(task.type, retryPayload, task.userId, { taskId: task.id })
     } else {
       // 达到最大重试次数，标记失败
       await taskQueue.updateStatus(task.id, 'failed', {
