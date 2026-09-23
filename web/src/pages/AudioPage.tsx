@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import Navbar from '../components/layout/Navbar'
 import Footer from '../components/layout/Footer'
-import { api } from '../services/api'
+import { api, uploadFormData } from '../services/api'
 import DemoBadge from '../components/ui/DemoBadge'
 import { useQuotaStore } from '../store/useQuotaStore'
 import { useCostEstimate, formatTokensCompact } from '../hooks/useCostEstimate'
@@ -350,14 +350,7 @@ export default function AudioPage() {
       const formData = new FormData()
       formData.append('file', refFile)
       formData.append('purpose', 'reference')
-      const token = localStorage.getItem('token')
-      const res = await fetch('/api/audio/files/upload', {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: formData,
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || '上传失败')
+      const data = await uploadFormData<{ fileId: string; filename?: string }>('/api/audio/files/upload', formData)
       setRefId(data.fileId)
       setRefName(data.filename || refFile.name)
     } catch (e) {
@@ -376,14 +369,7 @@ export default function AudioPage() {
       const formData = new FormData()
       formData.append('file', vocalFile)
       if (vocalDesc) formData.append('description', vocalDesc)
-      const token = localStorage.getItem('token')
-      const res = await fetch('/api/audio/vocal-clone', {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: formData,
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || '音色克隆失败')
+      const data = await uploadFormData<{ vocalId: string }>('/api/audio/vocal-clone', formData)
       setVocalId(data.vocalId)
     } catch (e) {
       setVocalError(e instanceof Error ? e.message : '音色克隆失败')
@@ -507,14 +493,7 @@ export default function AudioPage() {
       if (stTitle) formData.append('title', stTitle)
       formData.append('model', stModel)
 
-      const token = localStorage.getItem('token')
-      const res = await fetch('/api/audio/soundtrack', {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: formData,
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || '上传失败')
+      const data = await uploadFormData<{ status: TaskStatus; taskId: string }>('/api/audio/soundtrack', formData)
 
       songEst.consume()
       const itemId = genId()

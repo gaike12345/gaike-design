@@ -167,3 +167,34 @@ export async function uploadFile(url: string, file: File): Promise<{ url: string
   if (!res.ok) throw new Error(extractErrMsg(data, `HTTP ${res.status}`))
   return data
 }
+
+// 通用 multipart 上传（支持额外 FormData 字段，如 purpose/description/media）
+export async function uploadFormData<T>(url: string, formData: FormData): Promise<T> {
+  const token = getToken()
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  })
+
+  if (res.status === 401) {
+    clearToken()
+    throw new Error('登录已过期')
+  }
+
+  if (res.status === 402) {
+    let data: ErrorResponseData | null = null
+    try { data = await res.json() as ErrorResponseData } catch { /* ignore */ }
+    useQuotaModalStore.getState().openModal({
+      need: data?.need,
+      remaining: data?.remaining,
+      message: extractErrMsg(data, '积分不足，请先充值'),
+    })
+    throw new Error(extractErrMsg(data, '积分不足，请先充值'))
+  }
+
+  let data: unknown = null
+  try { data = await res.json() } catch { /* ignore */ }
+  if (!res.ok) throw new Error(extractErrMsg(data as ErrorResponseData | null, `HTTP ${res.status}`))
+  return data as T
+}
