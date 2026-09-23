@@ -67,8 +67,13 @@ function generateId(): string {
   return randomBytes(8).toString('hex')
 }
 
-// ==================== 签名（短 ID 模式） ====================
+// ==================== 签名 ====================
 
+/**
+ * 签名图片 URL
+ * - 本地 /uploads/ 路径：使用 Base64 签名模式（不依赖内存，服务器重启后仍有效）
+ * - 远程 URL：使用短 ID 模式（避免 URL 过长导致 431）
+ */
 export function signImageUrl(originalUrl: string, userId?: string, costTokens?: number, txId?: string): string {
   const ts = Date.now()
   const uid = userId || ''
@@ -77,7 +82,17 @@ export function signImageUrl(originalUrl: string, userId?: string, costTokens?: 
   const payload = `${ts}:${uid}:${cost}:${tid}:${originalUrl}`
   const sig = createHmac('sha256', SIGNING_SECRET).update(payload).digest('hex').slice(0, 16)
 
-  // 生成短 ID，存储映射
+  // 本地 /uploads/ 路径：URL 短，用 Base64 签名模式（重启不失效）
+  if (originalUrl.startsWith('/uploads/')) {
+    const encodedUrl = Buffer.from(originalUrl, 'utf-8').toString('base64url')
+    const params = new URLSearchParams({ u: encodedUrl, t: String(ts), s: sig })
+    if (uid) params.set('uid', uid)
+    if (cost) params.set('c', cost)
+    if (tid) params.set('tx', tid)
+    return `/api/image/proxy?${params.toString()}`
+  }
+
+  // 远程 URL：生成短 ID，存储映射（避免 URL 过长导致 431）
   const id = generateId()
   idMap.set(id, {
     url: originalUrl,
