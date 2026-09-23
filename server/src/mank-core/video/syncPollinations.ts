@@ -17,6 +17,7 @@
 import prisma from '../../mank-infra/database/prisma'
 import logger from '../../mank-infra/logging/logger'
 import { clearVideoModelCache } from './videoModels'
+import { POLLINATIONS_VIDEO_NAME_MAP } from '../models/modelAliases'
 
 const log = logger.child('syncPollinationsVideo')
 
@@ -69,47 +70,9 @@ export interface SyncVideoResult {
 }
 
 /**
- * 本地名 → Pollinations 名 映射表
- *
- * 来源：server/src/mank-core/video/providers/pollinations.ts 中的 MODEL_NAME_MAP（正向映射）
- * 这里覆盖更广的别名集合，确保 DB 中各种命名形式都能匹配到 Pollinations 模型
+ * 本地名 → Pollinations 名 正向映射表已收敛到 models/modelAliases.ts（POLLINATIONS_VIDEO_NAME_MAP，
+ * 单一来源 31 条，快照测试 server/tests/modelAliases.test.ts 锁定内容）
  */
-function buildForwardMap(): Map<string, string> {
-  const forwardMap: Record<string, string> = {
-    'wan-fast': 'alibaba/wan-2.2-fast',
-    'wan-2.2-fast': 'alibaba/wan-2.2-fast',
-    'wan-pro': 'alibaba/wan-2.7',
-    'wan-2.7': 'alibaba/wan-2.7',
-    'wan-3.0': 'alibaba/wan-3.0',
-    'wan': 'alibaba/wan-2.6',
-    'wan-2.6': 'alibaba/wan-2.6',
-    'happyhorse': 'alibaba/happyhorse-1.1',
-    'happyhorse-1.1': 'alibaba/happyhorse-1.1',
-    'seedance': 'bytedance/seedance-2.0',
-    'seedance-pro': 'bytedance/seedance-1-pro-fast',
-    'seedance-1-pro-fast': 'bytedance/seedance-1-pro-fast',
-    'seedance-2.0': 'bytedance/seedance-2.0',
-    'seedance-2.5': 'bytedance/seedance-2.5',
-    'seedance-2.0-fast': 'bytedance/seedance-2.0-fast',
-    'seedance-2.0-mini': 'bytedance/seedance-2.0-mini',
-    'p-video': 'prunaai/p-video',
-    'pruna-video': 'prunaai/p-video',
-    'veo': 'google/veo-3.1-fast',
-    'veo-3.1-fast': 'google/veo-3.1-fast',
-    'gemini-omni': 'google/gemini-omni-1.1-flash',
-    'gemini-omni-1.1-flash': 'google/gemini-omni-1.1-flash',
-    'minimax-h3': 'minimax/minimax-h3',
-    'minimax-h3-turbo': 'minimax/minimax-h3-max-turbo',
-    'grok-video-pro': 'x-ai/grok-imagine-video',
-    'grok-video': 'x-ai/grok-imagine-video',
-    'grok-imagine-video': 'x-ai/grok-imagine-video',
-    'grok-video-1.5': 'x-ai/grok-imagine-video-1.5',
-    'grok-imagine-video-1.5': 'x-ai/grok-imagine-video-1.5',
-    'nova-reel': 'amazon/nova-reel-v1',
-    'nova-reel-v1': 'amazon/nova-reel-v1',
-  }
-  return new Map(Object.entries(forwardMap))
-}
 
 /**
  * 构建 durations 数组
@@ -317,7 +280,7 @@ export async function syncVideoModelsFromPollinations(): Promise<SyncVideoResult
   }
 
   // 2. 构建正向映射表（本地 DB name → Pollinations name）
-  const forwardMap = buildForwardMap()
+  const forwardMap = new Map(Object.entries(POLLINATIONS_VIDEO_NAME_MAP))
 
   // 3. 查询 DB 所有视频模型
   const dbModels = await prisma.aIModel.findMany({

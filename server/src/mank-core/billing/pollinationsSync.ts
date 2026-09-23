@@ -37,6 +37,7 @@ import {
   ResolvedCostTokens,
 } from './tokenBilling'
 import { getTokenRatio } from './billingConfig.service'
+import { POLLINATIONS_VIDEO_ID_ALIASES, defaultVideoDurationSeconds } from '../models/modelAliases'
 
 export const POLLINATIONS_API = 'https://gen.pollinations.ai/v1/models'
 export const POLLINATIONS_BALANCE_API = 'https://gen.pollinations.ai/account/balance'
@@ -44,35 +45,7 @@ export const POLLINATIONS_PROFILE_API = 'https://gen.pollinations.ai/account/pro
 export const SYNC_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000 // 7 天
 export const MISSED_RUN_THRESHOLD_MS = 8 * 24 * 60 * 60 * 1000 // 8 天以上视为漏跑
 
-// Pollinations 官方 video 模型 ID → 我们的内部 ID 映射
-// 有些模型有别名，需要统一到我们的 FALLBACK_MODELS.id
-const MODEL_ID_ALIASES: Record<string, string> = {
-  'bytedance/seedance-1-pro-fast': 'seedance-pro',
-  'bytedance/seedance-2.0-fast': 'seedance-2.0-fast',
-  'bytedance/seedance-2.0-mini': 'seedance-2.0-mini',
-  'bytedance/seedance-2.5': 'seedance-2.5',
-  'bytedance/seedance-2.0': 'seedance-2.0',
-  'alibaba/wan-2.2-fast': 'wan-fast',
-  'alibaba/wan-2.7': 'wan-pro',
-  'alibaba/wan-3.0': 'wan-3.0',
-  'prunaai/p-video': 'p-video',
-  'google/veo-3.1-fast': 'veo',
-  'minimax/minimax-h3': 'minimax-h3',
-  'amazon/nova-reel-v1': 'nova-reel',
-  // 以下模型 Pollinations 有但我们暂未接入
-  'alibaba/wan-2.6': 'wan-2.6',
-  'alibaba/happyhorse-1.1': 'happyhorse',
-  'x-ai/grok-imagine-video': 'grok-video',
-  'x-ai/grok-imagine-video-1.5': 'grok-video-pro',
-}
-
-// 模型默认时长（Pollinations video pricing 以 pollen/秒 为粒度，我们需要标准时长换算）
-const DEFAULT_DURATION_SECONDS = (internalId: string): number => {
-  if (internalId === 'seedance-2.5') return 4
-  if (internalId === 'nova-reel') return 6
-  return 5 // 大多数 video 模型默认 5 秒
-}
-
+// video 官方 ID → 内部 ID 别名表与默认时长已收敛到 models/modelAliases.ts（单一来源，快照测试锁定）
 /**
  * 查找/创建 Pollinations 对应的 AIProvider。
  * 历史兼容：seed.ts 里有 pollinations（小写 image）+ pollinations-video（小写连字符 video），
@@ -231,11 +204,11 @@ export async function syncPollinationsPricing(trigger: 'cron' | 'manual' | 'catc
 
     for (const om of official) {
       // 3.1 video 模型走别名映射，image 模型直接用官方 ID
-      const internalId = MODEL_ID_ALIASES[om.id] ?? om.id
+      const internalId = POLLINATIONS_VIDEO_ID_ALIASES[om.id] ?? om.id
       knownOfficialIds.add(internalId)
 
       // 3.2 计算默认时长（video 模型需要，image 模型 resolve 时会忽略）
-      const defaultDurSec = DEFAULT_DURATION_SECONDS(internalId)
+      const defaultDurSec = defaultVideoDurationSeconds(internalId)
 
       // 3.3 统一入口: Pollinations pricing → costTokens
       const resolved = resolveCostFromPollinations(om, defaultDurSec)
@@ -342,7 +315,7 @@ export async function syncPollinationsPricing(trigger: 'cron' | 'manual' | 'catc
     // 4. 检测下架（我们数据库里有、但官方 catalog 里没了的 Pollinations 模型）
     // 修改：只记录告警，不再自动写 status='disabled'
     // 原因：sync 在 cron/catchup/重启 时都可能触发,会误伤人工治理脚本遗留的旧 ID 模型
-    //       或运营手动新增的未在 MODEL_ID_ALIASES 映射表中的模型
+    //       或运营手动新增的未在 modelAliases.ts 映射表中的模型
     //       状态字段是 DB 持久态,缓存失效也恢复不了,只能人工逐个重新启用
     // 修复策略：仅 warn,把决策权交还给人(管理员可在管理后台手动禁用)
     let removed = 0

@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express'
 import { syncPollinationsPricing, getLastSyncStatus, getSyncHistory, getNextMonday3AM, SYNC_INTERVAL_MS, getPollinationsBalance, fetchUsdToCny } from '../billing/pollinationsSync'
 import { syncVideoModelsFromPollinations } from '../video/syncPollinations'
 import { syncImageModelsFromPollinations } from '../image/syncPollinations'
+import { POLLINATIONS_VIDEO_ID_ALIASES, defaultVideoDurationSeconds } from '../models/modelAliases'
 import { getTokenRatio, setTokenRatio, resetTokenRatio } from '../billing/billingConfig.service'
 import { authRequired, requireSuperAdmin, requireAdminOrAbove } from '../../mank-infra/middleware/auth'
 import { parsePagination, parseLimit } from '../../mank-infra/middleware/validate'
@@ -1522,40 +1523,20 @@ router.get('/pollinations/video-benchmark', requireAdminOrAbove, async (req, res
       select: { id: true, name: true, costTokens: true, margin: true, config: true, status: true, provider: { select: { name: true } } },
     })
 
-    // 3. 别名映射（与 pollinationsSync.ts MODEL_ID_ALIASES 完全同步）
+    // 3. 别名映射（收敛到 models/modelAliases.ts 单一来源，与 pollinationsSync 同表；
+    //    快照测试 server/tests/modelAliases.test.ts 锁定内容）
     //    仅展示平台已跟踪的模型，过滤社区上传模型（如 community/NamanSon78/Seedance-2.5）
-    const ALIASES: Record<string, string> = {
-      'bytedance/seedance-1-pro-fast': 'seedance-pro',
-      'bytedance/seedance-2.0-fast': 'seedance-2.0-fast',
-      'bytedance/seedance-2.0-mini': 'seedance-2.0-mini',
-      'bytedance/seedance-2.5': 'seedance-2.5',
-      'bytedance/seedance-2.0': 'seedance-2.0',
-      'alibaba/wan-2.2-fast': 'wan-fast',
-      'alibaba/wan-2.7': 'wan-pro',
-      'alibaba/wan-3.0': 'wan-3.0',
-      'prunaai/p-video': 'p-video',
-      'google/veo-3.1-fast': 'veo',
-      'minimax/minimax-h3': 'minimax-h3',
-      'amazon/nova-reel-v1': 'nova-reel',
-      // 以下模型 Pollinations 有但平台暂未正式接入（别名保留用于对比展示）
-      'alibaba/wan-2.6': 'wan-2.6',
-      'alibaba/happyhorse-1.1': 'happyhorse',
-      'x-ai/grok-imagine-video': 'grok-video',
-      'x-ai/grok-imagine-video-1.5': 'grok-video-pro',
-    }
-    const DEFAULT_DUR: Record<string, number> = { 'seedance-2.5': 4, 'nova-reel': 6 }
-    const getDur = (id: string) => DEFAULT_DUR[id] ?? 5
 
     // 4. 组装对比数据（动态获取 USD→CNY 汇率）
     const { value: USD_TO_CNY } = await fetchUsdToCny()
     const TOKENS_PER_CNY = Math.round((1 * ratio) / USD_TO_CNY) // 1 USD = 1 pollen × ratio 积分，按汇率反推 ¥1 → 积分
 
     // 仅保留平台已跟踪的模型（在 ALIASES 中有映射），过滤社区上传模型
-    const tracked = official.filter((om) => ALIASES[om.id])
+    const tracked = official.filter((om) => POLLINATIONS_VIDEO_ID_ALIASES[om.id])
 
     const rows = tracked.map((om) => {
-      const internalId = ALIASES[om.id]
-      const dur = getDur(internalId)
+      const internalId = POLLINATIONS_VIDEO_ID_ALIASES[om.id]
+      const dur = defaultVideoDurationSeconds(internalId)
       const pollenPerSec = parseFloat(om.pricing.completionVideoSeconds)
       const pollenTotal = pollenPerSec * dur
       const officialCostUsd = pollenTotal // $1 ≈ 1 pollen

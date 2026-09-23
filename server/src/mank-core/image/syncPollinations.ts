@@ -12,12 +12,13 @@
  *
  *  对应前端：web/src/config/imageModels.ts
  *  对应前端隐藏逻辑：web/src/components/canvas/UnifiedNodes.tsx ImageSettingsPanel
- *  对应 provider 别名表：server/src/mank-core/image/providers/pollinations.ts MODEL_NAME_ALIASES
+ *  映射表：models/modelAliases.ts POLLINATIONS_IMAGE_NAME_MAP（forwardMap 与 provider 反查共用同一来源）
  */
 
 import prisma from '../../mank-infra/database/prisma'
 import logger from '../../mank-infra/logging/logger'
 import { invalidateImageModelCache } from './imageModels'
+import { POLLINATIONS_IMAGE_NAME_MAP } from '../models/modelAliases'
 
 const log = logger.child('syncPollinationsImage')
 
@@ -85,91 +86,8 @@ export interface SyncImageResult {
   errors: Array<{ name: string; error: string }> // 同步失败的模型及错误信息
 }
 
-/**
- * 本地名 → Pollinations 名 正向映射表
- *
- * 来源：server/src/mank-core/image/providers/pollinations.ts 中的 MODEL_NAME_ALIASES（反向映射）
- * 这里覆盖更广的别名集合，确保 DB 中各种命名形式都能匹配到 Pollinations 模型
- *
- * 注意：DB 中大部分图片模型已经是 publisher/model 全名格式（如 "black-forest-labs/flux.1-schnell"），
- * 这些不需要映射，直接匹配。本表仅处理短名/别名形式。
- */
-function buildForwardMap(): Map<string, string> {
-  const forwardMap: Record<string, string> = {
-    // 前端产品名
-    'lib-image': 'black-forest-labs/flux.1-schnell',
-    'general-pro': 'black-forest-labs/flux.1-schnell',
-    'general-v2': 'black-forest-labs/flux.1-schnell',
-    'style-v82': 'black-forest-labs/flux.1-schnell',
-    'style-v81': 'black-forest-labs/flux.1-schnell',
-    'seedream-5p': 'bytedance/seedream-5.0-pro',
-    'qwen-3': 'qwen/qwen-image-3',
-
-    // sdxl 系列
-    'sdxl': 'community/CloudCompile/sdxl-lightning',
-    'sdxl-lightning': 'community/CloudCompile/sdxl-lightning',
-    'sdxl-turbo': 'community/CloudCompile/sdxl-lightning',
-    'sdxl-base': 'community/CloudCompile/sdxl-lightning',
-
-    // Flux 家族
-    'flux': 'black-forest-labs/flux.1-schnell',
-    'flux-schnell': 'black-forest-labs/flux.1-schnell',
-    'flux.1-schnell': 'black-forest-labs/flux.1-schnell',
-    'flux-1-schnell': 'black-forest-labs/flux.1-schnell',
-    'flux-2-flex': 'black-forest-labs/flux.2-flex',
-    'flux.2-flex': 'black-forest-labs/flux.2-flex',
-    'flux-2-pro': 'black-forest-labs/flux.2-pro',
-    'flux-klein': 'black-forest-labs/flux.2-klein-4b',
-    'flux-2-klein-4b': 'black-forest-labs/flux.2-klein-4b',
-
-    // Bytedance Seedream 家族
-    'seedream': 'bytedance/seedream-4.0',
-    'seedream-pro': 'bytedance/seedream-4.5',
-    'seedream-5-pro': 'bytedance/seedream-5.0-pro',
-    'seedream-5.0-pro': 'bytedance/seedream-5.0-pro',
-    'seedream5': 'bytedance/seedream-5.0-lite',
-    'seedream-5-lite': 'bytedance/seedream-5.0-lite',
-
-    // Qwen 家族
-    'qwen-image': 'qwen/qwen-image',
-    'qwen-image-3': 'qwen/qwen-image-3',
-
-    // Ideogram 家族
-    'ideogram-v4-quality': 'ideogram-ai/ideogram-v4-quality',
-    'ideogram-v4-turbo': 'ideogram-ai/ideogram-v4-turbo',
-    'ideogram-v4-balanced': 'ideogram-ai/ideogram-v4-balanced',
-
-    // Gemini Nano Banana 家族
-    'nanobanana': 'google/gemini-2.5-flash-image',
-    'nanobanana-pro': 'google/gemini-3-pro-image',
-    'nanobanana-2': 'google/gemini-3.1-flash-image',
-    'nanobanana2': 'google/gemini-3.1-flash-image',
-    'nanobanana-lite': 'google/gemini-3.1-flash-lite-image',
-
-    // OpenAI GPT Image 家族
-    'gpt-image': 'openai/gpt-image-1-mini',
-    'gpt-image-1-mini': 'openai/gpt-image-1-mini',
-    'gpt-image-1.5': 'openai/gpt-image-1.5',
-    'gpt-image-2': 'openai/gpt-image-2',
-
-    // Grok Imagine 家族
-    'grok-imagine': 'x-ai/grok-imagine-image',
-    'grok-imagine-pro': 'x-ai/grok-imagine-image-quality',
-    'grok-aurora': 'x-ai/grok-imagine-image-quality',
-
-    // Alibaba Wan 家族
-    'wan-image': 'alibaba/wan-2.7-image',
-    'wan2.7-image': 'alibaba/wan-2.7-image',
-    'wan-image-pro': 'alibaba/wan-2.7-image-pro',
-
-    // 其他
-    'dreamshaper': 'lykon/dreamshaper-8-lcm',
-    'sana': 'lykon/dreamshaper-8-lcm',
-    'kontext': 'black-forest-labs/flux.1-kontext-pro',
-    'nova-canvas': 'amazon/nova-canvas-v1',
-  }
-  return new Map(Object.entries(forwardMap))
-}
+// 本地名 → Pollinations 名 正向映射表已收敛到 models/modelAliases.ts
+// （POLLINATIONS_IMAGE_NAME_MAP，单一来源 50 条；快照测试 server/tests/modelAliases.test.ts 逐条锁定）
 
 // ============== 标准比例与分辨率 ==============
 
@@ -492,7 +410,7 @@ export async function syncImageModelsFromPollinations(): Promise<SyncImageResult
   }
 
   // 2. 构建正向映射表（本地 DB name → Pollinations name）
-  const forwardMap = buildForwardMap()
+  const forwardMap = new Map(Object.entries(POLLINATIONS_IMAGE_NAME_MAP))
 
   // 3. 查询 DB 所有图片模型
   const dbModels = await prisma.aIModel.findMany({

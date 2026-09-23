@@ -16,6 +16,7 @@ import type { VideoProvider, VideoGenerateParams, VideoResult } from './types'
 import logger from '../../../mank-infra/logging/logger'
 import { BusinessError } from '../../../mank-common/errors'
 import { getVideoModel } from '../videoModels'
+import { POLLINATIONS_VIDEO_NAME_MAP } from '../../models/modelAliases'
 
 const POLLINATIONS_BASE = 'https://gen.pollinations.ai'
 const API_KEY = process.env.POLLINATIONS_API_KEY || ''
@@ -219,45 +220,10 @@ async function generateVideoViaChatCompletion(params: {
 }
 
 /**
- * 旧模型名 → Pollinations 新格式模型名映射
+ * 旧模型名 → Pollinations 新格式模型名映射（收敛到 models/modelAliases.ts 单一来源；
+ * 合并后为原 22 条的超集 31 条——多出的恒等条目只影响原本裸传的短名，既有 key 值不变）
  * Pollinations 已将模型名改为带 provider 前缀的格式
- * 来源：https://gen.pollinations.ai/image/models (category=video)
  */
-const MODEL_NAME_MAP: Record<string, string> = {
-  // 阿里 Wan 系列
-  'wan-fast': 'alibaba/wan-2.2-fast',
-  'wan-pro': 'alibaba/wan-2.7',
-  'wan-3.0': 'alibaba/wan-3.0',
-  'wan': 'alibaba/wan-2.6',
-  'happyhorse': 'alibaba/happyhorse-1.1',
-
-  // 字节 Seedance 系列
-  'seedance': 'bytedance/seedance-2.0',
-  'seedance-pro': 'bytedance/seedance-1-pro-fast',
-  'seedance-2.0': 'bytedance/seedance-2.0',
-  'seedance-2.5': 'bytedance/seedance-2.5',
-  'seedance-2.0-fast': 'bytedance/seedance-2.0-fast',
-  'seedance-2.0-mini': 'bytedance/seedance-2.0-mini',
-
-  // Pruna
-  'p-video': 'prunaai/p-video',
-
-  // Google
-  'veo': 'google/veo-3.1-fast',
-  'veo-3.1-fast': 'google/veo-3.1-fast',
-  'gemini-omni': 'google/gemini-omni-1.1-flash',
-
-  // MiniMax
-  'minimax-h3': 'minimax/minimax-h3',
-  'minimax-h3-turbo': 'minimax/minimax-h3-max-turbo',
-
-  // xAI Grok
-  'grok-video-pro': 'x-ai/grok-imagine-video',
-  'grok-video-1.5': 'x-ai/grok-imagine-video-1.5',
-
-  // Amazon
-  'nova-reel': 'amazon/nova-reel-v1',
-}
 
 /**
  * 不支持 resolution 参数的模型（无 resolutions 字段，Pollinations 有固定分辨率）
@@ -275,7 +241,7 @@ const MODELS_WITHOUT_RESOLUTION = new Set([
 
 /** 将旧模型名映射为 Pollinations 新格式 */
 function resolveModelName(model: string): string {
-  return MODEL_NAME_MAP[model] || model
+  return POLLINATIONS_VIDEO_NAME_MAP[model] || model
 }
 
 /**
