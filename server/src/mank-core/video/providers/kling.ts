@@ -12,6 +12,7 @@
 
 import type { VideoProvider, VideoGenerateParams, VideoResult } from './types'
 import logger from '../../../mank-infra/logging/logger'
+import { sleep } from '../../../mank-common/utils/timing'
 
 const WORKSPACE_ID = process.env.ALIBABA_CLOUD_WORKSPACE_ID || ''
 const API_KEY = process.env.DASHSCOPE_API_KEY || process.env.ALIBABA_CLOUD_API_KEY || ''
@@ -97,10 +98,6 @@ async function pollTask(taskId: string, timeoutMs = 300000, intervalMs = 10000):
 
   logger.warn(`[Kling] 任务超时，最终状态: ${lastStatus}`)
   return null
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 /**

@@ -101,3 +101,12 @@ export class SystemError extends AppError {
     super(message, 500)
   }
 }
+
+/**
+ * 判断第三方生成服务的错误响应文本是否为内容安全拒绝
+ * （Pollinations 等上游 400 时常返回 safety / rejected / moderation 关键词，
+ * 据此返回友好文案而非通用错误）
+ */
+export function isSafetyRejection(errText: string): boolean {
+  return errText.includes('safety') || errText.includes('rejected') || errText.includes('moderation')
+}

@@ -14,7 +14,7 @@ import path from 'path'
 import sharp from 'sharp'
 import type { VideoProvider, VideoGenerateParams, VideoResult } from './types'
 import logger from '../../../mank-infra/logging/logger'
-import { BusinessError } from '../../../mank-common/errors'
+import { BusinessError, isSafetyRejection } from '../../../mank-common/errors'
 import { getVideoModel } from '../videoModels'
 import { POLLINATIONS_VIDEO_NAME_MAP } from '../../models/modelAliases'
 
@@ -182,7 +182,7 @@ async function generateVideoViaChatCompletion(params: {
   if (!res.ok) {
     const errText = await res.text().catch(() => '')
     if (res.status === 400) {
-      const isSafety = errText.includes('safety') || errText.includes('rejected') || errText.includes('moderation')
+      const isSafety = isSafetyRejection(errText)
       throw new BusinessError(
         isSafety ? '视频生成被安全系统拒绝，请修改提示词或参考图后重试' : '视频生成失败，请稍后重试'
       )

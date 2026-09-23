@@ -29,6 +29,7 @@ import { getModelCost, getModelMargin } from '../billing/modelCost'
 import logger from '../../mank-infra/logging/logger'
 import { getVideoProviderForModel, DEFAULT_VIDEO_MODEL } from '../video/videoModels'
 import { BusinessError } from '../../mank-common/errors'
+import { sleep } from '../../mank-common/utils/timing'
 
 const log = logger.child('worker')
 
@@ -488,10 +489,4 @@ function registerDefaultHandlers(): void {
 
   // 注意：image/audio/comic 是同步返回的，不走队列
   // 如需异步化，可在对应路由中 enqueue 并注册 handler
-}
-
-// ========== 工具 ==========
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
 }

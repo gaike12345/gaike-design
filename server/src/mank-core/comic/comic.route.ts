@@ -1,6 +1,6 @@
 import { Router, Request } from 'express'
 import prisma from '../../mank-infra/database/prisma'
-import { authRequired, requireRole } from '../../mank-infra/middleware/auth'
+import { authRequired } from '../../mank-infra/middleware/auth'
 import { withGeneration } from '../../mank-infra/middleware/generation'
 import { imageLimiter } from '../../mank-infra/middleware/rate-limit'
 import { getModelCost } from '../billing/modelCost'
@@ -160,7 +160,7 @@ function buildPlaceholderPanel(prompt: string, index: number, style = '日漫黑
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/storyboard', withGeneration('comic', costForStoryboard), requireRole('user', 'admin', 'superadmin'), async (req: Request, res) => {
+router.post('/storyboard', withGeneration('comic', costForStoryboard), async (req: Request, res) => {
   logger.info('CTRL_COMIC_STORYBOARD', { userId: req.user?.userId, prompt: req.body?.prompt?.slice(0, 50) })
   const { prompt, chapters = 1, style = '日漫黑白', layout = '2x2' } = req.body || {}
   const userId = req.user!.userId
@@ -302,7 +302,7 @@ router.post('/storyboard', withGeneration('comic', costForStoryboard), requireRo
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/generate', withGeneration('comic', costForComicGenerate), requireRole('user', 'admin', 'superadmin'), async (req: Request, res) => {
+router.post('/generate', withGeneration('comic', costForComicGenerate), async (req: Request, res) => {
   logger.info('CTRL_COMIC_GENERATE', { userId: req.user?.userId, style: req.body?.style })
   const { storyboard, style = '日漫黑白', size = '768x1024' } = req.body || {}
   const panels: PanelSpec[] = Array.isArray(storyboard) ? storyboard : []
@@ -461,7 +461,7 @@ router.post('/generate', withGeneration('comic', costForComicGenerate), requireR
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/publish', withGeneration('comic', costForComicPublish), requireRole('user', 'admin', 'superadmin'), async (req: Request, res) => {
+router.post('/publish', withGeneration('comic', costForComicPublish), async (req: Request, res) => {
   logger.info('CTRL_COMIC_PUBLISH', { userId: req.user?.userId, title: req.body?.title })
   const user = req.user!
   const { title, subtitle, coverImage, panels, tags, summary, publishToCommunity = true } = req.body || {}
