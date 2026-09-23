@@ -32,14 +32,61 @@ interface ValidateOptions {
   params?: ZodSchema
 }
 
+// ========== 分页统一原语 ==========
+// 手写分页解析点（admin/billing/user/projects/site/community）与 schema 校验共用同一套夹取语义：
+// 非数值/NaN → 回落默认值（历史 5 种手写风格中 3 种会让 NaN 漏进 prisma，此处统一收敛）；
+// 数值越界 → 夹取到 [1, max]；小数 → 截断为整数。
+
+export interface PaginationOptions {
+  maxPageSize?: number
+  defaultPageSize?: number
+}
+
+const PAGE_MAX = Number.MAX_SAFE_INTEGER
+
+function clampInt(raw: unknown, fallback: number, max: number): number {
+  const n = typeof raw === 'number' ? Math.trunc(raw) : Number.parseInt(String(raw ?? ''), 10)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(max, Math.max(1, n))
+}
+
+/** 分页 query schema 工厂：cap 可按端点现状参数化（billing/user=50，site audit limit=200，其余 100） */
+export function paginationSchema(opts: PaginationOptions = {}) {
+  const { maxPageSize = 100, defaultPageSize = 20 } = opts
+  return z.object({
+    page: z.coerce.number().transform((n) => clampInt(n, 1, PAGE_MAX)).default(1),
+    pageSize: z.coerce.number().transform((n) => clampInt(n, defaultPageSize, maxPageSize)).default(defaultPageSize),
+  })
+}
+
+/** { page, pageSize } 风格手写解析点统一入口（q 传 req.query） */
+export function parsePagination(q: Record<string, unknown>, opts: PaginationOptions = {}): { page: number; pageSize: number } {
+  const { maxPageSize = 100, defaultPageSize = 20 } = opts
+  return {
+    page: clampInt(q?.page, 1, PAGE_MAX),
+    pageSize: clampInt(q?.pageSize, defaultPageSize, maxPageSize),
+  }
+}
+
+/** { page, limit } 风格手写解析点统一入口（projects 等） */
+export function parsePageLimit(q: Record<string, unknown>, opts: PaginationOptions = {}): { page: number; limit: number } {
+  const { maxPageSize = 100, defaultPageSize = 20 } = opts
+  return {
+    page: clampInt(q?.page, 1, PAGE_MAX),
+    limit: clampInt(q?.limit, defaultPageSize, maxPageSize),
+  }
+}
+
+/** 仅 limit 的手写解析点统一入口（site audit 等） */
+export function parseLimit(q: Record<string, unknown>, opts: { max?: number; default?: number } = {}): number {
+  return clampInt(q?.limit, opts.default ?? 20, opts.max ?? 100)
+}
+
 // ========== 通用校验 Schema ==========
 
 export const commonSchemas = {
-  // 分页
-  pagination: z.object({
-    page: z.coerce.number().int().min(1).default(1),
-    pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  }),
+  // 分页（默认实例：cap 100 / 默认 20，与手写点同一夹取语义）
+  pagination: paginationSchema(),
 
   // ID 参数
   idParam: z.object({

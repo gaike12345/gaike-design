@@ -1,9 +1,9 @@
-﻿import { Router } from 'express'
+import { Router } from 'express'
 import prisma from '../../mank-infra/database/prisma'
 import type { Prisma } from '@prisma/client'
 import { authRequired, authOptional, roleLevel } from '../../mank-infra/middleware/auth'
 import { upload, validateUploadedFiles } from '../../mank-infra/middleware/upload'
-import { validate, z, commonSchemas } from '../../mank-infra/middleware/validate'
+import { validate, z, commonSchemas, paginationSchema, parsePagination } from '../../mank-infra/middleware/validate'
 import { moderateUpload, cleanupUploadedFile } from '../../mank-core/moderation/moderation'
 import { communityLimiter } from '../../mank-infra/middleware/rate-limit'
 import logger from '../../mank-infra/logging/logger'
@@ -190,9 +190,9 @@ function buildFallbackWorks(n: number) {
  */
 router.get('/works', validate({
   query: z.object({
-    page: z.coerce.number().int().min(1).default(1),
+    // 分页统一：page/pageSize 与 commonSchemas 同源工厂（limit 保留本地——双参数命名契约见下方注释）
+    ...paginationSchema().shape,
     limit: z.coerce.number().int().min(1).max(100).optional(),
-    pageSize: z.coerce.number().int().min(1).max(100).optional(),
     type: z.enum(['novel', 'image', 'audio', 'video', 'comic']).optional(),
     sort: z.enum(['latest', 'hot']).default('latest'),
   }),
@@ -562,7 +562,7 @@ router.get('/works/:id/comments', async (req, res, next) => {
   logger.info('CTRL_COMMUNITY_COMMENTS_LIST', { workId: req.params.id, page: req.query?.page })
   try {
     const workId = String(req.params.id)
-    const page = parseInt(req.query.page as string) || 1
+    const { page } = parsePagination(req.query)
     const limit = 20
     const comments = await prisma.comment.findMany({
       where: { workId },

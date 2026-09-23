@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import prisma from '../../mank-infra/database/prisma'
 import { authRequired } from '../../mank-infra/middleware/auth'
+import { parsePagination } from '../../mank-infra/middleware/validate'
 import { getAllSiteConfigs } from '../../mank-infra/config/siteConfig'
 import logger from '../../mank-infra/logging/logger'
 
@@ -679,8 +680,7 @@ router.get('/orders', async (req: Request, res: Response, next: NextFunction) =>
   try {
     const userId = req.user!.userId
     const status = String(req.query.status || '')
-    const page = Math.max(1, parseInt(String(req.query.page || '1'), 10))
-    const pageSize = Math.min(50, Math.max(1, parseInt(String(req.query.pageSize || '20'), 10)))
+    const { page, pageSize } = parsePagination(req.query, { maxPageSize: 50 })
 
     const where: { userId: string; status?: string } = { userId }
     if (status) where.status = status

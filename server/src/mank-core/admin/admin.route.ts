@@ -4,6 +4,7 @@ import { syncVideoModelsFromPollinations } from '../video/syncPollinations'
 import { syncImageModelsFromPollinations } from '../image/syncPollinations'
 import { getTokenRatio, setTokenRatio, resetTokenRatio } from '../billing/billingConfig.service'
 import { authRequired, requireSuperAdmin, requireAdminOrAbove } from '../../mank-infra/middleware/auth'
+import { parsePagination, parseLimit } from '../../mank-infra/middleware/validate'
 import prisma from '../../mank-infra/database/prisma'
 import {
   listUsers, getUserDetail, updateUserRole, createUser, rechargeUser,
@@ -25,13 +26,6 @@ import logger from '../../mank-infra/logging/logger'
 const router = Router()
 
 router.use(authRequired, requireAdminOrAbove)
-
-function pageOf(q: any): { page: number; pageSize: number } {
-  return {
-    page: Math.max(1, parseInt(String(q?.page || '1'), 10)),
-    pageSize: Math.min(100, Math.max(1, parseInt(String(q?.pageSize || '20'), 10))),
-  }
-}
 
 // 异常统一交给全局 errorHandler（mank-infra/middleware/error.ts）处理
 // 所有 service 层抛出的 AppError 子类（BusinessError/AuthError 等）会被分类拦截并返回 ApiResponse
@@ -619,7 +613,7 @@ router.get('/stats', requireSuperAdmin, async (_req, res, next) => {
 router.get('/logs', requireSuperAdmin, async (req, res, next) => {
   logger.info('CTRL_ADMIN_LOGS_LIST', { type: req.query.type, userId: req.query.userId, status: req.query.status, page: req.query.page, pageSize: req.query.pageSize })
   try {
-    const { page, pageSize } = pageOf(req.query)
+    const { page, pageSize } = parsePagination(req.query)
     const result = await getGenerationLogs({
       type: String(req.query.type || '') || undefined,
       userId: String(req.query.userId || '') || undefined,
@@ -982,7 +976,7 @@ router.delete('/features/:id', requireSuperAdmin, async (req, res, next) => {
 router.get('/works', requireAdminOrAbove, async (req, res, next) => {
   logger.info('CTRL_ADMIN_WORKS_LIST', { type: req.query.type, hidden: req.query.hidden, keyword: req.query.keyword, page: req.query.page, pageSize: req.query.pageSize })
   try {
-    const { page, pageSize } = pageOf(req.query)
+    const { page, pageSize } = parsePagination(req.query)
     const result = await listWorks({
       type: String(req.query.type || '') || undefined,
       hidden: req.query.hidden !== undefined ? String(req.query.hidden) : undefined,
@@ -1173,7 +1167,7 @@ router.get('/works/:id', requireAdminOrAbove, async (req, res, next) => {
 router.get('/comments', requireAdminOrAbove, async (req, res, next) => {
   logger.info('CTRL_ADMIN_COMMENTS_LIST', { keyword: req.query.keyword, workId: req.query.workId, page: req.query.page, pageSize: req.query.pageSize })
   try {
-    const { page, pageSize } = pageOf(req.query)
+    const { page, pageSize } = parsePagination(req.query)
     const result = await listComments({
       keyword: String(req.query.keyword || '').trim() || undefined,
       workId: String(req.query.workId || '').trim() || undefined,
@@ -1275,7 +1269,7 @@ router.delete('/comments/:id', requireAdminOrAbove, async (req, res, next) => {
 router.get('/payments', async (req, res, next) => {
   logger.info('CTRL_ADMIN_PAYMENTS_LIST', { status: req.query.status, page: req.query.page, pageSize: req.query.pageSize })
   try {
-    const { page, pageSize } = pageOf(req.query)
+    const { page, pageSize } = parsePagination(req.query)
     const result = await listPayments(req.user?.role, {
       status: String(req.query.status || '') || undefined,
       page, pageSize,
@@ -1385,7 +1379,7 @@ router.get('/pollinations/status', requireAdminOrAbove, async (_req, res, next) 
 // GET /api/admin/pollinations/history — 同步历史
 router.get('/pollinations/history', requireAdminOrAbove, async (req, res, next) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit as string) || 20, 100)
+    const limit = parseLimit(req.query)
     const history = await getSyncHistory(limit)
     res.json({
       total: history.length,

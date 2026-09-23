@@ -13,6 +13,7 @@
 
 import { Router, Request, Response } from 'express'
 import prisma from '../../mank-infra/database/prisma'
+import { parsePagination } from '../../mank-infra/middleware/validate'
 import { requireSuperAdmin } from '../../mank-infra/middleware/auth'
 import { getAllSiteConfigs, updateSiteConfig } from '../../mank-infra/config/siteConfig'
 import logger from '../../mank-infra/logging/logger'
@@ -85,8 +86,7 @@ router.use(requireSuperAdmin)
 router.get('/logs', async (req: Request, res: Response) => {
   logger.info('CTRL_MODERATION_LOGS_LIST', { result: req.query.result, riskLevel: req.query.riskLevel, stage: req.query.stage, userId: req.query.userId, page: req.query.page, pageSize: req.query.pageSize })
   try {
-    const page = Math.max(1, parseInt(String(req.query.page)) || 1)
-    const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize)) || 20))
+    const { page, pageSize } = parsePagination(req.query)
     const result = String(req.query.result || '')   // pass | block | warning
     const riskLevel = String(req.query.riskLevel || '')  // low | medium | high
     const stage = String(req.query.stage || '')     // input | output
@@ -241,8 +241,7 @@ router.get('/stats', async (_req: Request, res: Response) => {
 router.get('/risk-users', async (req: Request, res: Response) => {
   logger.info('CTRL_MODERATION_RISK_USERS_LIST', { page: req.query.page, pageSize: req.query.pageSize })
   try {
-    const page = Math.max(1, parseInt(String(req.query.page)) || 1)
-    const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize)) || 20))
+    const { page, pageSize } = parsePagination(req.query)
 
     const where = { riskLevel: { gt: 0 } }
     const [total, items] = await Promise.all([

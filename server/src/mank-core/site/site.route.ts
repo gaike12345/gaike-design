@@ -1,7 +1,8 @@
-﻿import { Router, Request, Response, NextFunction } from 'express'
+import { Router, Request, Response, NextFunction } from 'express'
 import prisma from '../../mank-infra/database/prisma'
 import { getAllSiteConfigs, updateSiteConfig, rollbackAudit } from '../../mank-infra/config/siteConfig'
 import { authRequired, requireSuperAdmin } from '../../mank-infra/middleware/auth'
+import { parseLimit } from '../../mank-infra/middleware/validate'
 import logger from '../../mank-infra/logging/logger'
 
 const router = Router()
@@ -235,7 +236,7 @@ router.put('/batch', SA, async (req: Request, res: Response, next: NextFunction)
 router.get('/audit', SA, async (req: Request, res: Response, next: NextFunction) => {
   logger.info('CTRL_SITE_AUDIT_LIST', { limit: req.query.limit })
   try {
-    const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit || '100'), 10)))
+    const limit = parseLimit(req.query, { max: 200, default: 100 })
     const rows = await prisma.siteConfigAuditLog.findMany({
       orderBy: { createdAt: 'desc' },
       take: limit,

@@ -1,6 +1,7 @@
-﻿import { Router } from 'express'
+import { Router } from 'express'
 import prisma from '../../mank-infra/database/prisma'
 import logger from '../../mank-infra/logging/logger'
+import { parsePageLimit } from '../../mank-infra/middleware/validate'
 
 const router = Router()
 
@@ -63,8 +64,7 @@ router.get('/', async (req, res, next) => {
   logger.info('CTRL_PROJECTS_LIST', { userId: req.user?.userId, page: req.query?.page })
   try {
     const userId = req.user!.userId
-    const page = parseInt(req.query.page as string) || 1
-    const limit = parseInt(req.query.limit as string) || 20
+    const { page, limit } = parsePageLimit(req.query)
     const [list, total] = await Promise.all([
       prisma.project.findMany({
         where: { userId },
