@@ -10,6 +10,7 @@ import { X, QrCode, Lock } from 'lucide-react'
 import { useAuthStore } from '../store/useAuthStore'
 import logo from '../assets/logo.png'
 import { useSiteThemeVars } from '../hooks/useSiteConfig'
+import { errMsg, lighten } from '../lib/utils'
 import LegalModal, { type LegalType } from '../components/LegalModal'
 import ContactAdminModal from '../components/ContactAdminModal'
 
@@ -117,7 +118,7 @@ export default function LoginModal() {
       // 开始轮询
       startPolling(res.sceneId)
     } catch (e: unknown) {
-      setQrErrorMsg(e instanceof Error ? e.message : '微信登录暂时不可用')
+      setQrErrorMsg(errMsg(e, '微信登录暂时不可用'))
       setQrStatus('error')
     }
   }
@@ -177,7 +178,7 @@ export default function LoginModal() {
   }
 
   // 主色派生物
-  const btnGrad = { backgroundImage: `linear-gradient(135deg, ${primaryColor}, ${shade(primaryColor, 18)})` }
+  const btnGrad = { backgroundImage: `linear-gradient(135deg, ${primaryColor}, ${lighten(primaryColor, 18)})` }
   const inputFocus = {
     '--tw-ring-color': `color-mix(in srgb, ${primaryColor} 28%, white)`,
     outlineColor: primaryColor,
@@ -481,15 +482,4 @@ export default function LoginModal() {
       />
     </div>
   )
-}
-
-function shade(hex: string, percent: number): string {
-  const h = hex.replace('#', '')
-  if (h.length !== 6) return hex
-  const n = parseInt(h, 16)
-  let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255
-  r = Math.round(r + (255 - r) * (percent / 100))
-  g = Math.round(g + (255 - g) * (percent / 100))
-  b = Math.round(b + (255 - b) * (percent / 100))
-  return '#' + [r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('')
 }

@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
+import { useModelsBatchUpdated } from '../../hooks/useModelsBatchUpdated'
 import {
   Box,
   Check,
@@ -225,11 +226,7 @@ export function useModels(onError: (e: string) => void) {
   }, [onError])
   useEffect(() => { loadModels() }, [loadModels])
   // 监听全局批量更新事件（如 PollinationsSyncPanel 批量设置毛利率后），自动刷新模型列表
-  useEffect(() => {
-    const handler = () => { void loadModels() }
-    window.addEventListener('models-batch-updated', handler)
-    return () => window.removeEventListener('models-batch-updated', handler)
-  }, [loadModels])
+  useModelsBatchUpdated(() => { void loadModels() })
   return { models, setModels, loading, reload: loadModels }
 }
 
@@ -343,11 +340,7 @@ export function ModelsByType({ onError, typeFilter }: { onError: (e: string) => 
   }, [typeFilter])
 
   // 批量设置毛利率后清空本地未保存的内联编辑（避免覆盖新值）
-  useEffect(() => {
-    const handler = () => { setCostEdits({}); setMarginEdits({}) }
-    window.addEventListener('models-batch-updated', handler)
-    return () => window.removeEventListener('models-batch-updated', handler)
-  }, [])
+  useModelsBatchUpdated(() => { setCostEdits({}); setMarginEdits({}) })
 
   const resetModelForm = () => {
     setMName('')

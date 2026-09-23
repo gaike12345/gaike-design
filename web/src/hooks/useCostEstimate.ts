@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { estimateCost, type EstimateKind, type EstimateParams, formatTokensCompact, clearEstimateCostCache } from '../services/cost'
 import { useQuotaStore } from '../store/useQuotaStore'
+import { useModelsBatchUpdated } from './useModelsBatchUpdated'
 
 /**
  * 实时估算"本次生成将消耗多少积分"的 hook：
@@ -33,14 +34,10 @@ export function useCostEstimate(
   useEffect(() => { if (!loadedAt) void refreshQuota() }, [loadedAt, refreshQuota])
 
   // 监听管理后台批量更新事件，清空客户端缓存 + 强制重新估算
-  useEffect(() => {
-    const handler = () => {
-      clearEstimateCostCache()
-      setRefreshTick((t) => t + 1)
-    }
-    window.addEventListener('models-batch-updated', handler)
-    return () => window.removeEventListener('models-batch-updated', handler)
-  }, [])
+  useModelsBatchUpdated(() => {
+    clearEstimateCostCache()
+    setRefreshTick((t) => t + 1)
+  })
 
   // params 序列化稳定 key
   const key = useMemo(

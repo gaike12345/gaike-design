@@ -5,7 +5,7 @@ import {
   Sparkles, Dices, Loader2, ArrowRight, RefreshCw,
   FileText, BookOpen, Lightbulb, PenLine, ChevronRight,
 } from 'lucide-react'
-import { cn } from '../../../lib/utils'
+import { cn, errMsg } from '../../../lib/utils'
 import type { WritingPaneState } from '../../../store/useScriptStore'
 import type { MasterOutlineData } from '../../../services/textApi'
 
@@ -115,7 +115,7 @@ export function GuidedWizard({ s }: { s: WritingPaneState }) {
       s.setWizardStep(3)
       s.exitWizard()
     } catch (e) {
-      setBatchError(e instanceof Error ? e.message : '批量生成失败')
+      setBatchError(errMsg(e, '批量生成失败'))
     } finally {
       setBatchRunning(false)
     }

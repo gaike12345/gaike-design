@@ -1,5 +1,6 @@
 import FeatureLanding, { ACCENTS, type LandingWork } from '../components/layout/FeatureLanding'
-import { useSiteConfig, makeAccent } from '../hooks/useSiteConfig'
+import { useSiteConfig } from '../hooks/useSiteConfig'
+import { makeAccent } from '../lib/utils'
 import {
   Music4,
   Mic2,

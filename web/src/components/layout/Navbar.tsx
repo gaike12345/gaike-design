@@ -4,6 +4,7 @@ import { LogIn, LogOut, User, Menu, X, Shield, Settings, Bell, ExternalLink } fr
 import { useAuthStore } from '../../store/useAuthStore'
 import { getToken } from '../../services/api'
 import { useSiteThemeVars } from '../../hooks/useSiteConfig'
+import { hexToRgb, lighten } from '../../lib/utils'
 import logo from '../../assets/logo.png'
 
 export const NAV_ITEMS = [
@@ -25,11 +26,11 @@ export default function Navbar() {
     const s = document.documentElement.style
     s.setProperty('--site-primary', primaryColor)
     // 生成强调色衍生（hover / light）
-    const h = hexToRgb(primaryColor)
-    if (h) {
-      s.setProperty('--site-primary-rgb', `${h.r}, ${h.g}, ${h.b}`)
-      s.setProperty('--site-primary-light', `rgba(${h.r}, ${h.g}, ${h.b}, 0.12)`)
-      s.setProperty('--site-primary-ring', `rgba(${h.r}, ${h.g}, ${h.b}, 0.28)`)
+    const rgb = hexToRgb(primaryColor)
+    if (rgb) {
+      s.setProperty('--site-primary-rgb', `${rgb[0]}, ${rgb[1]}, ${rgb[2]}`)
+      s.setProperty('--site-primary-light', `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.12)`)
+      s.setProperty('--site-primary-ring', `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.28)`)
     }
   }, [primaryColor])
 
@@ -262,19 +263,4 @@ export default function Navbar() {
       </header>
     </div>
   )
-}
-
-// ============== 颜色辅助 ==============
-function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
-  let h = hex.replace('#', '')
-  if (h.length === 3) h = h.split('').map(c => c + c).join('')
-  if (h.length !== 6) return null
-  const num = parseInt(h, 16)
-  return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 }
-}
-function lighten(hex: string, percent: number): string {
-  const rgb = hexToRgb(hex)
-  if (!rgb) return hex
-  const mix = (c: number) => Math.round(c + (255 - c) * (percent / 100))
-  return '#' + [rgb.r, rgb.g, rgb.b].map(mix).map(n => n.toString(16).padStart(2, '0')).join('')
 }

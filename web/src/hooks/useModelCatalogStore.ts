@@ -2,6 +2,7 @@
 // 被 useVideoModels / useImageModels 复用,消除重复的 state + useEffect + 事件监听样板
 // 命名说明:文件名 useModelCatalogStore 用于区分 src/store/useModelStore.ts(Zustand 编辑器 store),避免跨模块同名导出混淆
 import { useState, useEffect, useCallback } from 'react'
+import { useModelsBatchUpdated } from './useModelsBatchUpdated'
 
 // 模型存储适配器：每个具体模型模块(videoModels / imageModels)实现此接口
 export interface ModelStore<T> {
@@ -66,11 +67,7 @@ export function useModelStore<T>(store: ModelStore<T>): UseModelStoreResult<T> {
   }, [loadedVersion])
 
   // 监听管理后台批量更新事件(汇率调整/批量改 margin 后),自动 refresh 拉取最新 costTokens
-  useEffect(() => {
-    const handler = () => { void refresh() }
-    window.addEventListener('models-batch-updated', handler)
-    return () => window.removeEventListener('models-batch-updated', handler)
-  }, [refresh])
+  useModelsBatchUpdated(() => { void refresh() })
 
   return { models, defaultModel, loading, refresh }
 }

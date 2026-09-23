@@ -6,6 +6,7 @@ import {
   DollarSign, TrendingDown, PieChart, Wallet,
 } from 'lucide-react'
 import { api } from '../../services/api'
+import { errMsg } from '../../lib/utils'
 import { formatCompact, pct, EmptyBar } from './common'
 import type { IconComponent, Stats, RevenueStats } from './types'
 import { PollinationsSyncPanel } from './PollinationsSyncPanel'
@@ -265,7 +266,7 @@ export function OverviewTab({
       // 重新加载毛利数据
       loadRevenue(revenueDays, revenueType)
     } catch (e) {
-      alert('历史回填失败：' + (e instanceof Error ? e.message : String(e)))
+      alert('历史回填失败：' + errMsg(e, String(e)))
     } finally {
       setRebuilding(false)
     }

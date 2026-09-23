@@ -65,10 +65,11 @@ import {
   getSiteAudit,
   rollbackSiteAudit,
   clearSiteDraft,
-  makeAccent,
   type SiteItemMeta,
   type ControlType,
 } from '../../hooks/useSiteConfig'
+
+import { makeAccent } from '../../lib/utils'
 
 import type {
   Role,

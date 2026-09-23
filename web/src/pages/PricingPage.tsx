@@ -4,6 +4,7 @@ import { Check, Sparkles, ArrowRight } from 'lucide-react'
 import Navbar from '../components/layout/Navbar'
 import Footer from '../components/layout/Footer'
 import { useSiteConfig, useSiteThemeVars } from '../hooks/useSiteConfig'
+import { lighten } from '../lib/utils'
 
 interface PricingPlan {
   key: string
@@ -165,15 +166,5 @@ export default function PricingPage() {
       <Footer />
     </div>
   )
-}
-
-function lighten(hex: string, percent: number): string {
-  const h = hex.replace('#', '')
-  if (h.length !== 6) return hex
-  const n = parseInt(h, 16)
-  let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255
-  const mix = (c: number) => Math.round(c + (255 - c) * (percent / 100))
-  r = mix(r); g = mix(g); b = mix(b)
-  return '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('')
 }
 

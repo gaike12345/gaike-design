@@ -183,28 +183,3 @@ export async function rollbackSiteAudit(id: string) {
   return res
 }
 
-// ============== 通用颜色工具（给 Landing accent、Navbar 渐变等用） ==============
-export interface AccentColors {
-  main: string; light: string; bg50: string; bg100: string; bg200: string
-}
-export function hexToRgb(hex: string): [number, number, number] | null {
-  let h = hex.replace('#', '')
-  if (h.length === 3) h = h.split('').map(c => c + c).join('')
-  if (h.length !== 6) return null
-  const n = parseInt(h, 16)
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
-}
-function mix(a: number, b: number, t: number) { return Math.round(a + (b - a) * t) }
-export function rgbHex(r: number, g: number, b: number) {
-  return '#' + [r, g, b].map(n => n.toString(16).padStart(2, '0')).join('')
-}
-export function makeAccent(hex: string, fallback: AccentColors): AccentColors {
-  const rgb = hexToRgb(hex)
-  if (!rgb) return fallback
-  const [r, g, b] = rgb
-  const light = rgbHex(mix(r, 255, 0.45), mix(g, 255, 0.45), mix(b, 255, 0.45))
-  const bg50 = rgbHex(mix(r, 255, 0.92), mix(g, 255, 0.92), mix(b, 255, 0.92))
-  const bg100 = rgbHex(mix(r, 255, 0.85), mix(g, 255, 0.85), mix(b, 255, 0.85))
-  const bg200 = rgbHex(mix(r, 255, 0.72), mix(g, 255, 0.72), mix(b, 255, 0.72))
-  return { main: hex, light, bg50, bg100, bg200 }
-}

@@ -11,6 +11,8 @@ import DemoBadge from '../components/ui/DemoBadge'
 import { useQuotaStore } from '../store/useQuotaStore'
 import { useCostEstimate, formatTokensCompact } from '../hooks/useCostEstimate'
 import { CostBadge } from '../components/ui/CostBadge'
+import { uid } from '../store/canvasBase'
+import { errMsg } from '../lib/utils'
 
 type AudioMode = 'easy' | 'song' | 'instrumental' | 'soundtrack' | 'tts'
 type TaskStatus = 'preparing' | 'queued' | 'running' | 'streaming' | 'succeeded' | 'failed' | 'timeouted' | 'cancelled'
@@ -108,10 +110,6 @@ function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60)
   const s = Math.floor(seconds % 60)
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-}
-
-function genId(): string {
-  return `audio-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
@@ -278,7 +276,7 @@ export default function AudioPage() {
         n: 2,
       })
       songEst.consume()
-      const itemId = genId()
+      const itemId = uid('audio')
       const item: AudioItem = {
         id: itemId,
         type: 'song',
@@ -293,7 +291,7 @@ export default function AudioPage() {
       setAudioItems((prev) => [item, ...prev])
       void pollTask(itemId, res.taskId, 'song')
     } catch (e) {
-      setEasyError(e instanceof Error ? e.message : '生成失败')
+      setEasyError(errMsg(e, '生成失败'))
     } finally {
       setEasyLoading(false)
     }
@@ -315,7 +313,7 @@ export default function AudioPage() {
       setSongLyrics(res.lyrics || '')
       setSongTitle(res.title || '')
     } catch (e) {
-      setLyricsError(e instanceof Error ? e.message : '歌词生成失败')
+      setLyricsError(errMsg(e, '歌词生成失败'))
     } finally {
       setLyricsLoading(false)
     }
@@ -335,7 +333,7 @@ export default function AudioPage() {
       })
       setSongLyrics(res.lyrics || songLyrics)
     } catch (e) {
-      setLyricsError(e instanceof Error ? e.message : '歌词续写失败')
+      setLyricsError(errMsg(e, '歌词续写失败'))
     } finally {
       setLyricsLoading(false)
     }
@@ -354,7 +352,7 @@ export default function AudioPage() {
       setRefId(data.fileId)
       setRefName(data.filename || refFile.name)
     } catch (e) {
-      setRefError(e instanceof Error ? e.message : '参考歌曲上传失败')
+      setRefError(errMsg(e, '参考歌曲上传失败'))
     } finally {
       setRefUploading(false)
     }
@@ -372,7 +370,7 @@ export default function AudioPage() {
       const data = await uploadFormData<{ vocalId: string }>('/api/audio/vocal-clone', formData)
       setVocalId(data.vocalId)
     } catch (e) {
-      setVocalError(e instanceof Error ? e.message : '音色克隆失败')
+      setVocalError(errMsg(e, '音色克隆失败'))
     } finally {
       setVocalUploading(false)
     }
@@ -401,7 +399,7 @@ export default function AudioPage() {
         n: 2,
       })
       songEst.consume()
-      const itemId = genId()
+      const itemId = uid('audio')
       const item: AudioItem = {
         id: itemId,
         type: 'song',
@@ -417,7 +415,7 @@ export default function AudioPage() {
       setAudioItems((prev) => [item, ...prev])
       void pollTask(itemId, res.taskId, 'song')
     } catch (e) {
-      setSongError(e instanceof Error ? e.message : '歌曲生成失败')
+      setSongError(errMsg(e, '歌曲生成失败'))
     } finally {
       setSongLoading(false)
     }
@@ -442,7 +440,7 @@ export default function AudioPage() {
         n: 1,
       })
       instEst.consume()
-      const itemId = genId()
+      const itemId = uid('audio')
       const item: AudioItem = {
         id: itemId,
         type: 'instrumental',
@@ -457,7 +455,7 @@ export default function AudioPage() {
       setAudioItems((prev) => [item, ...prev])
       void pollTask(itemId, res.taskId, 'instrumental')
     } catch (e) {
-      setInstError(e instanceof Error ? e.message : '纯音乐生成失败')
+      setInstError(errMsg(e, '纯音乐生成失败'))
     } finally {
       setInstLoading(false)
     }
@@ -496,7 +494,7 @@ export default function AudioPage() {
       const data = await uploadFormData<{ status: TaskStatus; taskId: string }>('/api/audio/soundtrack', formData)
 
       songEst.consume()
-      const itemId = genId()
+      const itemId = uid('audio')
       const item: AudioItem = {
         id: itemId,
         type: 'soundtrack',
@@ -512,7 +510,7 @@ export default function AudioPage() {
       setAudioItems((prev) => [item, ...prev])
       void pollTask(itemId, data.taskId, 'soundtrack')
     } catch (e) {
-      setStError(e instanceof Error ? e.message : '配乐生成失败')
+      setStError(errMsg(e, '配乐生成失败'))
     } finally {
       setStLoading(false)
     }
@@ -538,7 +536,7 @@ export default function AudioPage() {
       ttsEst.consume()
       const voiceLabel = TTS_VOICES.find((v) => v.value === res.voice)?.label || res.voice
       const item: AudioItem = {
-        id: genId(),
+        id: uid('audio'),
         type: 'tts',
         mode: 'tts',
         url: res.url,
@@ -548,7 +546,7 @@ export default function AudioPage() {
       }
       setAudioItems((prev) => [item, ...prev])
     } catch (e) {
-      setTtsError(e instanceof Error ? e.message : '生成失败')
+      setTtsError(errMsg(e, '生成失败'))
     } finally {
       setTtsLoading(false)
     }

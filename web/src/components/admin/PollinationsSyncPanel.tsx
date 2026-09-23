@@ -17,6 +17,7 @@ import {
   History, ArrowUpDown, TrendingUp, TrendingDown, Plus, Minus, RotateCcw,
 } from 'lucide-react'
 import { apiFetchRaw as apiFetch } from '../../services/api'
+import { MODELS_BATCH_UPDATED_EVENT } from '../../hooks/useModelsBatchUpdated'
 
 const POLLINATIONS_CATALOG = 'https://gen.pollinations.ai/v1/models'
 
@@ -206,7 +207,7 @@ export function PollinationsSyncPanel() {
       await fetchStatus()
       await fetchRatio()
       // 汇率调整会级联重算所有 Pollinations 模型 costTokens，通知画布和管理后台模型列表刷新
-      window.dispatchEvent(new CustomEvent('models-batch-updated'))
+      window.dispatchEvent(new CustomEvent(MODELS_BATCH_UPDATED_EVENT))
     } catch (e: any) {
       alert('汇率调整失败: ' + e.message)
     } finally {
@@ -226,7 +227,7 @@ export function PollinationsSyncPanel() {
       await fetchStatus()
       await fetchRatio()
       // 汇率重置也会级联重算所有 Pollinations 模型 costTokens，通知画布和管理后台模型列表刷新
-      window.dispatchEvent(new CustomEvent('models-batch-updated'))
+      window.dispatchEvent(new CustomEvent(MODELS_BATCH_UPDATED_EVENT))
     } catch (e: any) {
       alert('重置失败: ' + e.message)
     } finally {
@@ -512,7 +513,7 @@ export function PollinationsSyncPanel() {
                 // 刷新全局毛利率显示
                 await fetchMargin()
                 // 通知 ModelsTab / ModelsByType 重新拉取模型列表，刷新 margin 显示
-                window.dispatchEvent(new CustomEvent('models-batch-updated'))
+                window.dispatchEvent(new CustomEvent(MODELS_BATCH_UPDATED_EVENT))
               } catch (e: any) {
                 alert('批量设置失败: ' + e.message)
               }

@@ -35,6 +35,33 @@ function extractErrMsg(data: ErrorResponseData | null, fallback: string): string
   return data.error || data.message || fallback
 }
 
+// 解析错误响应体（响应体可能非 JSON，容错处理）
+async function readErrorData(res: Response): Promise<ErrorResponseData | null> {
+  try { return await res.json() as ErrorResponseData } catch { return null }
+}
+
+// 401：token 失效 → 清除本地 token + 抛错（fallback 区分「登录失败 / 登录过期」文案）
+async function throwAuthError(res: Response, fallback: string): Promise<never> {
+  const data = await readErrorData(res)
+  clearToken()
+  throw new Error(extractErrMsg(data, fallback))
+}
+
+// 402：积分不足 → 弹充值引导弹窗 + 抛错（apiFetch / uploadFile / uploadFormData 共用）
+async function throwQuotaError(res: Response): Promise<never> {
+  const data = await readErrorData(res)
+  const message = extractErrMsg(data, '积分不足，请先充值')
+  useQuotaModalStore.getState().openModal({
+    need: data?.need,
+    remaining: data?.remaining,
+    message,
+  })
+  const err = new Error(message) as Error & { status?: number; data?: unknown }
+  err.status = 402
+  err.data = data
+  throw err
+}
+
 // 低阶 fetch 封装：返回原始 Response，调用方需自行 res.json()
 // 适用于需要访问 res.status / res.headers 的场景（如管理后台对比页、同步面板）
 // 业务请求优先使用 apiFetch<T>（自动处理 401/JSON 解析）
@@ -79,34 +106,21 @@ export async function apiFetch<T>(
   // 1. 如果这是登录请求本身（/api/auth/login），直接使用后端返回的错误信息
   // 2. 其他请求（需要认证的API），清除 token 提示登录过期
   if (res.status === 401) {
-    let data: ErrorResponseData | null = null
-    try { data = await res.json() as ErrorResponseData } catch { /* ignore */ }
     if (url.includes('/api/auth/')) {
       // 登录请求本身失败（UID/密码错），使用后端真实错误
+      const data = await readErrorData(res)
       const err = new Error(extractErrMsg(data, '登录失败，请检查 UID 和密码')) as Error & { status?: number; data?: unknown }
       err.status = res.status
       err.data = data
       throw err
-    } else {
-      // 其他API请求认证失败，清除旧 token 提示过期
-      clearToken()
-      throw new Error(extractErrMsg(data, '登录已过期，请重新登录'))
     }
+    // 其他API请求认证失败，清除旧 token 提示过期
+    await throwAuthError(res, '登录已过期，请重新登录')
   }
 
   // 402 → 积分不足，弹出充值引导弹窗
   if (res.status === 402) {
-    let data: ErrorResponseData | null = null
-    try { data = await res.json() as ErrorResponseData } catch { /* ignore */ }
-    useQuotaModalStore.getState().openModal({
-      need: data?.need,
-      remaining: data?.remaining,
-      message: extractErrMsg(data, '积分不足，请先充值'),
-    })
-    const err = new Error(extractErrMsg(data, '积分不足，请先充值')) as Error & { status?: number; data?: unknown }
-    err.status = 402
-    err.data = data
-    throw err
+    await throwQuotaError(res)
   }
 
   let data: unknown = null
@@ -147,19 +161,11 @@ export async function uploadFile(url: string, file: File): Promise<{ url: string
   })
 
   if (res.status === 401) {
-    clearToken()
-    throw new Error('登录已过期')
+    await throwAuthError(res, '登录已过期')
   }
 
   if (res.status === 402) {
-    let data: ErrorResponseData | null = null
-    try { data = await res.json() as ErrorResponseData } catch { /* ignore */ }
-    useQuotaModalStore.getState().openModal({
-      need: data?.need,
-      remaining: data?.remaining,
-      message: extractErrMsg(data, '积分不足，请先充值'),
-    })
-    throw new Error(extractErrMsg(data, '积分不足，请先充值'))
+    await throwQuotaError(res)
   }
 
   let data: any = null
@@ -178,19 +184,11 @@ export async function uploadFormData<T>(url: string, formData: FormData): Promis
   })
 
   if (res.status === 401) {
-    clearToken()
-    throw new Error('登录已过期')
+    await throwAuthError(res, '登录已过期')
   }
 
   if (res.status === 402) {
-    let data: ErrorResponseData | null = null
-    try { data = await res.json() as ErrorResponseData } catch { /* ignore */ }
-    useQuotaModalStore.getState().openModal({
-      need: data?.need,
-      remaining: data?.remaining,
-      message: extractErrMsg(data, '积分不足，请先充值'),
-    })
-    throw new Error(extractErrMsg(data, '积分不足，请先充值'))
+    await throwQuotaError(res)
   }
 
   let data: unknown = null

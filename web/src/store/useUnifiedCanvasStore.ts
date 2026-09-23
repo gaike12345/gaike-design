@@ -47,6 +47,7 @@ import {
   zoomViewport,
   PollRegistry,
 } from './canvasBase'
+import { errMsg } from '../lib/utils'
 
 export type {
   UnifiedNodeType,
@@ -497,8 +498,8 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       // API 成功后立即释放队列槽位，图片加载是异步的不应阻塞队列
       imageGenQueue.complete(nodeId)
     } catch (e) {
-      const errMsg = e instanceof Error ? e.message : '生成失败'
-      get().updateNodeData(nodeId, { imageStatus: 'error', imageErrorMsg: errMsg })
+      const msg = errMsg(e, '生成失败')
+      get().updateNodeData(nodeId, { imageStatus: 'error', imageErrorMsg: msg })
       // 失败时后端已自动返还积分，刷新前端积分显示
       void useQuotaStore.getState().refreshQuota({ force: true })
       // API 调用失败，立即释放队列槽位
@@ -878,8 +879,8 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       pollRegistry.start(nodeId, () => { void get().pollVideoTask(nodeId) }, 3000)
       void get().pollVideoTask(nodeId)
     } catch (e) {
-      const errMsg = e instanceof Error ? e.message : '视频生成启动失败'
-      get().updateNodeData(nodeId, { videoStatus: 'error', videoErrorMsg: errMsg })
+      const msg = errMsg(e, '视频生成启动失败')
+      get().updateNodeData(nodeId, { videoStatus: 'error', videoErrorMsg: msg })
       // 失败时后端已自动返还积分，刷新前端积分显示
       void useQuotaStore.getState().refreshQuota({ force: true })
     }
@@ -953,8 +954,8 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       }
       get().updateNodeData(nodeId, { audioStatus: 'done', audioResult: result })
     } catch (e) {
-      const errMsg = e instanceof Error ? e.message : '音频生成失败'
-      get().updateNodeData(nodeId, { audioStatus: 'error', audioErrorMsg: errMsg })
+      const msg = errMsg(e, '音频生成失败')
+      get().updateNodeData(nodeId, { audioStatus: 'error', audioErrorMsg: msg })
       // 失败时后端已自动返还积分，刷新前端积分显示
       void useQuotaStore.getState().refreshQuota({ force: true })
     }

@@ -23,7 +23,7 @@ import { useVideoModels, estimateVideoCost } from '../../config/videoModels'
 import { RATIOS, RATIO_CLASS } from './constants'
 import type { AspectRatio } from '../../store/useStudioStore'
 import { useProjectStore } from '../../store/useProjectStore'
-import { cn } from '../../lib/utils'
+import { cn, downloadFile } from '../../lib/utils'
 import { useCostEstimate, formatTokensCompact } from '../../hooks/useCostEstimate'
 import { CostBadge } from '../ui/CostBadge'
 import { useQuotaModalStore } from '../../store/useQuotaModalStore'
@@ -1031,7 +1031,7 @@ export const ImageNode = memo(function ImageNode({ node }: { node: UCanvasNode }
             <span className="hidden group-hover:inline">翻转</span>
           </button>
           <button
-            onClick={() => { const dlUrl = cur?.url || cur?.originalUrl; if (dlUrl) { const a = document.createElement('a'); a.href = dlUrl; a.download = `image-${cur.seed}.png`; a.click() } }}
+            onClick={() => { const dlUrl = cur?.url || cur?.originalUrl; if (dlUrl) { downloadFile(dlUrl, `image-${cur.seed}.png`) } }}
             className="group flex w-12 items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
             title="下载图片"
           >
@@ -2669,7 +2669,7 @@ export const VideoNode = memo(function VideoNode({ node }: { node: UCanvasNode }
           <div className="h-6 w-px bg-neutral-700" />
           {/* 工具按钮：下载 */}
           <button
-            onClick={() => { const dlUrl = (cur as any)?.originalUrl || cur?.url; if (dlUrl) { const a = document.createElement('a'); a.href = dlUrl; a.download = `video-${node.id}.mp4`; a.click() } }}
+            onClick={() => { const dlUrl = (cur as any)?.originalUrl || cur?.url; if (dlUrl) { downloadFile(dlUrl, `video-${node.id}.mp4`) } }}
             className="group flex w-12 items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
             title="下载视频"
           >

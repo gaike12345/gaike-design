@@ -11,6 +11,7 @@
 // - 绘本跨页：1600 × 1200
 
 import { create } from 'zustand'
+import { uid } from './canvasBase'
 
 // ============ 类型定义 ============
 
@@ -133,11 +134,6 @@ interface LayoutState {
   fillImage: (layerId: string, src: string) => void
 
   reset: () => void
-}
-
-// 工具：生成 id
-function uid(prefix: string) {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
 }
 
 // 工具：clone layer（用于 update 回调形式）
