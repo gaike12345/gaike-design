@@ -11,7 +11,7 @@ import DemoBadge from '../components/ui/DemoBadge'
 import { useQuotaStore } from '../store/useQuotaStore'
 import { useCostEstimate, formatTokensCompact } from '../hooks/useCostEstimate'
 import { CostBadge } from '../components/ui/CostBadge'
-import { uid } from '../store/canvasBase'
+import { PollRegistry, uid } from '../store/canvasBase'
 import { errMsg } from '../lib/utils'
 
 type AudioMode = 'easy' | 'song' | 'instrumental' | 'soundtrack' | 'tts'
@@ -193,22 +193,18 @@ export default function AudioPage() {
   const [progress, setProgress] = useState<Record<string, number>>({})
   const [currentTime, setCurrentTime] = useState<Record<string, number>>({})
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({})
-  const pollTimers = useRef<Record<string, ReturnType<typeof setInterval>>>({})
+  const pollRegistry = useRef(new PollRegistry())
 
   const songEst = useCostEstimate('audio.music', { model: 'mureka-auto', duration: 120 })
   const instEst = useCostEstimate('audio.music', { model: 'mureka-auto', duration: 60 })
   const ttsEst = useCostEstimate('audio.tts', { voice: ttsVoice, text: ttsText, textLen: ttsText.length })
 
   const stopPolling = useCallback((itemId: string) => {
-    const timer = pollTimers.current[itemId]
-    if (timer) {
-      clearInterval(timer)
-      delete pollTimers.current[itemId]
-    }
+    pollRegistry.current.stop(itemId)
   }, [])
 
   const pollTask = useCallback(async (itemId: string, taskId: string, type: 'song' | 'instrumental' | 'soundtrack') => {
-    const timer = setInterval(async () => {
+    pollRegistry.current.start(itemId, async () => {
       try {
         const res = await api.get<TaskQueryResult>(`/api/audio/query/${taskId}?type=${type === 'instrumental' ? 'instrumental' : 'song'}`)
         setAudioItems((prev) => prev.map((item) =>
@@ -248,12 +244,11 @@ export default function AudioPage() {
         // 静默重试
       }
     }, 5000)
-    pollTimers.current[itemId] = timer
   }, [stopPolling])
 
   useEffect(() => {
     return () => {
-      Object.values(pollTimers.current).forEach((timer) => clearInterval(timer))
+      pollRegistry.current.stopAll()
     }
   }, [])
 
