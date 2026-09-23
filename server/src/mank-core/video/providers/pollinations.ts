@@ -118,6 +118,12 @@ async function generateVideoViaChatCompletion(params: {
   }
   const contentText = data.choices?.[0]?.message?.content || ''
 
+  logger.info('[Pollinations Video] Chat Completions 响应', {
+    model,
+    contentPreview: contentText.slice(0, 500),
+    hasChoices: !!data.choices?.length,
+  })
+
   // 响应格式：Markdown 链接 [视频](url) 后跟纯文本 URL
   // 提取第一个 URL
   const urlMatch = contentText.match(/https?:\/\/[^\s\])"'`]+/)

@@ -956,7 +956,7 @@ export const ImageNode = memo(function ImageNode({ node }: { node: UCanvasNode }
             <span className="hidden group-hover:inline">翻转</span>
           </button>
           <button
-            onClick={() => { if (cur?.url) { const a = document.createElement('a'); a.href = cur.url; a.download = `image-${cur.seed}.png`; a.click() } }}
+            onClick={() => { const dlUrl = cur?.originalUrl || cur?.url; if (dlUrl) { const a = document.createElement('a'); a.href = dlUrl; a.download = `image-${cur.seed}.png`; a.click() } }}
             className="group flex w-12 items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
             title="下载图片"
           >
@@ -1006,7 +1006,7 @@ export const ImageNode = memo(function ImageNode({ node }: { node: UCanvasNode }
         {/* 预览图 —— object-cover 铺满固定 16:9 预览框，真实效果通过全屏预览看 */}
         {cur && cur.status !== 'error' && (
           <CachedImg
-            src={cur.url}
+            src={cur.originalUrl || cur.url}
             cacheKey={cur.originalUrl || cur.url}
             alt="生成图"
             draggable={false}
@@ -1091,7 +1091,7 @@ export const ImageNode = memo(function ImageNode({ node }: { node: UCanvasNode }
             <X className="h-4 w-4" />
           </button>
           <img
-            src={cur.url}
+            src={cur.originalUrl || cur.url}
             alt="预览"
             className="max-h-[100vh] max-w-[100vw] object-contain"
             onClick={(e) => e.stopPropagation()}
@@ -1290,7 +1290,7 @@ export function ImageSettingsPanel({ node }: { node: UCanvasNode }) {
                         ) : (
                           <>
                             <img
-                              src={img.url}
+                              src={img.originalUrl || img.url}
                               alt=""
                               className="w-full h-full object-cover"
                               loading="lazy"
@@ -1541,7 +1541,7 @@ export function ImageSettingsPanel({ node }: { node: UCanvasNode }) {
               <X className="h-3.5 w-3.5" />
             </button>
             {cur ? (
-              <img src={cur.url} className="max-h-[80vh] max-w-full rounded-lg object-contain shadow-2xl" />
+              <img src={cur.originalUrl || cur.url} className="max-h-[80vh] max-w-full rounded-lg object-contain shadow-2xl" />
             ) : (
               <div className="flex h-[400px] w-[600px] items-center justify-center rounded-lg border border-dashed border-[#333] bg-[#0f0f0f] text-neutral-500">尚未生成图片</div>
             )}
@@ -2566,7 +2566,7 @@ export const VideoNode = memo(function VideoNode({ node }: { node: UCanvasNode }
           <div className="h-6 w-px bg-neutral-700" />
           {/* 工具按钮：下载 */}
           <button
-            onClick={() => { if (cur?.url) { const a = document.createElement('a'); a.href = cur.url; a.download = `video-${node.id}.mp4`; a.click() } }}
+            onClick={() => { const dlUrl = (cur as any)?.originalUrl || cur?.url; if (dlUrl) { const a = document.createElement('a'); a.href = dlUrl; a.download = `video-${node.id}.mp4`; a.click() } }}
             className="group flex w-12 items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
             title="下载视频"
           >
