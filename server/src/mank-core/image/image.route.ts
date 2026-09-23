@@ -174,8 +174,11 @@ router.get('/proxy', async (req, res) => {
 
     if (!upstream.ok) {
       const errBody = await upstream.text().catch(() => '')
-      logger.warn(`[ImageProxy] upstream ${upstream.status}`, { hasApiKey, urlLength: originalUrl.length, errBody: errBody.slice(0, 300), urlSnippet: originalUrl.substring(0, 300) })
-      return res.status(upstream.status).send('Upstream error')
+      logger.warn(`[ImageProxy] upstream ${upstream.status} for ${originalUrl.substring(0, 200)}`, { hasApiKey, urlLength: originalUrl.length, errBody: errBody.slice(0, 300) })
+      // 上游 400/404/500 等错误：返回 1x1 透明占位图，避免浏览器报错和反复重试
+      res.setHeader('Content-Type', 'image/gif')
+      res.setHeader('Cache-Control', 'no-store')
+      return res.end(Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64'))
     }
 
     // 读取完整图片到 buffer（用于后续审核和返回）

@@ -1028,11 +1028,12 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
                 hasStale = true
                 return { ...r, url: '', originalUrl: '', pendingUpload: false }
               }
-              // 清理旧 Base64 签名 URL（?u= 格式），改用 originalUrl 直接加载
-              // 旧签名 URL 已过期（TTL 2h），刷新后会 403；originalUrl 是 Pollinations 公网 URL，可直接访问
-              if (typeof r.url === 'string' && r.url.includes('?u=') && typeof r.originalUrl === 'string' && r.originalUrl) {
-                hasUrlFix = true
-                return { ...r, url: r.originalUrl }
+              // 清理旧 Base64 签名 URL（?u= 格式）
+              // Pollinations 已废弃 GET image= 参数（base64 data URL），旧 img2img 结果全部失效
+              // 直接清空 url，避免浏览器反复请求 400
+              if (typeof r.url === 'string' && r.url.includes('?u=')) {
+                hasStale = true
+                return { ...r, url: '', originalUrl: '', pendingUpload: false }
               }
               return r
             })
