@@ -85,6 +85,37 @@ export function getSourceRefs(nodeId: string, portId: string): Array<{ connId: s
     .filter((r): r is NonNullable<typeof r> => r !== null)
 }
 
+/**
+ * 获取图片节点在首尾帧模式下的角色标签
+ * 当该图片节点连接到一个处于「首尾帧」模式的视频节点时，
+ * 按 ref 端口连接顺序：第 1 个 → '首帧'，第 2 个 → '尾帧'，其余 → ''
+ */
+function getEndframeLabel(imageNodeId: string): string {
+  const { connections, nodes } = useUnifiedCanvasStore.getState()
+  if (!connections || !nodes) return ''
+  // 找到该图片节点作为 source 连接到的视频节点
+  for (const conn of connections) {
+    if (conn.source.nodeId !== imageNodeId) continue
+    const targetNode = nodes.find((n) => n.id === conn.target.nodeId)
+    if (!targetNode || targetNode.type !== 'video') continue
+    if ((targetNode.data.videoRefMode ?? 'omni') !== 'endframe') continue
+    // 收集该视频节点 ref 端口上所有连接的图片节点（按连接顺序）
+    const refConns = connections.filter(
+      (c) => c.target.nodeId === targetNode.id && c.target.portId === 'ref',
+    )
+    const imageNodeIds: string[] = []
+    for (const rc of refConns) {
+      const srcNode = nodes.find((n) => n.id === rc.source.nodeId)
+      if (srcNode && srcNode.type === 'image') imageNodeIds.push(srcNode.id)
+    }
+    const idx = imageNodeIds.indexOf(imageNodeId)
+    if (idx === 0) return '首帧'
+    if (idx === 1) return '尾帧'
+    return ''
+  }
+  return ''
+}
+
 // 移除指定连接
 export function removeConnection(connId: string) {
   useUnifiedCanvasStore.getState().removeConnection(connId)
@@ -95,10 +126,12 @@ const RefIcon = memo(function RefIcon({
   refData,
   accentColor,
   onPreview,
+  endframeLabel,
 }: {
   refData: { connId: string; srcLabel: string; srcType: UnifiedNodeType; srcImage?: string }
   accentColor: string
   onPreview: (img: string) => void
+  endframeLabel?: string
 }) {
   const meta = UNODE_META[refData.srcType]
   const [hovered, setHovered] = useState(false)
@@ -171,18 +204,36 @@ const RefIcon = memo(function RefIcon({
           <button
             onDoubleClick={(e) => { e.stopPropagation(); onPreview(refData.srcImage!) }}
             onMouseDown={(e) => e.stopPropagation()}
-            className="flex h-6 w-6 items-center overflow-hidden rounded border transition-transform duration-150 hover:scale-110"
+            className="relative flex h-6 w-6 items-center overflow-hidden rounded border transition-transform duration-150 hover:scale-110"
             style={{ borderColor: accentColor + '40' }}
             title={refData.srcLabel}
           >
             <img src={refData.srcImage} alt="" className="h-full w-full object-cover" />
+            {endframeLabel && (
+              <span
+                className={`absolute bottom-0 left-0 right-0 text-center text-[7px] leading-[10px] font-semibold text-white ${
+                  endframeLabel === '首帧' ? 'bg-amber-500/90' : 'bg-sky-500/90'
+                }`}
+              >
+                {endframeLabel}
+              </span>
+            )}
           </button>
         ) : (
           <div
-            className="flex h-6 w-6 items-center justify-center rounded border"
+            className="relative flex h-6 w-6 items-center justify-center rounded border"
             style={{ background: meta!.color + '20', borderColor: meta!.color + '40' }}
           >
             <ImageIcon className="h-3 w-3" style={{ color: meta!.color }} />
+            {endframeLabel && (
+              <span
+                className={`absolute bottom-0 left-0 right-0 text-center text-[7px] leading-[10px] font-semibold text-white ${
+                  endframeLabel === '首帧' ? 'bg-amber-500/90' : 'bg-sky-500/90'
+                }`}
+              >
+                {endframeLabel}
+              </span>
+            )}
           </div>
         )}
         {/* 移除按钮 —— hover 时显示 */}
@@ -208,10 +259,30 @@ const RefIcon = memo(function RefIcon({
           }}
         >
           {refData.srcImage ? (
-            <img src={refData.srcImage} alt="" className="h-[72px] w-[128px] rounded object-cover" />
+            <div className="relative h-[72px] w-[128px]">
+              <img src={refData.srcImage} alt="" className="h-[72px] w-[128px] rounded object-cover" />
+              {endframeLabel && (
+                <span
+                  className={`absolute bottom-0 left-0 rounded-br px-1.5 py-0.5 text-[10px] font-semibold text-white ${
+                    endframeLabel === '首帧' ? 'bg-amber-500/90' : 'bg-sky-500/90'
+                  }`}
+                >
+                  {endframeLabel}
+                </span>
+              )}
+            </div>
           ) : (
-            <div className="flex h-[72px] w-[128px] items-center justify-center rounded" style={{ background: (meta?.color || '#888') + '20' }}>
+            <div className="relative flex h-[72px] w-[128px] items-center justify-center rounded" style={{ background: (meta?.color || '#888') + '20' }}>
               <ImageIcon className="h-6 w-6" style={{ color: meta?.color || '#888' }} />
+              {endframeLabel && (
+                <span
+                  className={`absolute bottom-0 left-0 rounded-br px-1.5 py-0.5 text-[10px] font-semibold text-white ${
+                    endframeLabel === '首帧' ? 'bg-amber-500/90' : 'bg-sky-500/90'
+                  }`}
+                >
+                  {endframeLabel}
+                </span>
+              )}
             </div>
           )}
         </div>,
@@ -821,6 +892,9 @@ export const ImageNode = memo(function ImageNode({ node }: { node: UCanvasNode }
   const createConnectedImageNode = useUnifiedCanvasStore((s) => s.createConnectedImageNode)
   const selectNode = useUnifiedCanvasStore((s) => s.selectNode)
   const selectedNodeId = useUnifiedCanvasStore((s) => s.selectedNodeId)
+  // 订阅 connections/nodes 变化，使首尾帧角色标签实时刷新
+  useUnifiedCanvasStore((s) => s.connections)
+  useUnifiedCanvasStore((s) => s.nodes)
   const isSelected = selectedNodeId === node.id
   const meta = UNODE_META[node.type]
   const status = node.data.imageStatus ?? 'idle'
@@ -829,6 +903,8 @@ export const ImageNode = memo(function ImageNode({ node }: { node: UCanvasNode }
   const results = node.data.imageResults ?? []
   const [previewOpen, setPreviewOpen] = useState(false)
   const [resultIndex, setResultIndex] = useState(0)
+  // 首尾帧角色标签：若该图片节点连接到处于首尾帧模式的视频节点，显示「首帧」/「尾帧」
+  const endframeLabel = getEndframeLabel(node.id)
 
   const model = node.data.imageModel ?? 'sdxl'
   const modelCfg = getImageModel(model)
@@ -1045,6 +1121,19 @@ export const ImageNode = memo(function ImageNode({ node }: { node: UCanvasNode }
             >
               重试
             </button>
+          </div>
+        )}
+
+        {/* 首尾帧角色标签：首帧(琥珀) / 尾帧(天蓝) —— 显示在预览右上角 */}
+        {endframeLabel && (
+          <div
+            className={`absolute top-2 right-2 z-20 rounded-full px-2 py-0.5 text-[10px] font-semibold backdrop-blur-sm pointer-events-none ${
+              endframeLabel === '首帧'
+                ? 'bg-amber-500/80 text-white'
+                : 'bg-sky-500/80 text-white'
+            }`}
+          >
+            {endframeLabel}
           </div>
         )}
 
@@ -2017,8 +2106,22 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
             {/* 引用内容以小图标显示在输入框左上角 */}
             {refCount > 0 && (
               <div className="absolute top-1.5 left-1.5 z-10 flex items-center gap-1">
-                {connectedImageRefs.map((ref) => (
-                  <RefIcon key={ref.connId} refData={ref} accentColor="#f59e0b" onPreview={setPreviewImg} />
+                {connectedImageRefs.map((ref, idx) => (
+                  <RefIcon
+                    key={ref.connId}
+                    refData={ref}
+                    accentColor="#f59e0b"
+                    onPreview={setPreviewImg}
+                    endframeLabel={
+                      refMode === 'endframe'
+                        ? idx === 0
+                          ? '首帧'
+                          : idx === 1
+                            ? '尾帧'
+                            : undefined
+                        : undefined
+                    }
+                  />
                 ))}
               </div>
             )}

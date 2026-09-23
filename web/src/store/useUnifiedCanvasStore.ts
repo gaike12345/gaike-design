@@ -775,8 +775,74 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     const referenceVideo = node.data.videoReferenceVideo
     const refMode = (node.data.videoRefMode ?? 'omni') as string
 
-    // 首尾帧模式：首帧图从 videoReferenceImages[0] 读取
-    const endframeStartImage = refMode === 'endframe' ? (referenceImages?.[0] ?? '') : ''
+    // 首尾帧模式：按连接的图片节点顺序，第一个节点为首帧，第二个节点为尾帧
+    if (refMode === 'endframe') {
+      // 收集所有连接的图片节点（按连接顺序）
+      const endframeRefImages: string[] = []
+      for (const conn of refConns) {
+        const src = state.nodes.find((n) => n.id === conn.source.nodeId)
+        if (!src) continue
+        if (src.type !== 'image') continue
+        const imgs = src.data.imageResults?.filter((r) => r.status === 'done')
+        for (const img of imgs) {
+          if (img.originalUrl) endframeRefImages.push(img.originalUrl)
+        }
+      }
+
+      // 也合并用户手动上传的参考图
+      const allEndframeImages = [
+        ...(referenceImages ?? []),
+        ...endframeRefImages,
+      ]
+
+      if (allEndframeImages.length >= 2) {
+        // 有两张以上图片：第一张为首帧，第二张为尾帧
+        imageUrl = allEndframeImages[0]
+        const endframeEndImage = allEndframeImages[1]
+        const endframeModel = node.data.videoModel || 'seedance-pro'
+        const endframeResolution = node.data.videoResolution
+        const endframeRatio = node.data.videoRatio
+        const endframeAudio = node.data.videoAudio ?? false
+        const endframeDurId = node.data.videoDuration || '5s'
+        const endframeDuration = Number(String(endframeDurId).replace(/[^0-9]/g, '')) || 5
+
+        get().updateNodeData(nodeId, { videoStatus: 'queued', videoTaskId: undefined, videoResult: undefined, videoErrorMsg: undefined })
+        pollRegistry.stop(nodeId)
+
+        try {
+          const toAbs = (u: string) => u.startsWith('/') ? `${window.location.origin}${u}` : u
+          const body = {
+            imageUrl: toAbs(imageUrl),
+            endImage: toAbs(endframeEndImage),
+            prompt: rawPrompt.trim() || 'AI 生成视频',
+            model: endframeModel,
+            duration: endframeDuration,
+            resolution: endframeResolution,
+            ratio: endframeRatio,
+            audio: endframeAudio,
+          }
+          const res = await api.post<{ taskId: string; status: string; placeholder?: boolean }>('/api/video/img2video', body)
+          const result: VideoResult = {
+            taskId: res.taskId, status: 'queued', prompt: rawPrompt.trim() || 'AI 生成视频',
+            type: 'img2video',
+            placeholder: res.placeholder, createdAt: Date.now(),
+          }
+          get().updateNodeData(nodeId, { videoStatus: 'queued', videoTaskId: res.taskId, videoResult: result })
+          pollRegistry.start(nodeId)
+          return
+        } catch (e: unknown) {
+          const msg = (e as Error).message
+          get().updateNodeData(nodeId, { videoStatus: 'error', videoErrorMsg: msg })
+          return
+        }
+      } else if (allEndframeImages.length === 1) {
+        get().updateNodeData(nodeId, { videoStatus: 'error', videoErrorMsg: '首尾帧模式需要连接两张图片节点（第一张为首帧，第二张为尾帧）' })
+        return
+      } else {
+        get().updateNodeData(nodeId, { videoStatus: 'error', videoErrorMsg: '首尾帧模式需要连接两张图片节点（第一张为首帧，第二张为尾帧）' })
+        return
+      }
+    }
 
     // duration id (5s / 10s) → 秒数
     const durId = node.data.videoDuration || '5s'
@@ -788,16 +854,14 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     try {
       // 将相对 URL（/uploads/xxx）转为绝对 URL，后端 z.string().url() 要求完整 URL
       const toAbs = (u: string) => u.startsWith('/') ? `${window.location.origin}${u}` : u
-      // 首尾帧模式：首帧图作为 imageUrl 走 img2video，不传 referenceImages
-      const effectiveImageUrl = toAbs(refMode === 'endframe' ? (endframeStartImage || imageUrl) : imageUrl)
+      // 首帧图作为 imageUrl 走 img2video
+      const effectiveImageUrl = toAbs(imageUrl)
       const effectiveIsImg2Video = !!effectiveImageUrl
       const endpoint = effectiveIsImg2Video ? '/api/video/img2video' : '/api/video/text2video'
       const extraParams: Record<string, unknown> = {}
       if (endImage) extraParams.endImage = toAbs(endImage)
 
-      if (refMode === 'endframe') {
-        // 首尾帧模式不传 referenceImages（首帧已作为 imageUrl）
-      } else {
+      {
         // 全能参考/图生视频：合并用户手动参考图 + 连接节点自动收集的参考图
         const mergedRefImages = [
           ...(node.data.videoReferenceImages ?? []),

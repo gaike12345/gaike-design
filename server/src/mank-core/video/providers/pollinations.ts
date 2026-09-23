@@ -60,6 +60,71 @@ async function readLocalImageAsDataUri(localPath: string): Promise<string | null
 }
 
 /**
+ * 上传本地图片到 Pollinations media 服务器，获取公网 URL
+ * 用于 GET /video 端点需要公网 URL 的场景（首尾帧）
+ * 端点：POST https://media.pollinations.ai/upload (multipart/form-data)
+ */
+async function uploadToPollinationsMedia(localPath: string): Promise<string | null> {
+  try {
+    const filePath = path.join(process.cwd(), localPath)
+    if (!fs.existsSync(filePath)) return null
+
+    // 先用 sharp 压缩
+    const compressed = await sharp(fs.readFileSync(filePath))
+      .resize({ width: 1920, height: 1920, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 85, mozjpeg: true })
+      .toBuffer()
+
+    const fileName = path.basename(localPath, path.extname(localPath)) + '.jpg'
+    const boundary = `----FormBoundary${Date.now()}${Math.random().toString(36).slice(2)}`
+
+    // 构建 multipart/form-data
+    const parts: Buffer[] = [
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: image/jpeg\r\n\r\n`),
+      compressed,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]
+    const body = Buffer.concat(parts)
+
+    const headers: Record<string, string> = {
+      'Content-Type': `multipart/form-data; boundary=${boundary}`,
+    }
+    if (API_KEY) headers['Authorization'] = `Bearer ${API_KEY}`
+
+    const res = await fetch('https://media.pollinations.ai/upload', {
+      method: 'POST',
+      headers,
+      body,
+    })
+
+    if (!res.ok) {
+      logger.warn('[Pollinations Video] media 上传失败', { status: res.status, statusText: res.statusText })
+      return null
+    }
+
+    const text = await res.text()
+    // 响应可能是纯文本 URL，也可能是 JSON
+    try {
+      const json = JSON.parse(text)
+      const url = json.url || json.value || json.id || text.trim()
+      logger.info('[Pollinations Video] media 上传成功', { url: String(url).slice(0, 80) })
+      return String(url)
+    } catch {
+      const url = text.trim()
+      if (url.startsWith('http')) {
+        logger.info('[Pollinations Video] media 上传成功', { url: url.slice(0, 80) })
+        return url
+      }
+      logger.warn('[Pollinations Video] media 上传响应格式未知', { text: text.slice(0, 200) })
+      return null
+    }
+  } catch (e) {
+    logger.warn('[Pollinations Video] media 上传异常', { localPath, error: (e as Error).message })
+    return null
+  }
+}
+
+/**
  * 通过 Pollinations Chat Completions API 生成视频
  * 用于本地图片（/uploads/）场景：GET /video 端点需要公网 URL，
  * Pollinations 后端无法回连国内服务器下载图片，改用 Chat Completions + base64 data URI
@@ -448,27 +513,85 @@ export const pollinationsVideoProvider: VideoProvider = {
     const hasLocalImage = !!(localStartPath || localEndPath || localRefPaths.length > 0)
 
     if (hasLocalImage) {
-      // 本地图片：用 Chat Completions API + base64 data URI
-      // Pollinations GET /video 端点需要公网 URL，后端无法回连国内服务器下载图片
+      // 首尾帧模式（有 endImage）：优先上传到 Pollinations media 获取公网 URL，然后用 GET /video 端点
+      // 因为 Chat Completions API 不支持尾帧概念，所有 image_url 都被当首帧
+      if (localEndPath) {
+        logger.info('[Pollinations Video] 首尾帧模式：尝试上传到 media 服务器', { model: resolvedModel })
+
+        const [startUrl, endUrl] = await Promise.all([
+          localStartPath ? uploadToPollinationsMedia(localStartPath) : Promise.resolve(null),
+          uploadToPollinationsMedia(localEndPath),
+        ])
+
+        if (startUrl && endUrl) {
+          // 上传成功：用 GET /video 端点 + image=首帧|尾帧
+          logger.info('[Pollinations Video] media 上传成功，使用 GET /video 端点', { startUrl: startUrl.slice(0, 60), endUrl: endUrl.slice(0, 60) })
+
+          const updatedParams = {
+            ...params,
+            image: startUrl,
+            endImage: endUrl,
+          }
+          const url = await buildVideoUrl(updatedParams)
+          const success = await verifyVideoGeneration(url)
+
+          return {
+            url,
+            duration,
+            resolution,
+            audio,
+            placeholder: !success,
+            provider: 'pollinations',
+          }
+        }
+
+        // 上传失败：回退到 Chat Completions API，在 prompt 中标注首帧/尾帧
+        logger.warn('[Pollinations Video] media 上传失败，回退到 Chat Completions API（首尾帧可能不被正确识别）')
+
+        const startDataUri = localStartPath ? await readLocalImageAsDataUri(localStartPath) : null
+        const endDataUri = (await readLocalImageAsDataUri(localEndPath)) || undefined
+
+        if (!startDataUri) {
+          throw new BusinessError('首帧图片读取失败，请重新上传后重试')
+        }
+
+        const enhancedPrompt = `${prompt || ''}\n\n[Note: The first image is the start frame, the second image is the end frame. Please generate a video that transitions from the start frame to the end frame.]`
+
+        const result = await generateVideoViaChatCompletion({
+          prompt: enhancedPrompt,
+          model: resolvedModel,
+          imageDataUri: startDataUri,
+          endImageDataUri: endDataUri,
+        })
+
+        return {
+          url: result.url,
+          duration,
+          resolution,
+          audio,
+          placeholder: false,
+          provider: 'pollinations',
+        }
+      }
+
+      // 非首尾帧模式（只有首帧或参考图）：用 Chat Completions API + base64 data URI
       const startDataUri = localStartPath ? await readLocalImageAsDataUri(localStartPath) : null
-      const endDataUri = localEndPath ? (await readLocalImageAsDataUri(localEndPath)) || undefined : undefined
       const refDataUris = (await Promise.all(localRefPaths.map(p => readLocalImageAsDataUri(p)))).filter(Boolean) as string[]
 
-      if (!startDataUri) {
+      if (!startDataUri && localStartPath) {
         throw new BusinessError('首帧图片读取失败，请重新上传后重试')
       }
 
       logger.info('[Pollinations Video] 使用 Chat Completions API 生成本地图片视频', {
         model: resolvedModel,
-        hasEndFrame: !!endDataUri,
+        hasStartFrame: !!startDataUri,
         refCount: refDataUris.length,
       })
 
       const result = await generateVideoViaChatCompletion({
         prompt: prompt || '',
         model: resolvedModel,
-        imageDataUri: startDataUri,
-        endImageDataUri: endDataUri,
+        imageDataUri: startDataUri || '',
         referenceImageUris: refDataUris,
       })
 
