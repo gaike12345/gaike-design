@@ -1952,9 +1952,10 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
   const defaultDur = modelCfg?.defaultDuration || '5s'
   const defaultRes = modelCfg?.defaultResolution || '720p'
   const defaultRatio = modelCfg?.defaultRatio || '16:9'
+  // 组件级 refMode：供 useMemo 过滤及 RefIcon 首尾帧标签共用
+  const refMode = (node.data.videoRefMode as string) ?? 'omni'
   const sortedVideoModels = useMemo(() => {
     // 根据当前选中的功能模式过滤模型列表
-    const refMode = (node.data.videoRefMode as string) ?? 'omni'
     const filteredByMode = videoModelList.filter((m) => {
       const cfg = m.config
       if (!cfg) return true // 无 config 的模型不过滤（通常为兜底）
