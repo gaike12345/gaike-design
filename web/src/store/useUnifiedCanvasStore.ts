@@ -786,12 +786,14 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     pollRegistry.stop(nodeId)
 
     try {
+      // 将相对 URL（/uploads/xxx）转为绝对 URL，后端 z.string().url() 要求完整 URL
+      const toAbs = (u: string) => u.startsWith('/') ? `${window.location.origin}${u}` : u
       // 首尾帧模式：首帧图作为 imageUrl 走 img2video，不传 referenceImages
-      const effectiveImageUrl = refMode === 'endframe' ? (endframeStartImage || imageUrl) : imageUrl
+      const effectiveImageUrl = toAbs(refMode === 'endframe' ? (endframeStartImage || imageUrl) : imageUrl)
       const effectiveIsImg2Video = !!effectiveImageUrl
       const endpoint = effectiveIsImg2Video ? '/api/video/img2video' : '/api/video/text2video'
       const extraParams: Record<string, unknown> = {}
-      if (endImage) extraParams.endImage = endImage
+      if (endImage) extraParams.endImage = toAbs(endImage)
 
       if (refMode === 'endframe') {
         // 首尾帧模式不传 referenceImages（首帧已作为 imageUrl）
@@ -800,10 +802,10 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
         const mergedRefImages = [
           ...(node.data.videoReferenceImages ?? []),
           ...(collectedRefImages ?? []),
-        ]
+        ].map(toAbs)
         if (mergedRefImages.length > 0) extraParams.referenceImages = mergedRefImages
       }
-      if (referenceVideo) extraParams.referenceVideo = referenceVideo
+      if (referenceVideo) extraParams.referenceVideo = toAbs(referenceVideo)
 
       const body = effectiveIsImg2Video
         ? { imageUrl: effectiveImageUrl, prompt, model, duration, resolution, ratio, audio, ...extraParams }
