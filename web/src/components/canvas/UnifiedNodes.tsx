@@ -2075,7 +2075,21 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
                   <Film className={cn('h-3.5 w-3.5 shrink-0', model === m.id ? 'text-amber-300' : 'text-neutral-500')} />
                   <span className={cn('truncate text-[11px]', model === m.id ? 'text-amber-100' : 'text-neutral-200')}>{m.label}</span>
                   {m.tag && <span className="rounded bg-amber-500/20 px-1 text-[8px] font-bold text-amber-300">{m.tag}</span>}
-                  <span className="ml-auto shrink-0 text-[9px] text-neutral-500">{m.costTokens}积分</span>
+                  {/* 能力标签替代积分显示 */}
+                  <div className="ml-auto flex shrink-0 items-center gap-0.5">
+                    {m.config?.supportsReferenceImages && (
+                      <span className="rounded bg-emerald-500/15 px-1 text-[8px] font-bold text-emerald-300">多图</span>
+                    )}
+                    {m.config?.supportsEndFrame && (
+                      <span className="rounded bg-sky-500/15 px-1 text-[8px] font-bold text-sky-300">二图</span>
+                    )}
+                    {m.config?.supportsImg2Video && !m.config?.supportsEndFrame && (
+                      <span className="rounded bg-violet-500/15 px-1 text-[8px] font-bold text-violet-300">一图</span>
+                    )}
+                    {!m.config?.supportsImg2Video && !m.config?.supportsEndFrame && !m.config?.supportsReferenceImages && (
+                      <span className="rounded bg-neutral-500/15 px-1 text-[8px] font-bold text-neutral-400">纯文</span>
+                    )}
+                  </div>
                 </button>
               ))}
               </div>
