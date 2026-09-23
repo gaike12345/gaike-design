@@ -1879,7 +1879,6 @@ export function VideoSettingsPanel({ node }: { node: UCanvasNode }) {
     if (videoSortMode === 'price-desc') copy.sort((a, b) => (b.costTokens || 0) - (a.costTokens || 0))
     else if (videoSortMode === 'price-asc') copy.sort((a, b) => (a.costTokens || 0) - (b.costTokens || 0))
     else copy.sort((a, b) => (a.label || '').localeCompare(b.label || '', 'zh'))
-    console.log('[videoSort] mode=%s order=%j', videoSortMode, copy.map(m => `${m.label}:${m.costTokens}`))
     return copy
   }, [videoModelList, videoSortMode, node.data.videoRefMode])
 
