@@ -4,8 +4,10 @@
 import { useState } from 'react'
 import {
   BarChart3, DollarSign, TrendingDown, Layers, Zap,
-  AlertTriangle, Check, X, Minus, Sparkles, ArrowRight, BarChart2,
+  AlertTriangle, X, Sparkles, ArrowRight, BarChart2,
 } from 'lucide-react'
+import { Mn } from './common'
+import { ACCENT_BADGE } from '../../lib/utils'
 
 interface IntlModel {
   name: string; vendor: string; tag: string;
@@ -98,12 +100,6 @@ const TABS: { key: Tab; label: string; icon: any; count?: number }[] = [
   { key: 'tiers', label: '选型档位',   icon: Sparkles },
 ]
 
-const ACCENT_BADGE: Record<string, string> = {
-  amber:   'from-amber-500 to-amber-600',
-  rose:    'from-rose-500 to-rose-600',
-  indigo:  'from-indigo-500 to-indigo-600',
-  emerald: 'from-emerald-500 to-emerald-600',
-}
 const ACCENT_TEXT: Record<string, string> = {
   amber:   'text-amber-700',
   rose:    'text-rose-700',
@@ -118,8 +114,6 @@ function PriceCell({ v, alt }: { v: string; alt?: 'cheap' | 'mid' | 'expensive' 
             : 'text-neutral-800'
   return <span className={`font-mono text-right ${cls}`}>{v}</span>
 }
-function Mn({ x }: { x: boolean }) { return x ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Minus className="h-3.5 w-3.5 text-neutral-300" /> }
-
 export function LlmPricingCompare() {
   const [tab, setTab] = useState<Tab>('cn')
 

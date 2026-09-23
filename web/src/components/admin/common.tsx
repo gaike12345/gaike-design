@@ -1,6 +1,6 @@
 // Admin 公共组件与工具函数
 
-import { X } from 'lucide-react'
+import { X, Check, Minus } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { Role, WorkType } from './types'
 import { Pagination } from '../ui/Pagination'
@@ -227,3 +227,29 @@ export function EmptyBar({ text }: { text: string }) {
     </div>
   )
 }
+
+// ========= Compare 组件共用小件（自 Image/Video/LlmPricing/Audio 四个对比页下沉） =========
+const TIER_STYLE: Record<string, { bg: string; text: string; border: string }> = {
+  '入门':   { bg: 'bg-neutral-100', text: 'text-neutral-700', border: 'border-neutral-300' },
+  '性价比': { bg: 'bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-300' },
+  '推荐':   { bg: 'bg-cyan-100',    text: 'text-cyan-700',    border: 'border-cyan-300' },
+  '专业':   { bg: 'bg-indigo-100',  text: 'text-indigo-700',  border: 'border-indigo-300' },
+  '标杆':   { bg: 'bg-violet-100',  text: 'text-violet-700',  border: 'border-violet-300' },
+  '旗舰':   { bg: 'bg-amber-100',   text: 'text-amber-700',   border: 'border-amber-300' },
+  '好莱坞': { bg: 'bg-amber-100',   text: 'text-amber-700',   border: 'border-amber-300' },
+}
+
+export function TierBadge({ tier }: { tier: string }) {
+  const s = TIER_STYLE[tier] ?? TIER_STYLE['推荐']
+  return <span className={`rounded-md border ${s.border} ${s.bg} ${s.text} px-1.5 py-0.5 text-[10px] font-medium`}>{tier}</span>
+}
+
+export function Flag({ kind }: { kind?: '国产' | '全球' }) {
+  if (!kind) return null
+  const cls = kind === '国产'
+    ? 'bg-rose-50 text-rose-700 ring-rose-200'
+    : 'bg-sky-50 text-sky-700 ring-sky-200'
+  return <span className={`ml-1 rounded px-1 py-0.5 text-[9px] font-medium ring-1 ${cls}`}>{kind}</span>
+}
+
+export function Mn({ x }: { x: boolean }) { return x ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Minus className="h-3.5 w-3.5 text-neutral-300" /> }

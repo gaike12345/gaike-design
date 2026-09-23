@@ -5,10 +5,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Image as ImageIcon, DollarSign, TrendingDown, Layers, Zap,
-  Check, Minus, Sparkles, ArrowRight, Cpu, Star, Clock, Shield,
+  Sparkles, ArrowRight, Cpu, Star, Clock, Shield,
   RefreshCw, AlertCircle, CheckCircle2,
 } from 'lucide-react'
 import { apiFetchRaw as apiFetch } from '../../services/api'
+import { Flag, Mn, TierBadge } from './common'
+import { ACCENT_BADGE } from '../../lib/utils'
 
 // 动态抓取的 Pollinations 官方图像定价基准行
 interface BenchmarkRow {
@@ -110,21 +112,6 @@ const SUMMARY_CARDS = [
   { icon: Shield,       value: 'SDXL 锁定', label: '项目主力',    hint: '20 积分/张',              accent: 'amber'   },
 ]
 
-const TIER_STYLE: Record<string, { bg: string; text: string; border: string }> = {
-  '入门':   { bg: 'bg-neutral-100',   text: 'text-neutral-700',   border: 'border-neutral-300' },
-  '性价比': { bg: 'bg-emerald-100',   text: 'text-emerald-700',   border: 'border-emerald-300' },
-  '推荐':   { bg: 'bg-cyan-100',      text: 'text-cyan-700',      border: 'border-cyan-300' },
-  '专业':   { bg: 'bg-indigo-100',    text: 'text-indigo-700',    border: 'border-indigo-300' },
-  '标杆':   { bg: 'bg-violet-100',    text: 'text-violet-700',    border: 'border-violet-300' },
-  '旗舰':   { bg: 'bg-amber-100',     text: 'text-amber-700',     border: 'border-amber-300' },
-}
-const ACCENT_BADGE: Record<string, string> = {
-  emerald: 'from-emerald-500 to-emerald-600',
-  violet:  'from-violet-500 to-violet-600',
-  cyan:    'from-cyan-500 to-cyan-600',
-  amber:   'from-amber-500 to-amber-600',
-}
-
 type Tab = 'compare' | 'pricing' | 'official'
 const TABS: { key: Tab; label: string; icon: any; count?: number }[] = [
   { key: 'compare',  label: '模型全维度对比', icon: Cpu,       count: IMAGE_MODELS.length },
@@ -132,18 +119,6 @@ const TABS: { key: Tab; label: string; icon: any; count?: number }[] = [
   { key: 'official', label: '官方 vs 平台售价', icon: Shield },
 ]
 
-function TierBadge({ tier }: { tier: string }) {
-  const s = TIER_STYLE[tier] ?? TIER_STYLE['推荐']
-  return <span className={`rounded-md border ${s.border} ${s.bg} ${s.text} px-1.5 py-0.5 text-[10px] font-medium`}>{tier}</span>
-}
-function Flag({ kind }: { kind?: '国产' | '全球' }) {
-  if (!kind) return null
-  const cls = kind === '国产'
-    ? 'bg-rose-50 text-rose-700 ring-rose-200'
-    : 'bg-sky-50 text-sky-700 ring-sky-200'
-  return <span className={`ml-1 rounded px-1 py-0.5 text-[9px] font-medium ring-1 ${cls}`}>{kind}</span>
-}
-function Mn({ x }: { x: boolean }) { return x ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Minus className="h-3.5 w-3.5 text-neutral-300" /> }
 function SpeedTag({ s }: { s: ImageModel['speed'] }) {
   const cls: Record<ImageModel['speed'], string> = {
     '极快': 'bg-emerald-100 text-emerald-700 ring-emerald-200',

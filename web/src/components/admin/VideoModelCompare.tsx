@@ -9,6 +9,8 @@ import {
   RefreshCw, AlertCircle, CheckCircle2,
 } from 'lucide-react'
 import { apiFetchRaw as apiFetch } from '../../services/api'
+import { Flag, TierBadge } from './common'
+import { ACCENT_BADGE } from '../../lib/utils'
 
 // 动态抓取的 Pollinations 官方定价基准行
 interface BenchmarkRow {
@@ -121,45 +123,12 @@ const SUMMARY_CARDS = [
   { icon: Layers,         value: '12款',      label: '主流可选模型', hint: '覆盖入门到专业级',       accent: 'pink'    },
 ]
 
-const TIER_STYLE: Record<string, { bg: string; text: string; border: string }> = {
-  '入门': { bg: 'bg-neutral-100',   text: 'text-neutral-700',   border: 'border-neutral-300' },
-  '性价比': { bg: 'bg-emerald-100', text: 'text-emerald-700',   border: 'border-emerald-300' },
-  '推荐': { bg: 'bg-cyan-100',      text: 'text-cyan-700',      border: 'border-cyan-300' },
-  '专业': { bg: 'bg-indigo-100',    text: 'text-indigo-700',    border: 'border-indigo-300' },
-  '标杆': { bg: 'bg-violet-100',    text: 'text-violet-700',    border: 'border-violet-300' },
-  '好莱坞': { bg: 'bg-amber-100',   text: 'text-amber-700',     border: 'border-amber-300' },
-}
-
 type Tab = 'compare' | 'pricing' | 'official'
 const TABS: { key: Tab; label: string; icon: any }[] = [
   { key: 'compare',  label: '全维度参数对比',   icon: BarChart3  },
   { key: 'pricing',  label: 'AI 漫剧圈定价体系', icon: DollarSign },
   { key: 'official', label: '官方 vs 平台售价',   icon: ExternalLink },
 ]
-
-function Flag({ kind }: { kind?: '国产' | '全球' }) {
-  if (!kind) return null
-  const cls = kind === '国产'
-    ? 'bg-rose-50 text-rose-700 ring-rose-200'
-    : 'bg-sky-50 text-sky-700 ring-sky-200'
-  return <span className={`ml-1 rounded px-1 py-0.5 text-[9px] font-medium ring-1 ${cls}`}>{kind}</span>
-}
-
-function TierBadge({ tier }: { tier: string }) {
-  const s = TIER_STYLE[tier] ?? TIER_STYLE['推荐']
-  return (
-    <span className={`rounded-md border ${s.border} ${s.bg} ${s.text} px-1.5 py-0.5 text-[10px] font-medium`}>
-      {tier}
-    </span>
-  )
-}
-
-const ACCENT_BADGE: Record<string, string> = {
-  emerald: 'from-emerald-500 to-emerald-600',
-  violet:  'from-violet-500 to-violet-600',
-  cyan:    'from-cyan-500 to-cyan-600',
-  pink:    'from-pink-500 to-pink-600',
-}
 
 export function VideoModelCompare() {
   const [tab, setTab] = useState<Tab>('compare')

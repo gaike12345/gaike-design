@@ -4,8 +4,10 @@
 import { useState } from 'react'
 import {
   Music as MusicIcon, Music4, DollarSign, TrendingDown, Layers,
-  Check, Minus, Zap, Sparkles, Clock, ArrowRight, BarChart2, User,
+  Zap, Sparkles, Clock, ArrowRight, BarChart2, User,
 } from 'lucide-react'
+import { Flag, Mn } from './common'
+import { ACCENT_BADGE } from '../../lib/utils'
 
 interface TtsModel {
   name: string; vendor: string; tag: string;
@@ -91,28 +93,12 @@ const SUMMARY_CARDS = [
   { icon: Sparkles,      value: '28+ 款',  label: '主流可选',     hint: 'TTS + 音乐',             accent: 'pink'    },
 ]
 
-const ACCENT_BADGE: Record<string, string> = {
-  emerald: 'from-emerald-500 to-emerald-600',
-  teal:    'from-teal-500 to-teal-600',
-  violet:  'from-violet-500 to-violet-600',
-  pink:    'from-pink-500 to-pink-600',
-}
-
 type Tab = 'tts' | 'music' | 'pricing'
 const TABS: { key: Tab; label: string; icon: any; count?: number }[] = [
   { key: 'tts',    label: 'TTS 语音合成', icon: User,       count: TTS_MODELS.length },
   { key: 'music',  label: 'AI 音乐生成',  icon: Music4,     count: MUSIC_MODELS.length },
   { key: 'pricing',label: '平台定价体系', icon: DollarSign, count: PLATFORM_PRICING.length },
 ]
-
-function Flag({ kind }: { kind?: '国产' | '全球' }) {
-  if (!kind) return null
-  const cls = kind === '国产'
-    ? 'bg-rose-50 text-rose-700 ring-rose-200'
-    : 'bg-sky-50 text-sky-700 ring-sky-200'
-  return <span className={`ml-1 rounded px-1 py-0.5 text-[9px] font-medium ring-1 ${cls}`}>{kind}</span>
-}
-function Mn({ x }: { x: boolean }) { return x ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Minus className="h-3.5 w-3.5 text-neutral-300" /> }
 
 function priceClass(v: string) {
   const n = parseFloat(v.replace(/[^0-9.]/g, ''))

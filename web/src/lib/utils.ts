@@ -55,3 +55,15 @@ export function lighten(hex: string, percent: number): string {
   const [r, g, b] = rgb
   return rgbHex(mix(r, 255, percent / 100), mix(g, 255, percent / 100), mix(b, 255, percent / 100))
 }
+
+// admin 对比页 Summary 卡片渐变底色类名，键为各卡 accent 名
+export const ACCENT_BADGE: Record<string, string> = {
+  emerald: 'from-emerald-500 to-emerald-600',
+  violet:  'from-violet-500 to-violet-600',
+  cyan:    'from-cyan-500 to-cyan-600',
+  amber:   'from-amber-500 to-amber-600',
+  pink:    'from-pink-500 to-pink-600',
+  teal:    'from-teal-500 to-teal-600',
+  rose:    'from-rose-500 to-rose-600',
+  indigo:  'from-indigo-500 to-indigo-600',
+}
