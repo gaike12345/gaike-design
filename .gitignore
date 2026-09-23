@@ -84,9 +84,8 @@ web/public/videos/
 *.mp3
 *.wav
 
-# ---------- 视频（白名单例外） ----------
-!web/public/hero-*.mp4
-!web/public/login-hero.mp4
+# ---------- 视频（白名单例外：仅保留 LoginPage 引用的 hero-2） ----------
+!web/public/hero-2.mp4
 
 # ---------- 临时审计 / 个人笔记 ----------
 AUDIT_REPORT.md
@@ -119,3 +118,11 @@ deploy/server-only-backup/
 
 # ---------- Trae 工作区 ----------
 .trae/
+
+# ---------- 根目录一次性脚本 / 部署遗留产物（正式脚本在 deploy/） ----------
+/*.sh
+/*.patch
+*.bundle
+tmp_*.json
+commit-msg.txt
+deploy/legacy/
