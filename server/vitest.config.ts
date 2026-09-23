@@ -17,7 +17,7 @@ export default defineConfig({
     },
     coverage: {
       provider: 'v8',
-      include: ['src/lib/**/*.ts', 'src/middleware/**/*.ts'],
+      include: ['src/mank-common/**/*.ts', 'src/mank-infra/middleware/**/*.ts'],
     },
   },
 })

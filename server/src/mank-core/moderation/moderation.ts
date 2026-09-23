@@ -5,7 +5,7 @@
 // 设计：
 //   1. 服务商审核（MODERATION_API_KEY 配置后启用，未配置时跳过，标记 placeholder）
 //   2. 违规 → 写 ModerationLog（append-only）+ 自动升级 User.riskLevel
-//   3. riskLevel≥3 时 llmRoute 层拒绝生成（前置门控）
+//   3. riskLevel≥3 时 llmRouteHelper 层拒绝生成（前置门控）
 //
 // 合规依据：《生成式人工智能服务管理暂行办法》要求输入+输出双审核
 
@@ -615,7 +615,7 @@ export async function cleanupUploadedFile(filePath: string): Promise<void> {
 }
 
 // ==================== 风险等级门控 ====================
-// riskLevel≥3 时拒绝 AI 生成（在 llmRoute 层前置检查）
+// riskLevel≥3 时拒绝 AI 生成（在 llmRouteHelper 层前置检查）
 export async function checkUserRiskGate(userId: string): Promise<{
   allowed: boolean
   riskLevel: number

@@ -3,7 +3,7 @@ import { Router } from 'express'
 import { withGeneration } from '../../mank-infra/middleware/generation'
 import { novelLimiter } from '../../mank-infra/middleware/rate-limit'
 import { authRequired } from '../../mank-infra/middleware/auth'
-import { llmRouteJson, llmRouteText } from './llmRoute'
+import { llmRouteJson, llmRouteText } from './llmRouteHelper'
 import { sanitizeAiTaste } from './aiTasteSanitizer'
 import type {
   SynopsisOptionsData, MasterOutlineData, CharacterRelationsData,

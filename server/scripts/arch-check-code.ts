@@ -120,7 +120,7 @@ const rules: ScanRule[] = [
     paths: ['src/routes'],
     ignorePaths: ['admin.ts', 'models.ts', 'support.ts'],
     adr: 'ADR-003',
-    explanation: '路由层直接调用 AI 供应商 API 可能绕过双审核。应通过 llmRoute 或 withGeneration 中间件。',
+    explanation: '路由层直接调用 AI 供应商 API 可能绕过双审核。应通过 llmRouteHelper 或 withGeneration 中间件。',
   },
 ]
 

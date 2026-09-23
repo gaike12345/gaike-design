@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, useCallback, createContext, useContext } from 'react'
+import { useEffect, useState, useCallback, createContext, useContext } from 'react'
 import { api } from '../services/api'
 
 export type ControlType = 'text' | 'textarea' | 'number' | 'slider' | 'color' | 'switch' | 'select'
@@ -41,7 +41,6 @@ type SiteDraftPayload = {
   /** 草稿过期时间（ms，默认 15 分钟），避免旧草稿持续影响 */
   expireAt: number
 }
-const DRAFT_TTL = 15 * 60 * 1000
 
 function isDraftEnabledByUrl(): boolean {
   if (typeof window === 'undefined') return false
@@ -64,20 +63,6 @@ function readDraftIfEnabled(): Record<string, any> | null {
   } catch {
     return null
   }
-}
-/** 把当前编辑态写入草稿（保存前预览专用）；传 null/undefined/空对象 等价于清除草稿 */
-export function writeSiteDraft(overrides: Record<string, any> | null | undefined) {
-  if (typeof window === 'undefined') return
-  if (!overrides || Object.keys(overrides).length === 0) {
-    window.sessionStorage.removeItem(DRAFT_KEY)
-    return
-  }
-  const payload: SiteDraftPayload = {
-    ts: Date.now(),
-    overrides,
-    expireAt: Date.now() + DRAFT_TTL,
-  }
-  window.sessionStorage.setItem(DRAFT_KEY, JSON.stringify(payload))
 }
 /** 清除草稿（用户主动取消、或真正保存成功后调用） */
 export function clearSiteDraft() {
@@ -185,11 +170,6 @@ export function useSiteThemeVars() {
   }
 }
 
-// ============ 超级管理员：保存单条配置 ============
-export async function putSiteConfig(group: string, key: string, value: unknown) {
-  const res = await api.put<{ ok: boolean; value: unknown }>(`/api/site/config/${group}/${key}`, { value })
-  return res
-}
 export async function putSiteBatch(items: { group: string; key: string; value: unknown }[]) {
   const res = await api.put<{ ok: boolean; updated: number }>('/api/site/batch', { items })
   return res

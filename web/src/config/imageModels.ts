@@ -3,14 +3,14 @@
  * ---------------------------------------------------------------
  *  - 首次加载前使用内置兜底模型（flux + turbo），保证首屏不闪烁
  *  - 调用 loadImageModels() 后从 /api/image/models 拉取最新配置
- *  - 所有同步 API（getImageModel / getModelRatios 等）优先使用已加载的动态数据
+ *  - 所有同步 API（getImageModel 等）优先使用已加载的动态数据
  *  - 组件可用 useImageModels() hook 获取响应式数据
  * ---------------------------------------------------------------
  */
 
 import { api } from '../services/api'
 import logger from '../utils/logger'
-import { useModelStore, type ModelStore } from '../hooks/useModelStore'
+import { useModelStore, type ModelStore } from '../hooks/useModelCatalogStore'
 
 export type ImageAspectRatio = '1:1'
 
@@ -179,16 +179,6 @@ export function getDefaultImageModel(): string {
   return currentDefault()
 }
 
-/** 获取模型的比例列表 */
-export function getModelRatios(modelId?: string | null): ImageRatioConfig[] {
-  return getImageModel(modelId).ratios
-}
-
-/** 获取模型的分辨率列表 */
-export function getModelResolutions(modelId?: string | null): ImageResolutionConfig[] {
-  return getImageModel(modelId).resolutions
-}
-
 /** 校验比例是否在模型支持范围内，否则返回默认比例 */
 export function validateRatio(modelId: string | undefined, ratioId: string): ImageAspectRatio {
   const model = getImageModel(modelId)
@@ -205,7 +195,7 @@ export function validateResolution(modelId: string | undefined, resId: string): 
 
 // ============== React Hook ==============
 
-// 图片模型存储适配器（供 useModelStore 泛型 hook 使用）
+// 图片模型存储适配器（供 useModelCatalogStore 泛型 hook 使用）
 const imageModelStore: ModelStore<ImageModelConfig> = {
   loader: loadImageModels,
   lister: listImageModels,

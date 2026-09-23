@@ -6,7 +6,7 @@
 
 import { api } from '../services/api'
 import logger from '../utils/logger'
-import { useModelStore, type ModelStore } from '../hooks/useModelStore'
+import { useModelStore, type ModelStore } from '../hooks/useModelCatalogStore'
 
 export interface VideoDurationConfig {
   id: string
@@ -405,12 +405,6 @@ export function getDefaultVideoModel(): string {
   return loadedDefault || DEFAULT_VIDEO_MODEL
 }
 
-export function getVideoModel(modelId?: string | null): VideoModelConfig {
-  const models = listVideoModels()
-  if (!modelId) return models[0]
-  return models.find(m => m.id === modelId) || models.find(m => m.name === modelId) || models[0]
-}
-
 export function hasLoadedVideoModels(): boolean {
   return loadAttempted
 }
@@ -444,7 +438,7 @@ export function estimateVideoCost(
 
 // ========== React Hook ==========
 
-// 视频模型存储适配器（供 useModelStore 泛型 hook 使用）
+// 视频模型存储适配器（供 useModelCatalogStore 泛型 hook 使用）
 const videoModelStore: ModelStore<VideoModelConfig> = {
   loader: loadVideoModels,
   lister: listVideoModels,

@@ -5,7 +5,7 @@ import {
   Wand2, Film, Image as ImageIcon, Music, Type, Layers,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useMemo, useRef, useState } from 'react'
 
 type DraggableNode = {
   id: string
@@ -252,10 +252,9 @@ function CanvasHeroDecor({ accent }: { accent: string }): ReactNode {
 }
 
 const CANVAS_WORKS: LandingWork[] = [
-  // 真实视频节点（悬浮播放视频，cover 为静止海报首帧，鼠标进入自动静音播放，离开复位）
+  // 作品精选（条目带 video 字段时悬浮自动播放；视频文件未随仓库部署，当前均回退封面展示）
   {
     cover: '/covers/canvas-1-fengming-jiutian.png',
-    video: '/videos/canvas-video-10-node.mp4',
     typeLabel: '古风权谋',
     title: '凤鸣九天 · 视频节点 10',
     author: '大唐影业 / 节点工作流',
@@ -264,7 +263,6 @@ const CANVAS_WORKS: LandingWork[] = [
   },
   {
     cover: '/covers/canvas-2-yuxue-zhanchang.png',
-    video: '/videos/canvas-video-15-node.mp4',
     typeLabel: '战争史诗',
     title: '浴血战场 · 视频节点 15',
     author: '铁血工房 / 节点工作流',
@@ -273,7 +271,6 @@ const CANVAS_WORKS: LandingWork[] = [
   },
   {
     cover: '/covers/canvas-3-jinxiu-weiyang.png',
-    video: '/videos/canvas-video-16-node.mp4',
     typeLabel: '古装宫斗',
     title: '锦绣未央 · 视频节点 16',
     author: '锦绣文化传媒 / 节点工作流',
@@ -282,7 +279,6 @@ const CANVAS_WORKS: LandingWork[] = [
   },
   {
     cover: '/covers/canvas-4-nishikong-zhilian.png',
-    video: '/videos/canvas-video-22-node.mp4',
     typeLabel: '奇幻穿越',
     title: '逆时空之恋 · 视频节点 22',
     author: '时光映像 / 节点工作流',

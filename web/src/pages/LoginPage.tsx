@@ -9,7 +9,7 @@ import { useState, useEffect, useRef } from 'react'
 import { X, QrCode, Lock } from 'lucide-react'
 import { useAuthStore } from '../store/useAuthStore'
 import logo from '../assets/logo.png'
-import { useSiteConfig, useSiteThemeVars } from '../hooks/useSiteConfig'
+import { useSiteThemeVars } from '../hooks/useSiteConfig'
 import LegalModal, { type LegalType } from '../components/LegalModal'
 import ContactAdminModal from '../components/ContactAdminModal'
 
@@ -18,7 +18,6 @@ type TabType = 'password' | 'wechat'
 export default function LoginModal() {
   const {
     login,
-    register,
     loading,
     error,
     clearError,
@@ -29,7 +28,6 @@ export default function LoginModal() {
     pollWechatStatus,
   } = useAuthStore()
   const { siteName, primaryColor } = useSiteThemeVars()
-  const { get } = useSiteConfig()
 
   // 当前 Tab
   const [tab, setTab] = useState<TabType>('password')
@@ -43,7 +41,7 @@ export default function LoginModal() {
 
   // 微信扫码
   const [qrCodeUrl, setQrCodeUrl] = useState('')
-  const [sceneId, setSceneId] = useState('')
+  const [_sceneId, setSceneId] = useState('')
   const [qrStatus, setQrStatus] = useState<'loading' | 'waiting' | 'scanned' | 'confirmed' | 'expired' | 'error'>('loading')
   const [qrErrorMsg, setQrErrorMsg] = useState('')
   const pollTimerRef = useRef<number | null>(null)
@@ -226,7 +224,7 @@ export default function LoginModal() {
               loop
               muted
               playsInline
-              preload="auto"
+              preload="metadata"
             />
           </div>
 

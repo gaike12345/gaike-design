@@ -10,7 +10,7 @@ import { create } from 'zustand'
 import { api, uploadFile } from '../services/api'
 import logger from '../utils/logger'
 import { downloadAndCache } from '../services/mediaCache'
-import { buildImageUrl, buildRetryUrl, generateViaBackend, img2imgViaBackend } from '../services/imageApi'
+import { buildRetryUrl, generateViaBackend, img2imgViaBackend } from '../services/imageApi'
 import { getImageModel, validateRatio, validateResolution } from '../config/imageModels'
 import { useQuotaStore } from './useQuotaStore'
 import {
@@ -34,10 +34,6 @@ import {
   UNODE_SIZE,
   UNODE_LABELS,
   GRID_SIZE,
-  IMAGE_MODELS,
-  VIDEO_MODELS,
-  VIDEO_RESOLUTIONS,
-  VIDEO_DURATIONS,
   AUDIO_VOICES,
   // 工具函数
   uid,
@@ -73,10 +69,6 @@ export {
   UNODE_SIZE,
   UNODE_LABELS,
   GRID_SIZE,
-  IMAGE_MODELS,
-  VIDEO_MODELS,
-  VIDEO_RESOLUTIONS,
-  VIDEO_DURATIONS,
   AUDIO_VOICES,
   snapToGrid,
   canConnect,
@@ -765,7 +757,6 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
       return
     }
 
-    const isImg2Video = !!imageUrl
     const model = node.data.videoModel || 'seedance-pro'
     const resolution = node.data.videoResolution
     const ratio = node.data.videoRatio

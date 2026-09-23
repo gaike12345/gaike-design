@@ -1,6 +1,6 @@
 // 泛型 React Hook:统一管理"从后端加载模型列表 + 兜底 + 缓存版本 + 跨组件事件刷新"的通用逻辑
 // 被 useVideoModels / useImageModels 复用,消除重复的 state + useEffect + 事件监听样板
-// 命名说明:不叫 useModels 是为了避开 ModelsTab.tsx 中已有的同名 hook(命名冲突会让 React Fast Refresh 失效)
+// 命名说明:文件名 useModelCatalogStore 用于区分 src/store/useModelStore.ts(Zustand 编辑器 store),避免跨模块同名导出混淆
 import { useState, useEffect, useCallback } from 'react'
 
 // 模型存储适配器：每个具体模型模块(videoModels / imageModels)实现此接口

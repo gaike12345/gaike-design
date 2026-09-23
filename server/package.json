@@ -16,6 +16,7 @@
     "prisma:studio": "prisma studio",
     "seed": "tsx prisma/seed.ts",
     "db:reset-pg": "prisma migrate reset --force && tsx prisma/seed.ts",
+    "sync": "tsx scripts/run-sync.ts",
     "arch:check": "tsx scripts/arch-check.ts",
     "arch:check:db": "tsx scripts/arch-check.ts db",
     "arch:check:code": "tsx scripts/arch-check.ts code",

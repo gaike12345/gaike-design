@@ -7,6 +7,7 @@ import { Zap, CreditCard, MessageCircle, X, Sparkles } from 'lucide-react'
 import { useQuotaStore } from '../../store/useQuotaStore'
 import { formatTokensCompact } from '../../services/cost'
 import ContactAdminModal from '../ContactAdminModal'
+import { SUPPORT_CHAT_OPEN_EVENT } from '../SupportWidget'
 
 interface QuotaDropdownProps {
   open: boolean
@@ -51,7 +52,7 @@ export default function QuotaDropdown({ open, onClose }: QuotaDropdownProps) {
       desc: '客服助手在线解答',
       onClick: () => {
         onClose()
-        // TODO: 打开客服助手
+        window.dispatchEvent(new CustomEvent(SUPPORT_CHAT_OPEN_EVENT))
       },
     },
   ]

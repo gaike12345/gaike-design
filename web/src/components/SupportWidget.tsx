@@ -1,4 +1,4 @@
-﻿// 全局客服助手悬浮组件 — AI 驱动的在线客服
+// 全局客服助手悬浮组件 — AI 驱动的在线客服
 //
 // 功能：
 // - 右下角浮动气泡按钮，点击展开聊天窗口
@@ -12,6 +12,10 @@ import { useLocation } from 'react-router-dom'
 import { MessageCircle, X, Send, Sparkles, ChevronRight } from 'lucide-react'
 import { api } from '../services/api'
 import DemoBadge from './ui/DemoBadge'
+
+// 工作区内部入口（如画布 QuotaDropdown「联系客服」）通过该事件唤起聊天窗：
+// 气泡在工作区不显示，但聊天窗可被事件打开
+export const SUPPORT_CHAT_OPEN_EVENT = 'support-chat:open'
 
 interface ChatMessage {
   role: 'user' | 'assistant'
@@ -31,8 +35,9 @@ const WELCOME: ChatMessage = {
 
 export default function SupportWidget() {
   // 客服助手显示规则：
-  // - 显示：首页(/)、三大创作预览页(/novel /audio /canvas)、社区(/community)、公开信息页(pricing/about/login/register)
-  // - 不显示：所有真正的功能工作区（任何 /workspace/*、/admin、/settings 里的「内部功能区域」）
+  // - 气泡：首页(/)、三大创作预览页(/novel /audio /canvas)、社区(/community)、公开信息页(pricing/about/login/register)
+  // - 不显示气泡：所有真正的功能工作区（任何 /workspace/*、/admin、/settings 里的「内部功能区域」）
+  // - 聊天窗：不受气泡规则限制，可通过 SUPPORT_CHAT_OPEN_EVENT 从工作区内唤起
   const { pathname } = useLocation()
   const isWorkspaceInternal =
     pathname.startsWith('/workspace') ||
@@ -55,6 +60,13 @@ export default function SupportWidget() {
       .get<{ faqs: FaqItem[] }>('/api/support/faq')
       .then((res) => setFaqs(res?.faqs || []))
       .catch(() => {})
+  }, [])
+
+  // 监听工作区入口的打开请求
+  useEffect(() => {
+    const handler = () => setOpen(true)
+    window.addEventListener(SUPPORT_CHAT_OPEN_EVENT, handler)
+    return () => window.removeEventListener(SUPPORT_CHAT_OPEN_EVENT, handler)
   }, [])
 
   // 自动滚到底部
@@ -103,12 +115,10 @@ export default function SupportWidget() {
     ])
   }
 
-  if (!showWidget) return null
-
   return (
     <>
-      {/* 悬浮按钮 */}
-      {!open && (
+      {/* 悬浮按钮（仅非工作区页面显示） */}
+      {showWidget && !open && (
         <button
           onClick={() => setOpen(true)}
           className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/30 transition-all hover:scale-110 hover:shadow-xl"

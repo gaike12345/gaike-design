@@ -87,7 +87,7 @@ Top 5 重灾区文件：
 
 | 文件 | any 数量 | 典型场景 |
 |------|----------|----------|
-| `mank-core/llm/llmRoute.ts` | 6 处 | 泛型函数参数、fallback 回调 |
+| `mank-core/llm/llmRouteHelper.ts` | 6 处 | 泛型函数参数、fallback 回调 |
 | `mank-core/models/models.route.ts` | 5 处 | Prisma 更新数据对象 |
 | `mank-core/admin/adminContent.service.ts` | 5 处 | 查询条件 where 对象 |
 | `mank-infra/logging/logger.ts` | 4 处 | 日志值脱敏的递归处理 |
@@ -369,7 +369,7 @@ mank-infra/     # 基础设施：数据库、缓存、中间件、日志、队�
 
 ### 8.3 模块边界模糊
 
-- `mank-core/llm/` 下同时有 `llm.route.ts` 和 `llmRoute.ts`，命名容易混淆
+- ~~`mank-core/llm/` 下同时有 `llm.route.ts` 和 `llmRoute.ts`，命名容易混淆~~（已解决：helper 已更名为 `llmRouteHelper.ts`）
 - `mank-core/image/` 和 `mank-core/video/` 都有 `providers/` 子目录，模式一致但未抽象公共接口
 - 部分业务逻辑直接写在 route 文件中（如 `models.route.ts` 500+ 行），缺少 service 层抽象
 
