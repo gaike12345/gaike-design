@@ -371,7 +371,7 @@ export const pollinationsVideoProvider: VideoProvider = {
 
     // 检测 endImage / referenceImages 是否为本地 /uploads/ 图片
     const localEndPath = endImage ? getLocalUploadPath(endImage) : null
-    const localRefPaths = referenceImages?.map(getLocalUploadPath).filter(Boolean) as string[]
+    const localRefPaths = (referenceImages ?? []).map(getLocalUploadPath).filter(Boolean) as string[]
     const hasLocalImage = !!(localEndPath || localRefPaths.length > 0)
 
     if (hasLocalImage) {
@@ -426,7 +426,7 @@ export const pollinationsVideoProvider: VideoProvider = {
     // 检测首帧是否为本地 /uploads/ 图片
     const localStartPath = getLocalUploadPath(image)
     const localEndPath = endImage ? getLocalUploadPath(endImage) : null
-    const localRefPaths = referenceImages?.map(getLocalUploadPath).filter(Boolean) as string[]
+    const localRefPaths = (referenceImages ?? []).map(getLocalUploadPath).filter(Boolean) as string[]
 
     const hasLocalImage = !!(localStartPath || localEndPath || localRefPaths.length > 0)
 
