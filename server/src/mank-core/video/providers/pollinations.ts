@@ -12,6 +12,7 @@
 import type { VideoProvider, VideoGenerateParams, VideoResult } from './types'
 import logger from '../../../mank-infra/logging/logger'
 import { BusinessError } from '../../../mank-common/errors'
+import { getVideoModel } from '../videoModels'
 
 const POLLINATIONS_BASE = 'https://gen.pollinations.ai'
 const API_KEY = process.env.POLLINATIONS_API_KEY || ''
@@ -71,84 +72,79 @@ const MODELS_WITHOUT_RESOLUTION = new Set([
   'amazon/nova-reel-v1',         // 固定 720p
 ])
 
-/**
- * 支持 reference_images / reference_videos / reference_audios 的模型
- * 来源：video_capabilities 字段包含 reference_images 的模型
- */
-const MODELS_SUPPORTING_REFERENCE_IMAGES = new Set([
-  'bytedance/seedance-2.0',
-  'bytedance/seedance-2.5',
-  'alibaba/wan-2.7',
-  'alibaba/wan-3.0',
-])
-
-/**
- * 支持 reference_videos 的模型
- * 来源：video_capabilities 字段包含 reference_videos 的模型
- */
-const MODELS_SUPPORTING_REFERENCE_VIDEOS = new Set([
-  'bytedance/seedance-2.0',
-  'bytedance/seedance-2.5',
-  'alibaba/wan-2.7',
-  'alibaba/wan-3.0',
-])
-
-/**
- * 支持 reference_audios 的模型
- * 来源：video_capabilities 字段包含 reference_audios 的模型
- */
-const MODELS_SUPPORTING_REFERENCE_AUDIOS = new Set([
-  'bytedance/seedance-2.0',
-  'bytedance/seedance-2.5',
-  'alibaba/wan-3.0',
-])
-
 /** 将旧模型名映射为 Pollinations 新格式 */
 function resolveModelName(model: string): string {
   return MODEL_NAME_MAP[model] || model
 }
 
 /**
+ * 从数据库模型配置中读取能力字段（supportsReferenceImages / supportsEndFrame 等）
+ * 修复缺陷1+5：不再使用硬编码 Set，改为动态读取数据库配置
+ */
+async function getModelCapabilities(model: string) {
+  const modelConfig = await getVideoModel(model)
+  const config = modelConfig?.config
+  return {
+    supportsReferenceImages: config?.supportsReferenceImages ?? false,
+    supportsReferenceVideos: config?.supportsReferenceVideos ?? false,
+    supportsEndFrame: config?.supportsEndFrame ?? false,
+  }
+}
+
+/**
  * 构造视频生成 URL
  * 注意：URL 中包含 API Key，不应直接暴露给不可信客户端
+ * 修复缺陷1+5：从数据库动态读取模型能力，不再使用硬编码 Set
+ * 修复缺陷3：endImage 只在有 image（首帧）时拼接，避免尾帧被当作首帧
+ * 修复缺陷4：检查模型是否支持 end_frame，不支持时抛出 BusinessError
  */
-function buildVideoUrl(params: VideoGenerateParams): string {
+async function buildVideoUrl(params: VideoGenerateParams): Promise<string> {
   const { prompt, model, duration, resolution, aspectRatio, seed, audio, image, endImage, referenceImages, referenceVideo } = params
 
   const resolvedModel = resolveModelName(model)
+  const caps = await getModelCapabilities(model)
   const searchParams = new URLSearchParams()
   searchParams.set('model', resolvedModel)
   searchParams.set('duration', String(duration))
 
   // 注意：部分模型无显式 resolutions 字段，不支持 resolution 参数
-  // 来源：https://gen.pollinations.ai/image/models (resolutions 字段为空的模型)
   if (resolution && !MODELS_WITHOUT_RESOLUTION.has(resolvedModel)) {
     searchParams.set('resolution', resolution)
   }
   if (aspectRatio) searchParams.set('aspectRatio', aspectRatio)
-  // 未传 seed 时自动生成随机 seed，确保每次生成结果不同
   const finalSeed = seed !== undefined ? seed : Math.floor(Math.random() * 2147483647)
   searchParams.set('seed', String(finalSeed))
   if (audio) searchParams.set('audio', 'true')
   if (image) searchParams.set('image', image)
+
+  // 修复缺陷3+4：尾帧处理
   if (endImage) {
+    if (!caps.supportsEndFrame) {
+      // 修复缺陷4：模型不支持首尾帧时抛出友好错误
+      throw new BusinessError(`模型 ${model} 不支持尾帧，请切换到支持首尾帧的模型（如 Seedance 2.0/2.5、Wan 2.7 Pro）`)
+    }
+    if (!image) {
+      // 修复缺陷3：没有首帧时不能拼接尾帧，否则尾帧会被当作首帧
+      throw new BusinessError('首尾帧模式需要同时上传首帧和尾帧图片，请先上传首帧图')
+    }
     // 尾帧：Pollinations 用 image 数组，首帧+尾帧用 | 分隔
-    const existing = searchParams.get('image') || ''
-    searchParams.set('image', existing ? `${existing}|${endImage}` : endImage)
+    searchParams.set('image', `${image}|${endImage}`)
   }
+
+  // 修复缺陷1+5：从数据库动态读取 supportsReferenceImages
   if (referenceImages && referenceImages.length > 0) {
-    if (MODELS_SUPPORTING_REFERENCE_IMAGES.has(resolvedModel)) {
+    if (caps.supportsReferenceImages) {
       searchParams.set('reference_images', referenceImages.join('|'))
     } else {
-      // 模型不支持 reference_images → 降级：自动跳过，不阻止主流程（imageUrl 首帧图仍正常传）
-      logger.warn(`[Pollinations Video] 模型 ${resolvedModel} 不支持 reference_images，自动降级为仅首帧图`)
+      // 修复缺陷2：模型不支持参考图时抛出友好错误（不再静默降级）
+      throw new BusinessError(`模型 ${model} 不支持参考图，请切换到支持多参考的模型（如 Seedance 2.0/2.5、Wan 2.7/3.0）`)
     }
   }
   if (referenceVideo) {
-    if (MODELS_SUPPORTING_REFERENCE_VIDEOS.has(resolvedModel)) {
+    if (caps.supportsReferenceVideos) {
       searchParams.set('reference_videos', referenceVideo)
     } else {
-      logger.warn(`[Pollinations Video] 模型 ${resolvedModel} 不支持 reference_videos，自动跳过`)
+      throw new BusinessError(`模型 ${model} 不支持参考视频，请切换到支持参考视频的模型`)
     }
   }
 
@@ -250,7 +246,7 @@ export const pollinationsVideoProvider: VideoProvider = {
 
   async textToVideo(params: VideoGenerateParams): Promise<VideoResult> {
     const { prompt, model, duration, resolution, audio } = params
-    const url = buildVideoUrl(params)
+    const url = await buildVideoUrl(params)
 
     logger.debug(`[Pollinations Video] textToVideo model=${model} duration=${duration}s resolution=${resolution || 'default'}`)
 
@@ -269,7 +265,7 @@ export const pollinationsVideoProvider: VideoProvider = {
 
   async imageToVideo(params: VideoGenerateParams & { image: string }): Promise<VideoResult> {
     const { model, duration, resolution, audio, image } = params
-    const url = buildVideoUrl(params)
+    const url = await buildVideoUrl(params)
 
     logger.debug(`[Pollinations Video] imageToVideo model=${model} duration=${duration}s image=${image.slice(0, 60)}...`)
 

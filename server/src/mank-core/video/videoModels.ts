@@ -48,6 +48,7 @@ export interface VideoModelConfig {
     supportsImg2Video: boolean
     supportsAudio: boolean
     supportsReferenceImages: boolean
+    supportsReferenceVideos: boolean
     supportsEndFrame: boolean
     baseCostPerSecond: number
   } | null
@@ -86,6 +87,7 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       supportsImg2Video: true,
       supportsAudio: false,
       supportsReferenceImages: false,
+      supportsReferenceVideos: false,
       supportsEndFrame: false,
       baseCostPerSecond: 50,
     },
@@ -114,6 +116,7 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       supportsImg2Video: true,
       supportsAudio: true,
       supportsReferenceImages: true,
+      supportsReferenceVideos: true,
       supportsEndFrame: true,
       baseCostPerSecond: 360,
     },
@@ -140,6 +143,7 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       supportsImg2Video: true,
       supportsAudio: true,
       supportsReferenceImages: true,
+      supportsReferenceVideos: true,
       supportsEndFrame: true,
       baseCostPerSecond: 206,
     },
@@ -170,6 +174,7 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       supportsImg2Video: true,
       supportsAudio: true,
       supportsReferenceImages: false,
+      supportsReferenceVideos: false,
       supportsEndFrame: true,
       baseCostPerSecond: 180,
     },
@@ -196,6 +201,7 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       supportsImg2Video: true,
       supportsAudio: true,
       supportsReferenceImages: false,
+      supportsReferenceVideos: false,
       supportsEndFrame: true,
       baseCostPerSecond: 140,
     },
@@ -220,6 +226,7 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       supportsImg2Video: true,
       supportsAudio: false,
       supportsReferenceImages: false,
+      supportsReferenceVideos: false,
       supportsEndFrame: true,
       baseCostPerSecond: 20,
     },
@@ -250,6 +257,7 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       supportsImg2Video: true,
       supportsAudio: true,
       supportsReferenceImages: true,
+      supportsReferenceVideos: true,
       supportsEndFrame: true,
       baseCostPerSecond: 200,
     },
@@ -277,6 +285,7 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       supportsImg2Video: true,
       supportsAudio: true,
       supportsReferenceImages: true,
+      supportsReferenceVideos: true,
       supportsEndFrame: true,
       baseCostPerSecond: 136,
     },
@@ -306,6 +315,7 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       supportsImg2Video: true,
       supportsAudio: false,
       supportsReferenceImages: false,
+      supportsReferenceVideos: false,
       supportsEndFrame: false,
       baseCostPerSecond: 40,
     },
@@ -336,6 +346,7 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       supportsImg2Video: true,
       supportsAudio: true,
       supportsReferenceImages: false,
+      supportsReferenceVideos: false,
       supportsEndFrame: true,
       baseCostPerSecond: 160,
     },
@@ -363,6 +374,7 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       supportsImg2Video: false,
       supportsAudio: true,
       supportsReferenceImages: false,
+      supportsReferenceVideos: false,
       supportsEndFrame: false,
       baseCostPerSecond: 100,
     },
@@ -392,6 +404,7 @@ const FALLBACK_MODELS: VideoModelConfig[] = [
       supportsImg2Video: true,
       supportsAudio: false,
       supportsReferenceImages: false,
+      supportsReferenceVideos: false,
       supportsEndFrame: false,
       baseCostPerSecond: 16,
     },

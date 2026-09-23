@@ -773,6 +773,10 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     const endImage = node.data.videoEndImage
     const referenceImages = node.data.videoReferenceImages
     const referenceVideo = node.data.videoReferenceVideo
+    const refMode = (node.data.videoRefMode ?? 'omni') as string
+
+    // 首尾帧模式：首帧图从 videoReferenceImages[0] 读取
+    const endframeStartImage = refMode === 'endframe' ? (referenceImages?.[0] ?? '') : ''
 
     // duration id (5s / 10s) → 秒数
     const durId = node.data.videoDuration || '5s'
@@ -782,25 +786,33 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
     pollRegistry.stop(nodeId)
 
     try {
-      const endpoint = isImg2Video ? '/api/video/img2video' : '/api/video/text2video'
+      // 首尾帧模式：首帧图作为 imageUrl 走 img2video，不传 referenceImages
+      const effectiveImageUrl = refMode === 'endframe' ? (endframeStartImage || imageUrl) : imageUrl
+      const effectiveIsImg2Video = !!effectiveImageUrl
+      const endpoint = effectiveIsImg2Video ? '/api/video/img2video' : '/api/video/text2video'
       const extraParams: Record<string, unknown> = {}
       if (endImage) extraParams.endImage = endImage
-      // 合并：用户手动设置的参考图 + 从连接节点自动收集的参考图
-      const mergedRefImages = [
-        ...(node.data.videoReferenceImages ?? []),
-        ...(collectedRefImages ?? []),
-      ]
-      if (mergedRefImages.length > 0) extraParams.referenceImages = mergedRefImages
+
+      if (refMode === 'endframe') {
+        // 首尾帧模式不传 referenceImages（首帧已作为 imageUrl）
+      } else {
+        // 全能参考/图生视频：合并用户手动参考图 + 连接节点自动收集的参考图
+        const mergedRefImages = [
+          ...(node.data.videoReferenceImages ?? []),
+          ...(collectedRefImages ?? []),
+        ]
+        if (mergedRefImages.length > 0) extraParams.referenceImages = mergedRefImages
+      }
       if (referenceVideo) extraParams.referenceVideo = referenceVideo
 
-      const body = isImg2Video
-        ? { imageUrl, prompt, model, duration, resolution, ratio, audio, ...extraParams }
+      const body = effectiveIsImg2Video
+        ? { imageUrl: effectiveImageUrl, prompt, model, duration, resolution, ratio, audio, ...extraParams }
         : { prompt, model, duration, resolution, ratio, audio, ...extraParams }
       const res = await api.post<{ taskId: string; status: string; placeholder?: boolean }>(endpoint, body)
 
       const result: VideoResult = {
         taskId: res.taskId, status: 'queued', prompt,
-        type: isImg2Video ? 'img2video' : 'text2video',
+        type: effectiveIsImg2Video ? 'img2video' : 'text2video',
         placeholder: res.placeholder, createdAt: Date.now(),
       }
       get().updateNodeData(nodeId, { videoStatus: 'queued', videoTaskId: res.taskId, videoResult: result })

@@ -1584,6 +1584,7 @@ function VideoRefUpload({ node, update }: {
   node: UCanvasNode
   update: (id: string, data: Partial<typeof node.data>) => void
 }) {
+  const [uploadingStart, setUploadingStart] = useState(false)
   const [uploadingEnd, setUploadingEnd] = useState(false)
   const [uploadingRef, setUploadingRef] = useState(false)
   const [uploadingVideo, setUploadingVideo] = useState(false)
@@ -1592,6 +1593,24 @@ function VideoRefUpload({ node, update }: {
   const endImage = node.data.videoEndImage
   const refImages = node.data.videoReferenceImages ?? []
   const refVideo = node.data.videoReferenceVideo
+  const refMode = (node.data.videoRefMode ?? 'omni') as string
+
+  // 首尾帧模式：首帧图存储在 videoReferenceImages[0]（单独使用，不与多参考图混用）
+  const startImage = refMode === 'endframe' ? (refImages[0] ?? '') : ''
+  const isEndFrameMode = refMode === 'endframe'
+
+  const handleUploadStartImage = async (file: File) => {
+    setUploadingStart(true)
+    try {
+      const res = await uploadFile('/api/upload/image', file)
+      // 首尾帧模式：首帧图放在 referenceImages[0]
+      update(node.id, { videoReferenceImages: [res.url] })
+    } catch (e) {
+      logger.error('VideoRefUpload', '首帧上传失败', e)
+    } finally {
+      setUploadingStart(false)
+    }
+  }
 
   const handleUploadEndImage = async (file: File) => {
     setUploadingEnd(true)
@@ -1631,6 +1650,7 @@ function VideoRefUpload({ node, update }: {
     }
   }
 
+  const removeStartImage = () => update(node.id, { videoReferenceImages: [] })
   const removeEndImage = () => update(node.id, { videoEndImage: undefined })
   const removeRefImage = (idx: number) => {
     const next = refImages.filter((_, i) => i !== idx)
@@ -1648,36 +1668,93 @@ function VideoRefUpload({ node, update }: {
 
   return (
     <div className="flex flex-col gap-3 h-full min-h-[120px]">
-      {/* 尾帧图 */}
-      <div>
-        <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-[11px] font-medium text-neutral-400">尾帧图</span>
-          {endImage && (
-            <button onClick={removeEndImage} className="text-[10px] text-neutral-600 hover:text-red-400">移除</button>
-          )}
-        </div>
-        {endImage ? (
-          <div className="relative h-16 w-28 overflow-hidden rounded-md border border-[#2a2a2a]">
-            <img src={endImage} alt="尾帧" className="h-full w-full object-cover" />
+      {/* ===== 首尾帧模式：首帧 + 尾帧 两个独立上传控件 ===== */}
+      {isEndFrameMode ? (
+        <>
+          {/* 首帧图 */}
+          <div>
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-[11px] font-medium text-amber-300">首帧图</span>
+              {startImage && (
+                <button onClick={removeStartImage} className="text-[10px] text-neutral-600 hover:text-red-400">移除</button>
+              )}
+            </div>
+            {startImage ? (
+              <div className="relative h-16 w-full overflow-hidden rounded-md border border-amber-500/30">
+                <img src={startImage} alt="首帧" className="h-full w-full object-cover" />
+              </div>
+            ) : (
+              <label className="flex h-16 w-full cursor-pointer items-center justify-center rounded-md border border-dashed border-amber-500/40 text-[11px] text-amber-400/70 hover:border-amber-500/60 hover:text-amber-300 transition-colors">
+                {uploadingStart ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Upload className="mr-1.5 h-3.5 w-3.5" />上传首帧</>}
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                  const f = e.target.files?.[0]; if (f) void handleUploadStartImage(f); e.target.value = ''
+                }} />
+              </label>
+            )}
           </div>
-        ) : (
-          <label className="flex h-16 w-full cursor-pointer items-center justify-center rounded-md border border-dashed border-[#2a2a2a] text-[11px] text-neutral-600 hover:border-amber-500/40 hover:text-neutral-400 transition-colors">
-            {uploadingEnd ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Upload className="mr-1.5 h-3.5 w-3.5" />上传尾帧</>}
-            <input type="file" accept="image/*" className="hidden" onChange={(e) => {
-              const f = e.target.files?.[0]; if (f) void handleUploadEndImage(f); e.target.value = ''
-            }} />
-          </label>
-        )}
-      </div>
 
-      {/* 多参考图 */}
-      <div>
-        <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-[11px] font-medium text-neutral-400">参考图（多张）</span>
-          {refImages.length > 0 && (
-            <span className="text-[10px] text-neutral-600">{refImages.length} 张</span>
-          )}
-        </div>
+          {/* 尾帧图 */}
+          <div>
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-[11px] font-medium text-amber-300">尾帧图</span>
+              {endImage && (
+                <button onClick={removeEndImage} className="text-[10px] text-neutral-600 hover:text-red-400">移除</button>
+              )}
+            </div>
+            {endImage ? (
+              <div className="relative h-16 w-full overflow-hidden rounded-md border border-amber-500/30">
+                <img src={endImage} alt="尾帧" className="h-full w-full object-cover" />
+              </div>
+            ) : (
+              <label className="flex h-16 w-full cursor-pointer items-center justify-center rounded-md border border-dashed border-amber-500/40 text-[11px] text-amber-400/70 hover:border-amber-500/60 hover:text-amber-300 transition-colors">
+                {uploadingEnd ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Upload className="mr-1.5 h-3.5 w-3.5" />上传尾帧</>}
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                  const f = e.target.files?.[0]; if (f) void handleUploadEndImage(f); e.target.value = ''
+                }} />
+              </label>
+            )}
+          </div>
+
+          {/* 提示 */}
+          {!startImage || !endImage ? (
+            <div className="rounded-md border border-amber-500/20 bg-amber-500/5 px-2 py-1.5 text-[10px] text-amber-300/70">
+              首尾帧模式需同时上传首帧和尾帧图片
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <>
+          {/* ===== 全能参考模式：尾帧 + 多参考图 + 参考视频 ===== */}
+          {/* 尾帧图 */}
+          <div>
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-[11px] font-medium text-neutral-400">尾帧图</span>
+              {endImage && (
+                <button onClick={removeEndImage} className="text-[10px] text-neutral-600 hover:text-red-400">移除</button>
+              )}
+            </div>
+            {endImage ? (
+              <div className="relative h-16 w-28 overflow-hidden rounded-md border border-[#2a2a2a]">
+                <img src={endImage} alt="尾帧" className="h-full w-full object-cover" />
+              </div>
+            ) : (
+              <label className="flex h-16 w-full cursor-pointer items-center justify-center rounded-md border border-dashed border-[#2a2a2a] text-[11px] text-neutral-600 hover:border-amber-500/40 hover:text-neutral-400 transition-colors">
+                {uploadingEnd ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Upload className="mr-1.5 h-3.5 w-3.5" />上传尾帧</>}
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                  const f = e.target.files?.[0]; if (f) void handleUploadEndImage(f); e.target.value = ''
+                }} />
+              </label>
+            )}
+          </div>
+
+          {/* 多参考图 */}
+          <div>
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-[11px] font-medium text-neutral-400">参考图（多张）</span>
+              {refImages.length > 0 && (
+                <span className="text-[10px] text-neutral-600">{refImages.length} 张</span>
+              )}
+            </div>
         <div className="flex flex-wrap gap-1.5">
           {refImages.map((url, idx) => (
             <div key={idx} className="group relative h-14 w-14 overflow-hidden rounded-md border border-[#2a2a2a]">
@@ -1737,6 +1814,8 @@ function VideoRefUpload({ node, update }: {
           </div>
         )}
       </div>
+        </>
+      )}
     </div>
   )
 }
