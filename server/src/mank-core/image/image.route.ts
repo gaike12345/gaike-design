@@ -175,6 +175,8 @@ router.get('/proxy', async (req, res) => {
     if (!upstream.ok) {
       const errBody = await upstream.text().catch(() => '')
       logger.warn(`[ImageProxy] upstream ${upstream.status} for ${originalUrl.substring(0, 200)}`, { hasApiKey, urlLength: originalUrl.length, errBody: errBody.slice(0, 300) })
+      // B5 修复：上游拉取失败返回占位图时退还预扣积分（与审核拦截分支同语义，refundByTxId 幂等）
+      refundProxy('上游图片拉取失败，占位图已退还积分')
       // 上游 400/404/500 等错误：返回 1x1 透明占位图，避免浏览器报错和反复重试
       res.setHeader('Content-Type', 'image/gif')
       res.setHeader('Cache-Control', 'no-store')

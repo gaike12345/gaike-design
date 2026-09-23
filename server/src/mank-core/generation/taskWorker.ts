@@ -226,12 +226,22 @@ async function processTask(task: TaskInfo): Promise<void> {
     // catch 块可以正确走 refundTokens 退还路径。
     const tokensCost = (task.payload as any)?._tokensCost || 0
     if (tokensCost > 0) {
-      await settleTokens({
-        userId: task.userId,
-        relatedId: task.id,
-        relatedType: 'task',
-        actualAmount: tokensCost,
-      })
+      // B5 修复：上游失败产生的占位结果不向用户收费，退还预扣积分
+      if ((result as any)?.placeholder === true) {
+        await refundTokens({
+          userId: task.userId,
+          relatedId: task.id,
+          relatedType: 'task',
+          reason: '上游生成失败，占位结果已退还积分',
+        })
+      } else {
+        await settleTokens({
+          userId: task.userId,
+          relatedId: task.id,
+          relatedType: 'task',
+          actualAmount: tokensCost,
+        })
+      }
     }
 
     // 标记完成（积分结算成功后再标记）
