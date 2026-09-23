@@ -11,6 +11,7 @@
 
 import fs from 'fs'
 import path from 'path'
+import sharp from 'sharp'
 import type { VideoProvider, VideoGenerateParams, VideoResult } from './types'
 import logger from '../../../mank-infra/logging/logger'
 import { BusinessError } from '../../../mank-common/errors'
@@ -32,16 +33,26 @@ function getLocalUploadPath(url: string): string | null {
 
 /**
  * 读取本地图片并转为 base64 data URI
- * 用于 Pollinations Chat Completions API（支持 data URI 作为图片输入）
+ * 使用 sharp 压缩：最大边 1920px，JPEG quality 80，避免 data URI 过大
+ * （原始图片可能 30MB+，base64 后 40MB+ 超出 API 请求体限制）
  */
-function readLocalImageAsDataUri(localPath: string): string | null {
+async function readLocalImageAsDataUri(localPath: string): Promise<string | null> {
   try {
     const filePath = path.join(process.cwd(), localPath)
     if (!fs.existsSync(filePath)) return null
     const buf = fs.readFileSync(filePath)
-    const ext = path.extname(filePath).toLowerCase()
-    const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg'
-    return `data:${mime};base64,${buf.toString('base64')}`
+
+    // 用 sharp 压缩：限制最大边 1920px，JPEG quality 80
+    const compressed = await sharp(buf)
+      .resize({ width: 1920, height: 1920, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 80, mozjpeg: true })
+      .toBuffer()
+
+    const originalKB = Math.round(buf.length / 1024)
+    const compressedKB = Math.round(compressed.length / 1024)
+    logger.info('[Pollinations Video] 图片压缩完成', { localPath, originalKB, compressedKB })
+
+    return `data:image/jpeg;base64,${compressed.toString('base64')}`
   } catch (e) {
     logger.warn('[Pollinations Video] 读取本地图片失败', { localPath, error: (e as Error).message })
     return null
@@ -382,8 +393,8 @@ export const pollinationsVideoProvider: VideoProvider = {
 
     if (hasLocalImage) {
       // 本地图片：用 Chat Completions API + base64 data URI
-      const endDataUri = localEndPath ? readLocalImageAsDataUri(localEndPath) || undefined : undefined
-      const refDataUris = localRefPaths.map(p => readLocalImageAsDataUri(p)).filter(Boolean) as string[]
+      const endDataUri = localEndPath ? (await readLocalImageAsDataUri(localEndPath)) || undefined : undefined
+      const refDataUris = (await Promise.all(localRefPaths.map(p => readLocalImageAsDataUri(p)))).filter(Boolean) as string[]
 
       logger.info('[Pollinations Video] textToVideo 使用 Chat Completions API（含本地参考图）', {
         model: resolvedModel,
@@ -439,9 +450,9 @@ export const pollinationsVideoProvider: VideoProvider = {
     if (hasLocalImage) {
       // 本地图片：用 Chat Completions API + base64 data URI
       // Pollinations GET /video 端点需要公网 URL，后端无法回连国内服务器下载图片
-      const startDataUri = localStartPath ? readLocalImageAsDataUri(localStartPath) : null
-      const endDataUri = localEndPath ? readLocalImageAsDataUri(localEndPath) || undefined : undefined
-      const refDataUris = localRefPaths.map(p => readLocalImageAsDataUri(p)).filter(Boolean) as string[]
+      const startDataUri = localStartPath ? await readLocalImageAsDataUri(localStartPath) : null
+      const endDataUri = localEndPath ? (await readLocalImageAsDataUri(localEndPath)) || undefined : undefined
+      const refDataUris = (await Promise.all(localRefPaths.map(p => readLocalImageAsDataUri(p)))).filter(Boolean) as string[]
 
       if (!startDataUri) {
         throw new BusinessError('首帧图片读取失败，请重新上传后重试')
