@@ -44,7 +44,7 @@ export class ErrorBoundary extends Component<Props, State> {
       logger.error('ErrorBoundary', '组件渲染出错:', error)
       logger.error('ErrorBoundary', '组件栈:', info.componentStack)
     }
-    this.setState({ componentStack: info.componentStack })
+    this.setState({ componentStack: info.componentStack ?? undefined })
     this.props.onError?.(error, info)
   }
 

@@ -828,7 +828,8 @@ export const useUnifiedCanvasStore = create<UnifiedCanvasState>((set, get) => ({
             placeholder: res.placeholder, createdAt: Date.now(),
           }
           get().updateNodeData(nodeId, { videoStatus: 'queued', videoTaskId: res.taskId, videoResult: result })
-          pollRegistry.start(nodeId)
+          pollRegistry.start(nodeId, () => { void get().pollVideoTask(nodeId) }, 3000)
+          void get().pollVideoTask(nodeId)
           return
         } catch (e: unknown) {
           const msg = (e as Error).message

@@ -11,7 +11,7 @@ import { useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
 
 // /login /register 路由触发器：打开登录弹窗 + 回首页
-function LoginTrigger({ mode = 'login' }: { mode?: 'login' }) {
+function LoginTrigger({ mode = 'login' }: { mode?: 'login' | 'register' }) {
   const openLoginModal = useAuthStore((s) => s.openLoginModal)
   const navigate = useNavigate()
   useEffect(() => {
