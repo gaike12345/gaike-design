@@ -3,12 +3,16 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "ratchet": {
+    "tscMaxErrors": 42
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc -b",
+    "typecheck:check": "node scripts/ratchet-tsc.mjs",
     "lint": "oxlint",
-    "lint:check": "oxlint --max-warnings=257",
+    "lint:check": "oxlint --max-warnings=250",
     "lint:ratchet": "node scripts/ratchet-oxlint.mjs",
     "preview": "vite preview"
   },
