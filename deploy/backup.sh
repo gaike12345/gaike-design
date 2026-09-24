@@ -23,12 +23,7 @@ echo -e "${GREEN}开始备份: $(date)${NC}"
 mkdir -p $BACKUP_DIR
 
 # ============== 判断部署方式 ==============
-if command -v docker &> /dev/null && docker compose ps postgres &> /dev/null; then
-  # Docker + PostgreSQL
-  echo "  备份 PostgreSQL 数据库..."
-  docker compose exec -T postgres pg_dump -U manktv manktv | gzip > $BACKUP_DIR/db_$DATE.sql.gz
-
-elif [ -f server/prisma/data/prod.db ] || [ -f server/prisma/dev.db ]; then
+if [ -f server/prisma/data/prod.db ] || [ -f server/prisma/dev.db ]; then
   # SQLite
   echo "  备份 SQLite 数据库..."
   if [ -f server/prisma/data/prod.db ]; then
@@ -36,6 +31,11 @@ elif [ -f server/prisma/data/prod.db ] || [ -f server/prisma/dev.db ]; then
   else
     gzip -c server/prisma/dev.db > $BACKUP_DIR/db_$DATE.sqlite.gz
   fi
+
+elif command -v docker &> /dev/null && docker compose ps postgres &> /dev/null; then
+  # Docker + PostgreSQL
+  echo "  备份 PostgreSQL 数据库..."
+  docker compose exec -T postgres pg_dump -U manktv manktv | gzip > $BACKUP_DIR/db_$DATE.sql.gz
 
 elif command -v psql &> /dev/null; then
   # 原生 PostgreSQL
