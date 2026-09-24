@@ -3,7 +3,8 @@ import { Router } from 'express'
 import { withGeneration } from '../../mank-infra/middleware/generation'
 import { novelLimiter } from '../../mank-infra/middleware/rate-limit'
 import { authRequired } from '../../mank-infra/middleware/auth'
-import { llmRouteJson, llmRouteText } from './llmRouteHelper'
+import { llmRouteJson, llmRouteText, llmRouteAgentJson } from './llmRouteHelper'
+import { canvasAgentGuard } from './canvasAgent'
 import { sanitizeAiTaste } from './aiTasteSanitizer'
 import type {
   SynopsisOptionsData, MasterOutlineData, CharacterRelationsData,
@@ -573,6 +574,60 @@ router.post('/smart-chat', withGeneration('novel', 200), (req, _res, next) => {
     }
   },
 ))
+
+// 11.1 POST /canvas-agent — 画布智能助手（LLM 只输出命令建议，用户确认后由前端执行；绝不执行任何操作）
+// 注意中间件顺序：guard 在 withGeneration 之前 —— 开关关闭时直接 403，不产生预扣积分/退款副作用
+/**
+ * @openapi
+ * /llm/canvas-agent:
+ *   post:
+ *     tags: [文本生成]
+ *     summary: 画布智能助手（命令建议）
+ *     description: 解析用户自然语言创作需求，返回图像/视频生成命令建议。契约中不存在 model 字段（模型由用户在界面中亲自选择）；命令需用户确认后由前端执行，本接口绝不执行任何操作。
+ *     security: [{ BearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               message: { type: string, description: 用户最新消息 }
+ *               selectedNodeType: { type: string, enum: [image, video], description: 当前选中节点类型 }
+ *               history: { type: array, description: 对话历史（服务端只取最近 10 条） }
+ *     responses:
+ *       200:
+ *         description: 返回命令建议或降级文案（placeholder: true 表示占位/降级）
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 ok: { type: boolean }
+ *                 placeholder: { type: boolean }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     reply: { type: string }
+ *                     commands:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           type: { type: string, enum: [image, video] }
+ *                           prompt: { type: string }
+ *                           ratio: { type: string }
+ *                           batch: { type: integer }
+ *                           duration: { type: integer }
+ *                           negativePrompt: { type: string }
+ *                           useReference: { type: boolean }
+ *       401: { description: 未登录 }
+ *       403: { description: 内容审核拦截或画布助手功能已关闭 }
+ */
+router.post('/canvas-agent', (req, _res, next) => {
+  logger.info('CTRL_LLM_CANVAS_AGENT', { userId: req.user?.userId, selectedNodeType: req.body?.selectedNodeType, promptVersion: '1' })
+  next()
+}, canvasAgentGuard, withGeneration('novel', 200), llmRouteAgentJson())
 
 // ==================== 写作板块 WR 工具 ====================
 

@@ -14,6 +14,7 @@
 import { Response, Request } from 'express'
 import { callLlm, callLlmJson } from './llmProvider'
 import { WRITING_SYSTEM_PROMPT } from './writingPrompt'
+import { CANVAS_AGENT_SYSTEM_PROMPT, buildAgentUserPrompt, normalizeAgentData, agentFallbackData, type AgentData } from './canvasAgent'
 import { moderateText, recordViolation, checkUserRiskGate } from '../../mank-core/moderation/moderation'
 import logger from '../../mank-infra/logging/logger'
 import { BusinessError } from '../../mank-common/errors'
@@ -319,6 +320,53 @@ export function llmRouteText<T>(
     } catch (e: unknown) {
       const err = e instanceof Error ? e : new Error(String(e))
       logger.debug('LLM 路由返回兜底内容', { endpoint, reason: err.message })
+      return res.json(buildFallbackResponse(fallback(req.body || {}, err), err.message))
+    }
+  }
+}
+
+/**
+ * 创建"画布智能助手"专用的 LLM 路由 handler（llmRouteJson 的画布变体）
+ *
+ * 与 llmRouteJson 的三点差异（画布命令解析不能被小说写作前置污染）：
+ *   1. 系统提示词原样使用，不拼接 WRITING_SYSTEM_PROMPT
+ *   2. userPrompt 由 buildAgentUserPrompt 构造，不注入 buildWorkContext 作品上下文
+ *   3. 不读取 req.body.model —— 画布助手契约中不存在 model 字段，模型永远由用户亲自选择
+ *
+ * 容错链路：callLlmJson 返回未校验的任意 JSON → normalizeAgentData 逐命令清洗/裁剪/校验
+ * → 归一化失败（null）或任何异常 → agentFallbackData 兜底（HTTP 200 ok:false，绝不 500）
+ */
+export function llmRouteAgentJson() {
+  return async (req: Request, res: Response) => {
+    const userId = (req as any).user?.userId as string | undefined
+    const endpoint = req.path
+    const systemPrompt = CANVAS_AGENT_SYSTEM_PROMPT
+    const userPrompt = buildAgentUserPrompt(req.body || {})
+    const fallback = agentFallbackData
+
+    const ctx: PipelineContext = { req, res, userId, endpoint, userPrompt, systemPrompt, fallback }
+
+    try {
+      const result = await runLlmPipeline<AgentData>(
+        ctx,
+        async () => {
+          const raw = await callLlmJson<unknown>(systemPrompt, userPrompt, undefined)
+          const normalized = normalizeAgentData(raw)
+          if (!normalized) {
+            throw new BusinessError('LLM 返回内容无法解析为画布命令建议')
+          }
+          return normalized
+        },
+        (data) => JSON.stringify(data),
+      )
+
+      if ((result as LlmBlockedResponse).blocked) {
+        return res.status(403).json(result)
+      }
+      return res.json(result)
+    } catch (e: unknown) {
+      const err = e instanceof Error ? e : new Error(String(e))
+      logger.debug('画布助手路由返回兜底内容', { endpoint, reason: err.message })
       return res.json(buildFallbackResponse(fallback(req.body || {}, err), err.message))
     }
   }

@@ -161,6 +161,8 @@ export const DEFAULT_ITEMS: DefaultItem[] = [
   // 审核总开关：关闭后所有 LLM 接口跳过输入/输出审核（仅应急关闭用，默认开启）
   { group: 'safety', key: 'safety.moderation_enabled', defaultValue: true, controlType: 'switch', label: '内容审核总开关', sort: 1, icon: 'ShieldCheck',
     description: '关闭后所有 AI 生成接口跳过输入/输出审核。仅在遭遇审核服务故障等紧急情况时关闭，平时务必开启。' },
+  { group: 'safety', key: 'safety.canvas_agent_enabled', defaultValue: true, controlType: 'switch', label: '画布智能助手开关', sort: 2, icon: 'Sparkles',
+    description: '关闭后创作画布的智能对话助手接口立即 403 下线（不扣积分）。用于新功能灰度发布或故障应急。' },
   { group: 'safety', key: 'safety.announcement', defaultValue: '', controlType: 'textarea', label: '全局公告横幅（留空=关闭）', sort: 10, icon: 'Bell',
     description: '出现在 Navbar 上方的全站公告条。有内容即开启、留空即关闭。', config: { rows: 2 } },
   { group: 'safety', key: 'safety.announcement_link', defaultValue: '', controlType: 'text', label: '公告跳转链接（留空=不跳转）', sort: 11 },
