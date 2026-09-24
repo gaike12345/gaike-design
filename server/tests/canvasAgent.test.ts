@@ -29,7 +29,7 @@ vi.mock('../src/mank-infra/config/siteConfig', () => ({
 
 describe('canvasAgent - 系统提示词铁律锁定', () => {
   it('提示词版本为 1（改动提示词必须同步递增）', () => {
-    expect(CANVAS_AGENT_PROMPT_VERSION).toBe('1')
+    expect(CANVAS_AGENT_PROMPT_VERSION).toBe('2')
   })
 
   it('铁律 1：禁止选择模型（原文锁定，改动即测试失败）', () => {
@@ -295,7 +295,7 @@ describe('canvasAgent - canvasAgentGuard 开关', () => {
     await canvasAgentGuard({} as Request, res, next)
     expect(next).not.toHaveBeenCalled()
     expect(res.statusCode).toBe(403)
-    expect(res.body).toEqual({ ok: false, error: '画布智能助手已暂时关闭' })
+    expect(res.body).toEqual({ ok: false, error: '小漫已暂时关闭' })
   })
 
   it('配置读取异常：交给错误处理中间件 next(e)，不吞异常', async () => {

@@ -14,7 +14,7 @@ import type { Request, Response, NextFunction } from 'express'
 import { cfgBool } from '../../mank-infra/config/siteConfig'
 
 // 提示词版本：改动 CANVAS_AGENT_SYSTEM_PROMPT 时必须同步递增（日志可追踪提示词迭代）
-export const CANVAS_AGENT_PROMPT_VERSION = '1'
+export const CANVAS_AGENT_PROMPT_VERSION = '2'
 
 /** 单条命令建议（不含 model 字段——契约禁止，归一化时会剥离一切契约外字段） */
 export interface AgentCommand {
@@ -48,7 +48,7 @@ const AgentCommandSchema = z.object({
 
 // ===== 系统提示词（版本化；「三条铁律」受单测锁定，改动前先看 canvasAgent.test.ts） =====
 export const CANVAS_AGENT_SYSTEM_PROMPT = [
-  '你是 Man TV 创作画布的智能助手。你的唯一职责：把用户的自然语言创作需求解析为图像/视频生成命令建议（JSON）。命令会展示给用户确认，确认后由用户在界面中亲自选择模型并执行。',
+  '你是小漫，Man TV 创作画布的 AI 助手。你的唯一职责：把用户的自然语言创作需求解析为图像/视频生成命令建议（JSON）。命令会展示给用户确认，确认后由用户在界面中亲自选择模型并执行。',
   '',
   '【三条铁律（违反任何一条即视为失败）】',
   '1. 你不能选择模型：输出中绝不允许出现任何模型名称或 model 字段。',
@@ -156,7 +156,7 @@ export function normalizeAgentData(raw: unknown): AgentData | null {
 // ===== 兜底数据工厂（无 API Key / LLM 失败 / 解析失败统一走此文案，不回显内部错误细节） =====
 export function agentFallbackData(_body: any, _err: Error): AgentData {
   return {
-    reply: '智能助手暂时不可用（AI 服务未配置或调用失败）。你可以先在画布节点面板中手动填写提示词并选择模型生成，稍后再来找我。',
+    reply: '小漫暂时不可用（AI 服务未配置或调用失败）。你可以先在画布节点面板中手动填写提示词并选择模型生成，稍后再来找我。',
     commands: [],
   }
 }
@@ -168,7 +168,7 @@ export async function canvasAgentGuard(_req: Request, res: Response, next: NextF
   try {
     const enabled = await cfgBool(CANVAS_AGENT_SWITCH_KEY, true)
     if (!enabled) {
-      res.status(403).json({ ok: false, error: '画布智能助手已暂时关闭' })
+      res.status(403).json({ ok: false, error: '小漫已暂时关闭' })
       return
     }
     next()

@@ -1,4 +1,4 @@
-// 创作画布智能助手面板（对话 + 确认制命令卡片）
+// 小漫（创作画布 AI 助手）面板（对话 + 确认制命令卡片；右侧停靠抽屉）
 //
 // ADR「模型提议，应用裁决」：
 // - 助手只产出命令建议（契约无 model 字段），模型由用户在卡片内选择
@@ -224,23 +224,24 @@ export default function AgentPanel() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        title="画布智能助手"
-        className="absolute bottom-6 right-6 z-30 flex h-11 w-11 items-center justify-center rounded-full border border-[#262626] bg-[#141414]/90 shadow-[0_4px_16px_rgba(0,0,0,0.45)] backdrop-blur transition-transform hover:scale-105"
+        title="小漫"
+        className="absolute right-0 top-1/2 z-30 flex -translate-y-1/2 items-center gap-1.5 rounded-l-xl border border-r-0 border-neutral-700/80 bg-[#141414]/95 py-2.5 pl-2.5 pr-3 shadow-[0_4px_16px_rgba(0,0,0,0.45)] backdrop-blur transition-colors hover:bg-[#1c1c1c]"
       >
-        <Sparkles className="h-5 w-5 text-violet-300" />
+        <Sparkles className="h-4 w-4 text-violet-300" />
+        <span className="text-[12px] font-medium text-neutral-200">小漫</span>
       </button>
     )
   }
 
   return (
-    <div className="absolute bottom-6 right-6 z-40 flex h-[560px] max-h-[calc(100%-3rem)] w-[380px] flex-col overflow-hidden rounded-2xl border border-neutral-700/80 bg-[#141414]/95 shadow-[0_12px_40px_rgba(0,0,0,0.6)] backdrop-blur-md">
+    <div className="absolute bottom-0 right-0 top-16 z-40 flex w-[380px] flex-col overflow-hidden rounded-l-2xl border border-r-0 border-neutral-700/80 bg-[#141414]/95 shadow-[0_12px_40px_rgba(0,0,0,0.6)] backdrop-blur-md">
       {/* 头部 */}
       <div className="flex items-center gap-2 border-b border-neutral-700/70 px-3.5 py-2.5">
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-500/15">
           <Sparkles className="h-3.5 w-3.5 text-violet-300" />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-semibold leading-tight text-neutral-100">画布智能助手</div>
+          <div className="text-[13px] font-semibold leading-tight text-neutral-100">小漫</div>
           <div className="truncate text-[10px] text-neutral-500">
             {refAvailable
               ? '执行时可引用选中的图片节点'
@@ -275,12 +276,9 @@ export default function AgentPanel() {
           <div className="rounded-xl border border-neutral-700/60 bg-[#181818] p-3 text-[12px] leading-relaxed text-neutral-400">
             <div className="mb-1 flex items-center gap-1.5 font-medium text-neutral-200">
               <Sparkles className="h-3.5 w-3.5 text-violet-300" />
-              你好，我是画布智能助手
+              你好，我是小漫
             </div>
             <p>把想法告诉我，我会整理成图片/视频命令建议（含提示词与参数）。</p>
-            <p className="mt-1.5 text-[11px] text-neutral-500">
-              我不会替你选模型，也不会自动执行——每条命令由你确认后才生成。
-            </p>
             <p className="mt-1.5 text-[11px] text-neutral-600">试试：「生成一张赛博朋克风格的城市夜景，16:9，2 张」</p>
           </div>
         )}
