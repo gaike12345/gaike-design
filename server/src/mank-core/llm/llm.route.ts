@@ -331,7 +331,7 @@ router.post('/continue-text', withGeneration('novel', 500), (req, _res, next) =>
     }
   },
   // transform：对 LLM 返回文本做程序化清洗（与 writingPrompt.ts 的「出现即替换」规则对齐）
-  // 由于 GLM-4-Flash 对负面指令的遵循力有限，单纯 prompt 无法 100% 保证无禁用词，
+  // 由于 LLM（含 GLM-4.7-Flash）对负面指令的遵循力有限，单纯 prompt 无法 100% 保证无禁用词，
   // 此处做兜底替换，确保输出严格符合去AI味规则
   (text) => ({ content: sanitizeAiTaste(text) }),
   // userPromptBuilder：把 body 中的关键字段显式拼接为结构化文本，

@@ -1,7 +1,7 @@
-// LLM 供应商抽象层 — 统一接口，底层可切换 智谱 GLM-4-Flash / Pollinations / OpenAI 兼容端点
+// LLM 供应商抽象层 — 统一接口，底层可切换 智谱 GLM-4.7-Flash / Pollinations / OpenAI 兼容端点
 //
 // 当前实现：多供应商支持，通过 LLM_PROVIDER 环境变量切换：
-//   - zhipu       智谱 GLM-4-Flash（永久免费，中文最强，推荐）— https://open.bigmodel.cn
+//   - zhipu       智谱 GLM-4.7-Flash（免费，中文最强，推荐）— https://open.bigmodel.cn
 //   - pollinations Pollinations API（匿名免费）
 // 切换供应商：设置 LLM_PROVIDER=<provider> + 对应 API Key
 
@@ -15,10 +15,10 @@ type LlmProviderName = 'zhipu' | 'pollinations'
 
 const LLM_PROVIDER = (process.env.LLM_PROVIDER as LlmProviderName) || 'zhipu'
 
-// 智谱配置 — GLM-4-Flash 永久免费、无 Token 上限
+// 智谱配置 — GLM-4.7-Flash 免费（200K 上下文 / 128K 输出）
 const ZHIPU_API_KEY = process.env.ZHIPU_API_KEY || ''
 const ZHIPU_BASE_URL = process.env.ZHIPU_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4'
-const ZHIPU_MODEL = process.env.ZHIPU_LLM_MODEL || 'glm-4-flash'
+const ZHIPU_MODEL = process.env.ZHIPU_LLM_MODEL || 'glm-4.7-flash'
 
 // Pollinations 配置（备用）
 const API_KEY = process.env.POLLINATIONS_API_KEY || ''
@@ -80,19 +80,40 @@ export async function callLlm(systemPrompt: string, userPrompt: string, model?: 
 
   const activeModel = model || ACTIVE.model
 
-  const res = await fetch(`${ACTIVE.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${ACTIVE.key}`,
-    },
-    body: JSON.stringify({
+  // GLM-4.5+ 系列默认开启深度思考，命令解析类任务无需推理链，
+  // 显式关闭（实测响应 ~7s → ~0.5s）；旧模型不认识该字段，按模型名判断是否下发
+  const disableThinking = ACTIVE.name === 'zhipu' && /glm-4\.[5-9]/.test(activeModel)
+
+  let res: Awaited<ReturnType<typeof fetch>>
+  let attempt = 0
+  for (;;) {
+    res = await fetch(`${ACTIVE.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${ACTIVE.key}`,
+      },
+      body: JSON.stringify({
+        model: activeModel,
+        messages,
+        temperature: 0.7,
+        max_tokens: 4096,
+        ...(disableThinking ? { thinking: { type: 'disabled' } } : {}),
+      }),
+    })
+    // 免费模型高峰期常见 429（错误码 1305）与网关瞬时错误：退避重试后仍失败才降级
+    if (res.ok || ![429, 502, 503].includes(res.status) || attempt >= 2) break
+    attempt++
+    const backoffMs = 1500 * attempt
+    logger.warn('LLM API 瞬时错误，退避重试', {
+      provider: ACTIVE.name,
       model: activeModel,
-      messages,
-      temperature: 0.7,
-      max_tokens: 4096,
-    }),
-  })
+      status: res.status,
+      attempt,
+      backoffMs,
+    })
+    await new Promise((resolve) => setTimeout(resolve, backoffMs))
+  }
 
   if (!res.ok) {
     const errText = await res.text()
