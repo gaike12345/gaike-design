@@ -50,13 +50,6 @@ export const CanvasNode = memo(function CanvasNode({
   const node = useUnifiedCanvasStore((s) => s.nodes.find((n: UCanvasNode) => n.id === nodeId) ?? null)
   const isSelected = useUnifiedCanvasStore((s) => s.selectedNodeId === nodeId)
 
-  // 节点不存在（已删除等情况）不渲染
-  if (!node) return null
-
-  const meta = UNODE_META[node.type]
-  const ports = UNODE_PORTS[node.type]
-  const size = UNODE_SIZE[node.type]
-
   // 稳定的回调包装
   const handleMouseDown = useCallback(
     (e: MouseEvent) => onNodeMouseDown(e, nodeId),
@@ -74,6 +67,13 @@ export const CanvasNode = memo(function CanvasNode({
   const handleDelete = useCallback(() => {
     useUnifiedCanvasStore.getState().removeNode(nodeId)
   }, [nodeId])
+
+  // 节点不存在（已删除等情况）不渲染
+  if (!node) return null
+
+  const meta = UNODE_META[node.type]
+  const ports = UNODE_PORTS[node.type]
+  const size = UNODE_SIZE[node.type]
 
   // 设置面板：仅选中时显示
   const settingsPanel =
