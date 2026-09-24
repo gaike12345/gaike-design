@@ -28,10 +28,14 @@ if command -v docker &> /dev/null && docker compose ps postgres &> /dev/null; th
   echo "  备份 PostgreSQL 数据库..."
   docker compose exec -T postgres pg_dump -U manktv manktv | gzip > $BACKUP_DIR/db_$DATE.sql.gz
 
-elif [ -f server/prisma/dev.db ]; then
+elif [ -f server/prisma/data/prod.db ] || [ -f server/prisma/dev.db ]; then
   # SQLite
   echo "  备份 SQLite 数据库..."
-  gzip -c server/prisma/dev.db > $BACKUP_DIR/db_$DATE.sqlite.gz
+  if [ -f server/prisma/data/prod.db ]; then
+    gzip -c server/prisma/data/prod.db > $BACKUP_DIR/db_$DATE.sqlite.gz
+  else
+    gzip -c server/prisma/dev.db > $BACKUP_DIR/db_$DATE.sqlite.gz
+  fi
 
 elif command -v psql &> /dev/null; then
   # 原生 PostgreSQL

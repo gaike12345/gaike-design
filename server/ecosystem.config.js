@@ -10,9 +10,8 @@ module.exports = {
       script: 'dist/index.js',
       cwd: __dirname,
 
-      // 集群模式：充分利用多核 CPU
-      instances: 'max',
-      exec_mode: 'cluster',
+      instances: 1,
+      exec_mode: 'fork',
 
       // 环境变量
       env: {
