@@ -377,3 +377,32 @@ export function fetchForeshadowing(opts: {
 }) {
   return postJson<ForeshadowingData>('/api/llm/foreshadowing', opts)
 }
+
+// ==================== 创作画布智能助手 ====================
+
+// 助手命令建议 —— 与后端 canvasAgent.ts 契约一致：
+// 绝无 model 字段（ADR「模型提议，应用裁决」），模型由用户在命令卡片中选择
+export interface AgentCommand {
+  type: 'image' | 'video'
+  prompt: string
+  ratio?: string
+  batch?: number
+  duration?: number
+  resolution?: string
+  negativePrompt?: string
+  useReference?: boolean
+}
+
+export interface AgentData {
+  reply: string
+  commands: AgentCommand[]
+}
+
+// 画布智能助手对话（LLM 只建议不执行；执行走确认制命令卡片 → agentExecutor）
+export function canvasAgentChat(opts: {
+  message: string
+  selectedNodeType?: 'image' | 'video'
+  history?: { role: 'user' | 'assistant'; content: string }[]
+}) {
+  return postJson<AgentData>('/api/llm/canvas-agent', opts)
+}
